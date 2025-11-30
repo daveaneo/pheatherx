@@ -1,0 +1,170 @@
+styleguide
+======================================================================
+PHEATHERX BRAND STYLEGUIDE
+A visual identity system inspired by the phoenix and its feathers.
+======================================================================
+
+1. CORE COLOR PALETTE
+----------------------------------------------------------------------
+Primary Colors:
+- Phoenix Ember ............ #FF6A3D  (heat, ignition, movement)
+- Feather Gold .............. #F0C27B  (subtle shimmer, premium accents)
+- Obsidian Black ............ #0A0A0F  (deep base, stealth, privacy)
+- Ash Gray .................. #1C1E26  (soft secondary background)
+
+Secondary / Iridescent Colors:
+- Iridescent Violet ......... #6B5BFF  (futuristic encrypted energy)
+- Deep Magenta .............. #D6246E  (warm feather intensity)
+- Electric Teal ............. #19C9A0  (high-contrast shimmer)
+
+Neutral Support:
+- Carbon Gray ............... #2B2D36  (cards, inputs, dividers)
+- Feather White ............. #F9F7F1  (primary text on dark)
+
+Intended Use Summary:
+- Primary palette for brand recognition and anchor elements.
+- Iridescent palette used sparingly for highlights, diagrams, glows.
+- Neutrals for shadows, structure, text, and subtle separation.
+
+======================================================================
+
+2. GRADIENT SYSTEM (“PHOENIX TRANSITIONS”)
+----------------------------------------------------------------------
+A. Flame Gradient (Hero / Buttons)
+#FF6A3D → #D6246E → #6B5BFF
+Meaning: Fire → heat → mystical iridescence.
+
+B. Feather Edge Gradient (Accents)
+#F0C27B → #19C9A0
+Meaning: Feather tip shimmer.
+
+C. Obsidian Glow (Background)
+#0A0A0F → #1C1E26
+Meaning: Depth without heaviness; subtle dimensionality.
+
+Usage Notes:
+- Avoid large gradient floods; use thin arcs, borders, glows.
+- Gradients should reflect smooth transitions, like feather fibers.
+
+======================================================================
+
+3. SHAPE LANGUAGE (FEATHER-INSPIRED)
+----------------------------------------------------------------------
+Core principles:
+- Precision, flow, lightness.
+- Shapes that taper: arcs, curved strokes, elongated ovals.
+- Prefer 1–2px lines; avoid thick blocky geometry.
+
+UI Shape Guidelines:
+- Rounded long ovals inspired by feather silhouettes.
+- Arcs that taper to a point (imitating barbs of a feather).
+- Curved micro-lines for section dividers.
+- Subtle gradient quill-lines around cards.
+
+Iconography:
+- Single-line feather-inspired icons with tapered ends.
+- Minimalist circuit-like lines incorporated into feathers subtly.
+
+======================================================================
+
+4. LOGO DIRECTIONS
+----------------------------------------------------------------------
+Option A — The Silent Feather
+- Minimalistic feather silhouette with a slight arc.
+- One quill line replaced by a circuit trace.
+- Edge gradient: Phoenix Ember → Iridescent Violet.
+
+Option B — Encrypted Phoenix Fragment
+- Abstracted geometric wing segment.
+- Feather shards representing privacy, precision.
+- Works well as a square icon or favicon.
+
+Option C — Ember Spiral
+- Circular form representing swap/flow.
+- Built from feather layers; center glow to suggest computation.
+- Best for animated hero sections.
+
+======================================================================
+
+5. TYPOGRAPHY
+----------------------------------------------------------------------
+Primary Heading Font:
+- Inter Tight
+  (modern, precise, high legibility; ideal for technical tone)
+
+Body Font:
+- Satoshi or IBM Plex Sans
+  (clean, neutral, excellent for long-form and documentation)
+
+Optional Display Font (sparingly):
+- Neue Machina
+  (futuristic; ideal for single-word emphasis such as “PRIVATE”)
+
+Hierarchy Guidelines:
+- H1: Inter Tight, bold, large, optional gradient text.
+- H2/H3: Inter Tight, medium/regular, small feather-gradient underline.
+- Body: Satoshi/IBM Plex Sans, Feather White on dark, line-height 1.5–1.65.
+- Code snippets (if any): IBM Plex Mono.
+
+======================================================================
+
+6. UI STYLING PRINCIPLES
+----------------------------------------------------------------------
+A. High Contrast
+Obsidian background + Phoenix Ember/Gold accents for premium encrypted-feel.
+
+B. Micro-Glow
+2–4px shadows around interactive elements; mimic soft ember glow.
+
+C. Thin Lines
+Feather quills → use very thin borders (1–2px max).
+
+D. Movement
+Subtle animations:
+- Vertical feather-like float on hover.
+- Gradient shimmer sweeps on active states.
+- Slight arc expansions for interactions.
+
+Overall Tone:
+- Silent precision.
+- Dark luxury.
+- Feather-light movement.
+
+======================================================================
+
+7. SECTION STYLES (EXAMPLES)
+----------------------------------------------------------------------
+Hero Section:
+- Background: Obsidian → Ash gradient.
+- Feather-line gradient under main title.
+- Flame gradient CTA button.
+- Subtle gold or violet glow behind logo.
+
+Feature Cards:
+- Carbon Gray background.
+- Gold feather-thread in one corner.
+- Hover shimmer using Iridescent Violet or Electric Teal.
+- 1px feather-outline border with taper.
+
+How It Works Section:
+- Diagrams using teal + violet.
+- Arrows shaped like tapered quills.
+- Feather-spine vertical line running down the page for visual continuity.
+
+======================================================================
+
+8. IMPLEMENTATION NOTES FOR FRONTEND
+----------------------------------------------------------------------
+Recommended Stack:
+- Next.js + React + TypeScript
+- Tailwind CSS with custom color palette
+- MDX for technical docs
+- Feather-inspired SVG icons
+
+Design Philosophy:
+- Favor simplicity and precision over complexity.
+- Use gradients as accents, not as backgrounds.
+- Keep feather motifs subtle and elegant.
+
+======================================================================
+END OF STYLEGUIDE
