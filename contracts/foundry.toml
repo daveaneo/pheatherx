@@ -3,7 +3,7 @@ src = "src"
 out = "out"
 libs = ["node_modules", "lib"]
 ffi = false
-fs_permissions = [{ access = "read-write", path = ".forge-snapshots/"}]
+fs_permissions = [{ access = "read-write", path = ".forge-snapshots/"}, { access = "read", path = "deployments/"}]
 solc_version = "0.8.26"
 evm_version = "cancun"
 auto_detect_remappings = false
@@ -11,5 +11,11 @@ auto_detect_remappings = false
 optimizer = true
 optimizer_runs = 999_999
 via_ir = true
+
+# Integration test profile for real FHE testing on Arb Sepolia
+[profile.integration]
+test = "test/integration"
+ffi = true
+fs_permissions = [{ access = "read-write", path = "deployments/"}]
 
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config

@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "description": "Uniswap v4 hook for fully encrypted private trading with FHE",
   "scripts": {
-    "test": "forge test --via-ir"
+    "test": "forge test --via-ir",
+    "test:unit": "forge test --via-ir --no-match-path 'test/integration/*'",
+    "test:integration": "source .env && forge test --via-ir --match-path 'test/integration/*' --fork-url $ARB_SEPOLIA_RPC",
+    "deploy:arb-sepolia": "source .env && forge script script/DeployArbSepolia.s.sol:DeployArbSepolia --rpc-url $ARB_SEPOLIA_RPC --broadcast"
   },
   "keywords": [
     "blockchain",
