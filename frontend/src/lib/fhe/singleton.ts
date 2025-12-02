@@ -10,9 +10,16 @@
 import type { FheSession } from '@/types/fhe';
 import { FHE_SESSION_DURATION_MS } from '@/lib/constants';
 
+// Type for the cofhejs/web module exports
+type CofheModule = {
+  cofhejs: any;
+  Encryptable: any;
+  FheTypes: any;
+};
+
 // Module state
-let cofheModule: typeof import('cofhejs/web') | null = null;
-let loadingPromise: Promise<typeof import('cofhejs/web') | null> | null = null;
+let cofheModule: CofheModule | null = null;
+let loadingPromise: Promise<CofheModule | null> | null = null;
 let isInitialized = false;
 let currentSession: FheSession | null = null;
 let sessionExpiry: number | null = null;
@@ -46,7 +53,7 @@ function notifyListeners(status: 'loading' | 'loaded' | 'error', error?: Error) 
  * Start loading cofhejs in the background
  * Safe to call multiple times - will only load once
  */
-export function preloadCofhe(): Promise<typeof import('cofhejs/web') | null> {
+export function preloadCofhe(): Promise<CofheModule | null> {
   // Already loaded
   if (cofheModule) {
     return Promise.resolve(cofheModule);
@@ -66,14 +73,16 @@ export function preloadCofhe(): Promise<typeof import('cofhejs/web') | null> {
 
   loadingPromise = (async () => {
     try {
-      // Use Function constructor to create a truly dynamic import
-      // that bundlers cannot statically analyze
-      const dynamicImport = new Function('specifier', 'return import(specifier)');
-      cofheModule = await dynamicImport('cofhejs/web');
+      // Dynamic import with variable to prevent webpack from analyzing on server
+      // This ensures cofhejs/web is only loaded at runtime in the browser
+      const moduleName = 'cofhejs/web';
+      const mod = await import(/* webpackIgnore: true */ moduleName);
+      cofheModule = mod as CofheModule;
       notifyListeners('loaded');
+      console.log('[FHE] cofhejs loaded successfully');
       return cofheModule;
     } catch (error) {
-      console.error('Failed to load cofhejs:', error);
+      console.error('[FHE] Failed to load cofhejs:', error);
       notifyListeners('error', error instanceof Error ? error : new Error('Failed to load cofhejs'));
       loadingPromise = null; // Allow retry
       return null;
@@ -86,7 +95,7 @@ export function preloadCofhe(): Promise<typeof import('cofhejs/web') | null> {
 /**
  * Get the cofhejs module (waits if still loading)
  */
-export async function getCofhe(): Promise<typeof import('cofhejs/web') | null> {
+export async function getCofhe(): Promise<CofheModule | null> {
   if (cofheModule) return cofheModule;
   if (loadingPromise) return loadingPromise;
   return preloadCofhe();

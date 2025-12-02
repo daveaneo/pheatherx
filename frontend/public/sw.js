@@ -73,8 +73,10 @@ self.addEventListener('fetch', (event) => {
             url.pathname.endsWith('.css');
 
           if (isStatic) {
+            // Clone BEFORE using the response
+            const responseToCache = response.clone();
             caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, response.clone());
+              cache.put(event.request, responseToCache);
             });
           }
         }

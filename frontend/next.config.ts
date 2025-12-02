@@ -26,7 +26,11 @@ const nextConfig: NextConfig = {
     // Don't bundle cofhejs on server-side (it's client-only with WASM)
     if (isServer) {
       config.externals = config.externals || [];
-      config.externals.push('cofhejs', 'cofhejs/web', 'tfhe');
+      // Use regex to match all cofhejs and tfhe imports
+      config.externals.push(
+        /^cofhejs.*/,
+        /^tfhe.*/
+      );
     }
 
     return config;

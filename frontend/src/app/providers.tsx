@@ -6,20 +6,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { config } from '@/lib/wagmiConfig';
 import { PoolProvider } from '@/components/providers/PoolProvider';
-import { preloadCofhe } from '@/lib/fhe/singleton';
 
 import '@rainbow-me/rainbowkit/styles.css';
 
-// Start preloading cofhejs in the background
-// This runs once when the module is first imported
-if (typeof window !== 'undefined') {
-  // Delay slightly to not block initial render
-  setTimeout(() => {
-    preloadCofhe().catch(() => {
-      // Silently fail - will retry when user needs FHE
-    });
-  }, 1000);
-}
+// FHE is loaded on-demand when needed, not at startup
 
 interface ProvidersProps {
   children: ReactNode;
