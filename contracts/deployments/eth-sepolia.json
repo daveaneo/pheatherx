@@ -1,0 +1,18 @@
+{
+  "chainId": 11155111,
+  "deployedAt": "1764705456",
+  "contracts": {
+    "token0": "0x453bA98F2318c7BA0bBA9C202c2a68d7ec11a659",
+    "token1": "0xF6f6a3162Ca3162E3855d0B201d2264de64a52F6",
+    "hook": "0x47712BED8Ae60A41B5d092A3Dc04cb19FF508AC8",
+    "poolManager": "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+    "swapRouter": "0x9B6b46e2c869aa39918Db7f52f5557FE577B6eEe",
+    "positionManager": "0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4",
+    "taskManager": "0xeA30c4B8b44078Bbf8a6ef5b9f1eC1626C7848D9"
+  },
+  "poolConfig": {
+    "fee": 3000,
+    "tickSpacing": 60,
+    "swapFeeBps": 30
+  }
+}

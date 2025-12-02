@@ -3,7 +3,7 @@ src = "src"
 out = "out"
 libs = ["node_modules", "lib"]
 ffi = false
-fs_permissions = [{ access = "read-write", path = ".forge-snapshots/"}, { access = "read", path = "deployments/"}]
+fs_permissions = [{ access = "read-write", path = ".forge-snapshots/"}, { access = "read-write", path = "deployments/"}]
 solc_version = "0.8.26"
 evm_version = "cancun"
 auto_detect_remappings = false

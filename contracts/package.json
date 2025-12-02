@@ -6,7 +6,9 @@
     "test": "forge test --via-ir",
     "test:unit": "forge test --via-ir --no-match-path 'test/integration/*'",
     "test:integration": "source .env && forge test --via-ir --match-path 'test/integration/*' --fork-url $ARB_SEPOLIA_RPC",
-    "deploy:arb-sepolia": "source .env && forge script script/DeployArbSepolia.s.sol:DeployArbSepolia --rpc-url $ARB_SEPOLIA_RPC --broadcast"
+    "test:integration:eth": "source .env && forge test --via-ir --match-path 'test/integration/EthSepolia*' --fork-url $ETH_SEPOLIA_RPC -vvv",
+    "deploy:arb-sepolia": "source .env && forge script script/DeployArbSepolia.s.sol:DeployArbSepolia --rpc-url $ARB_SEPOLIA_RPC --broadcast",
+    "deploy:eth-sepolia": "source .env && forge script script/DeployEthSepolia.s.sol:DeployEthSepolia --rpc-url $ETH_SEPOLIA_RPC --broadcast"
   },
   "keywords": [
     "blockchain",

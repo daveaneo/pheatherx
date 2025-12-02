@@ -2,6 +2,7 @@ v4-core/=node_modules/@uniswap/v4-core/
 @uniswap/v4-core/=node_modules/@uniswap/v4-core/
 forge-std/=node_modules/forge-std/src/
 v4-periphery/=node_modules/@uniswap/v4-periphery/
+@uniswap/v4-periphery/=node_modules/@uniswap/v4-periphery/
 @fhenixprotocol/cofhe-contracts/=node_modules/@fhenixprotocol/cofhe-contracts/
 @fhenixprotocol/cofhe-mock-contracts/=node_modules/@fhenixprotocol/cofhe-mock-contracts/
 @openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/
