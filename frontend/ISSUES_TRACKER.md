@@ -54,4 +54,13 @@ These are informational warnings that don't affect functionality:
 - punycode deprecation warning (Node.js internal)
 
 ---
+
+## Deployments
+
+### PheatherXFactory (Ethereum Sepolia)
+- **Address**: `0xD196ED9FC8A0396131C7136076B19e19f6a3AcFC`
+- **Deployed**: 2024-12-02
+- **Registered Pool**: tWETH/tUSDC with hook `0x47712BED8Ae60A41B5d092A3Dc04cb19FF508AC8`
+
+---
 *This document tracks issues found during page testing to avoid cyclical fixes*
