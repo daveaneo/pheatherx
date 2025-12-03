@@ -5,22 +5,27 @@ import { persist } from 'zustand/middleware';
 import type { Pool, PoolInfo, Token } from '@/types/pool';
 
 interface PoolState {
-  // Pool data
-  pools: Pool[];
+  // Pool data (keyed by chainId for multi-chain support)
+  poolsByChain: Record<number, Pool[]>;
+  currentChainId: number | null;
   isLoadingPools: boolean;
   poolsError: string | null;
 
-  // Selection state
-  selectedPoolAddress: `0x${string}` | null;
+  // Selection state (per chain)
+  selectedPoolAddressByChain: Record<number, `0x${string}` | null>;
 
   // Actions
-  setPools: (pools: Pool[]) => void;
+  setPools: (chainId: number, pools: Pool[]) => void;
+  setCurrentChainId: (chainId: number) => void;
   setLoadingPools: (loading: boolean) => void;
   setPoolsError: (error: string | null) => void;
   selectPool: (hookAddress: `0x${string}`) => void;
   clearSelection: () => void;
+  clearPoolsForChain: (chainId: number) => void;
 
-  // Derived getters
+  // Derived getters (use currentChainId)
+  pools: Pool[];
+  selectedPoolAddress: `0x${string}` | null;
   getSelectedPool: () => Pool | undefined;
   getPoolByAddress: (hookAddress: `0x${string}`) => Pool | undefined;
 }
@@ -29,25 +34,48 @@ export const usePoolStore = create<PoolState>()(
   persist(
     (set, get) => ({
       // Initial state
-      pools: [],
+      poolsByChain: {},
+      currentChainId: null,
       isLoadingPools: false,
       poolsError: null,
-      selectedPoolAddress: null,
+      selectedPoolAddressByChain: {},
+
+      // Computed properties
+      get pools() {
+        const { poolsByChain, currentChainId } = get();
+        return currentChainId ? (poolsByChain[currentChainId] || []) : [];
+      },
+
+      get selectedPoolAddress() {
+        const { selectedPoolAddressByChain, currentChainId } = get();
+        return currentChainId ? (selectedPoolAddressByChain[currentChainId] || null) : null;
+      },
 
       // Actions
-      setPools: pools => {
-        const currentSelection = get().selectedPoolAddress;
+      setPools: (chainId, pools) => {
+        const currentSelection = get().selectedPoolAddressByChain[chainId];
         const hasValidSelection = currentSelection && pools.some(p => p.hook === currentSelection);
 
-        set({
-          pools,
-          // Auto-select first pool if no valid selection
-          selectedPoolAddress: hasValidSelection
-            ? currentSelection
-            : pools.length > 0
-              ? pools[0].hook
-              : null,
-        });
+        set(state => ({
+          poolsByChain: {
+            ...state.poolsByChain,
+            [chainId]: pools,
+          },
+          // Auto-select first pool if no valid selection for this chain
+          selectedPoolAddressByChain: {
+            ...state.selectedPoolAddressByChain,
+            [chainId]: hasValidSelection
+              ? currentSelection
+              : pools.length > 0
+                ? pools[0].hook
+                : null,
+          },
+        }));
+      },
+
+      setCurrentChainId: chainId => {
+        console.log('[PoolStore] Setting current chain ID:', chainId);
+        set({ currentChainId: chainId });
       },
 
       setLoadingPools: loading => set({ isLoadingPools: loading }),
@@ -55,31 +83,68 @@ export const usePoolStore = create<PoolState>()(
       setPoolsError: error => set({ poolsError: error }),
 
       selectPool: hookAddress => {
-        const pools = get().pools;
+        const { currentChainId, poolsByChain } = get();
+        if (!currentChainId) return;
+
+        const pools = poolsByChain[currentChainId] || [];
         const poolExists = pools.some(p => p.hook === hookAddress);
 
         if (poolExists) {
-          set({ selectedPoolAddress: hookAddress });
+          set(state => ({
+            selectedPoolAddressByChain: {
+              ...state.selectedPoolAddressByChain,
+              [currentChainId]: hookAddress,
+            },
+          }));
         }
       },
 
-      clearSelection: () => set({ selectedPoolAddress: null }),
+      clearSelection: () => {
+        const { currentChainId } = get();
+        if (!currentChainId) return;
+
+        set(state => ({
+          selectedPoolAddressByChain: {
+            ...state.selectedPoolAddressByChain,
+            [currentChainId]: null,
+          },
+        }));
+      },
+
+      clearPoolsForChain: chainId => {
+        console.log('[PoolStore] Clearing pools for chain:', chainId);
+        set(state => ({
+          poolsByChain: {
+            ...state.poolsByChain,
+            [chainId]: [],
+          },
+          selectedPoolAddressByChain: {
+            ...state.selectedPoolAddressByChain,
+            [chainId]: null,
+          },
+        }));
+      },
 
       // Getters
       getSelectedPool: () => {
-        const { pools, selectedPoolAddress } = get();
-        return pools.find(p => p.hook === selectedPoolAddress);
+        const { poolsByChain, selectedPoolAddressByChain, currentChainId } = get();
+        if (!currentChainId) return undefined;
+        const pools = poolsByChain[currentChainId] || [];
+        const selectedAddress = selectedPoolAddressByChain[currentChainId];
+        return pools.find(p => p.hook === selectedAddress);
       },
 
       getPoolByAddress: hookAddress => {
-        const { pools } = get();
+        const { poolsByChain, currentChainId } = get();
+        if (!currentChainId) return undefined;
+        const pools = poolsByChain[currentChainId] || [];
         return pools.find(p => p.hook === hookAddress);
       },
     }),
     {
       name: 'pheatherx-pools',
       partialize: state => ({
-        selectedPoolAddress: state.selectedPoolAddress,
+        selectedPoolAddressByChain: state.selectedPoolAddressByChain,
       }),
     }
   )

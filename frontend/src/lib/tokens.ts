@@ -35,18 +35,21 @@ export const TOKEN_LIST: Record<number, Token[]> = {
     },
   ],
   // Ethereum Sepolia
+  // Note: token0/token1 are sorted by address in Uniswap v4
+  // token0 (0x453...) = tWETH (18 decimals)
+  // token1 (0xF6f...) = tUSDC (6 decimals)
   11155111: [
     {
       address: TOKEN_ADDRESSES[11155111]?.token0 || '0x0000000000000000000000000000000000000000',
-      symbol: 'tUSDC',
-      name: 'PheatherX Test USDC',
-      decimals: 6,
-    },
-    {
-      address: TOKEN_ADDRESSES[11155111]?.token1 || '0x0000000000000000000000000000000000000000',
       symbol: 'tWETH',
       name: 'PheatherX Test WETH',
       decimals: 18,
+    },
+    {
+      address: TOKEN_ADDRESSES[11155111]?.token1 || '0x0000000000000000000000000000000000000000',
+      symbol: 'tUSDC',
+      name: 'PheatherX Test USDC',
+      decimals: 6,
     },
   ],
   // Arbitrum Sepolia

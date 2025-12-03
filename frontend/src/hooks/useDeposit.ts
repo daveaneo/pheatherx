@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
+import { useAccount, useChainId, useWriteContract, usePublicClient, useWalletClient } from 'wagmi';
 import { PHEATHERX_ABI } from '@/lib/contracts/abi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { PHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
@@ -10,6 +10,11 @@ import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 
 type DepositStep = 'idle' | 'checking' | 'approving' | 'depositing' | 'complete' | 'error';
+
+// Debug logger for deposit flow
+const debugLog = (stage: string, data?: unknown) => {
+  console.log(`[Deposit Debug] ${stage}`, data !== undefined ? data : '');
+};
 
 interface UseDepositResult {
   // Actions
@@ -29,9 +34,10 @@ interface UseDepositResult {
 }
 
 export function useDeposit(): UseDepositResult {
-  const { address } = useAccount();
+  const { address, isConnected, connector } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
   const { writeContractAsync } = useWriteContract();
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
@@ -40,6 +46,19 @@ export function useDeposit(): UseDepositResult {
   const hookAddress = PHEATHERX_ADDRESSES[chainId];
   const token0Address = TOKEN_ADDRESSES[chainId]?.token0;
   const token1Address = TOKEN_ADDRESSES[chainId]?.token1;
+
+  // Log connection state on mount
+  debugLog('Hook initialized', {
+    address,
+    isConnected,
+    connectorName: connector?.name,
+    chainId,
+    hookAddress,
+    token0Address,
+    token1Address,
+    hasWalletClient: !!walletClient,
+    hasPublicClient: !!publicClient,
+  });
 
   const [step, setStep] = useState<DepositStep>('idle');
   const [approvalHash, setApprovalHash] = useState<`0x${string}` | null>(null);
@@ -64,16 +83,24 @@ export function useDeposit(): UseDepositResult {
     isToken0: boolean,
     amount: bigint
   ): Promise<boolean> => {
-    if (!address || !hookAddress || !publicClient) return false;
+    debugLog('checkNeedsApproval called', { isToken0, amount: amount.toString() });
+
+    if (!address || !hookAddress || !publicClient) {
+      debugLog('checkNeedsApproval: missing deps', { address, hookAddress, hasPublicClient: !!publicClient });
+      return false;
+    }
 
     const tokenAddress = getTokenAddress(isToken0);
+    debugLog('checkNeedsApproval: token address', { tokenAddress, isToken0 });
 
     // Native ETH doesn't need approval
     if (isNativeEth(tokenAddress)) {
+      debugLog('checkNeedsApproval: native ETH, no approval needed');
       return false;
     }
 
     try {
+      debugLog('checkNeedsApproval: reading allowance from chain');
       const allowance = await publicClient.readContract({
         address: tokenAddress,
         abi: ERC20_ABI,
@@ -81,8 +108,15 @@ export function useDeposit(): UseDepositResult {
         args: [address, hookAddress],
       });
 
-      return (allowance as bigint) < amount;
+      const needsApproval = (allowance as bigint) < amount;
+      debugLog('checkNeedsApproval: result', {
+        allowance: (allowance as bigint).toString(),
+        amount: amount.toString(),
+        needsApproval
+      });
+      return needsApproval;
     } catch (err) {
+      debugLog('checkNeedsApproval: ERROR', err);
       console.error('Failed to check allowance:', err);
       return true; // Assume approval needed if check fails
     }
@@ -95,13 +129,18 @@ export function useDeposit(): UseDepositResult {
     isToken0: boolean,
     amount: bigint
   ): Promise<`0x${string}`> => {
+    debugLog('approve called', { isToken0, amount: amount.toString() });
+
     if (!address || !hookAddress) {
+      debugLog('approve: wallet not connected', { address, hookAddress });
       throw new Error('Wallet not connected');
     }
 
     const tokenAddress = getTokenAddress(isToken0);
+    debugLog('approve: token address', { tokenAddress });
 
     if (isNativeEth(tokenAddress)) {
+      debugLog('approve: native ETH, skipping');
       throw new Error('Native ETH does not require approval');
     }
 
@@ -109,6 +148,12 @@ export function useDeposit(): UseDepositResult {
     setError(null);
 
     try {
+      debugLog('approve: calling writeContractAsync', {
+        tokenAddress,
+        spender: hookAddress,
+        amount: amount.toString()
+      });
+
       const hash = await writeContractAsync({
         address: tokenAddress,
         abi: ERC20_ABI,
@@ -116,6 +161,7 @@ export function useDeposit(): UseDepositResult {
         args: [hookAddress, amount],
       });
 
+      debugLog('approve: tx submitted', { hash });
       setApprovalHash(hash);
 
       addTransaction({
@@ -124,13 +170,23 @@ export function useDeposit(): UseDepositResult {
         description: `Approve ${isToken0 ? 'Token0' : 'Token1'} for deposit`,
       });
 
+      debugLog('approve: waiting for receipt');
       // Wait for confirmation
       await publicClient?.waitForTransactionReceipt({ hash });
 
+      debugLog('approve: confirmed');
       updateTransaction(hash, { status: 'confirmed' });
       successToast('Approval confirmed');
       return hash;
-    } catch (err) {
+    } catch (err: unknown) {
+      debugLog('approve: ERROR', {
+        error: err,
+        name: err instanceof Error ? err.name : 'Unknown',
+        message: err instanceof Error ? err.message : String(err),
+        // Check for specific wallet errors
+        code: (err as { code?: number })?.code,
+        details: (err as { details?: string })?.details,
+      });
       const message = err instanceof Error ? err.message : 'Approval failed';
       setError(message);
       setStep('error');
@@ -146,26 +202,37 @@ export function useDeposit(): UseDepositResult {
     isToken0: boolean,
     amount: bigint
   ): Promise<`0x${string}`> => {
+    debugLog('deposit called', { isToken0, amount: amount.toString() });
+
     if (!address || !hookAddress) {
+      debugLog('deposit: wallet not connected', { address, hookAddress });
       throw new Error('Wallet not connected');
     }
 
     const tokenAddress = getTokenAddress(isToken0);
     const isNative = isNativeEth(tokenAddress);
+    debugLog('deposit: token info', { tokenAddress, isNative });
 
     setStep('depositing');
     setError(null);
 
     try {
+      debugLog('deposit: calling writeContractAsync', {
+        hookAddress,
+        isToken0,
+        amount: amount.toString(),
+      });
+
+      // Note: deposit function is nonpayable, so no value is sent
+      // Native ETH support would require a different contract function (depositETH)
       const hash = await writeContractAsync({
         address: hookAddress,
         abi: PHEATHERX_ABI,
-        functionName: 'deposit',
-        args: [isToken0, amount],
-        // Send value for native ETH
-        ...(isNative ? { value: amount } : {}),
+        functionName: 'deposit' as const,
+        args: [isToken0, amount] as const,
       });
 
+      debugLog('deposit: tx submitted', { hash });
       setDepositHash(hash);
 
       addTransaction({
@@ -174,15 +241,40 @@ export function useDeposit(): UseDepositResult {
         description: `Deposit ${isToken0 ? 'Token0' : 'Token1'}`,
       });
 
+      debugLog('deposit: waiting for receipt');
       // Wait for confirmation
       await publicClient?.waitForTransactionReceipt({ hash });
 
+      debugLog('deposit: confirmed');
       updateTransaction(hash, { status: 'confirmed' });
       setStep('complete');
       successToast('Deposit confirmed');
       return hash;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Deposit failed';
+    } catch (err: unknown) {
+      debugLog('deposit: ERROR', {
+        error: err,
+        name: err instanceof Error ? err.name : 'Unknown',
+        message: err instanceof Error ? err.message : String(err),
+        // Check for specific wallet errors
+        code: (err as { code?: number })?.code,
+        details: (err as { details?: string })?.details,
+        cause: (err as { cause?: unknown })?.cause,
+        shortMessage: (err as { shortMessage?: string })?.shortMessage,
+      });
+
+      // Better error message parsing
+      let message = 'Deposit failed';
+      if (err instanceof Error) {
+        // Check for common wallet rejection patterns
+        if (err.message.includes('User rejected') || err.message.includes('user rejected')) {
+          message = 'Transaction was not signed. Please check your wallet - it may need you to approve the request.';
+        } else if (err.message.includes('insufficient funds')) {
+          message = 'Insufficient funds for this transaction';
+        } else {
+          message = err.message;
+        }
+      }
+
       setError(message);
       setStep('error');
       errorToast('Deposit failed', message);
@@ -197,20 +289,28 @@ export function useDeposit(): UseDepositResult {
     isToken0: boolean,
     amount: bigint
   ): Promise<void> => {
+    debugLog('approveAndDeposit called', { isToken0, amount: amount.toString() });
     setStep('checking');
     setError(null);
 
     try {
       // Check if approval needed
+      debugLog('approveAndDeposit: checking approval');
       const needsApproval = await checkNeedsApproval(isToken0, amount);
+      debugLog('approveAndDeposit: needsApproval =', needsApproval);
 
       if (needsApproval) {
+        debugLog('approveAndDeposit: starting approval');
         await approve(isToken0, amount);
+        debugLog('approveAndDeposit: approval complete');
       }
 
+      debugLog('approveAndDeposit: starting deposit');
       await deposit(isToken0, amount);
+      debugLog('approveAndDeposit: deposit complete');
     } catch (err) {
       // Error already handled in individual functions
+      debugLog('approveAndDeposit: ERROR in flow', err);
       console.error('Approve and deposit failed:', err);
     }
   }, [checkNeedsApproval, approve, deposit]);

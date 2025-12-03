@@ -1,10 +1,10 @@
 'use client';
 
 import { ReactNode, useState, useEffect } from 'react';
-import { WagmiProvider } from 'wagmi';
+import { WagmiProvider, useConnect } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
-import { config } from '@/lib/wagmiConfig';
+import { config, testConfig, isTestMode } from '@/lib/wagmiConfig';
 import { PoolProvider } from '@/components/providers/PoolProvider';
 
 import '@rainbow-me/rainbowkit/styles.css';
@@ -13,6 +13,26 @@ import '@rainbow-me/rainbowkit/styles.css';
 
 interface ProvidersProps {
   children: ReactNode;
+}
+
+// Component that auto-connects the mock wallet in test mode
+function TestWalletAutoConnect() {
+  const { connect, connectors } = useConnect();
+  const [hasConnected, setHasConnected] = useState(false);
+
+  useEffect(() => {
+    if (hasConnected) return;
+
+    // Find the mock connector and auto-connect
+    const mockConnector = connectors.find((c) => c.id === 'mock');
+    if (mockConnector) {
+      console.log('[Test Mode] Auto-connecting test wallet...');
+      connect({ connector: mockConnector });
+      setHasConnected(true);
+    }
+  }, [connect, connectors, hasConnected]);
+
+  return null;
 }
 
 export function Providers({ children }: ProvidersProps) {
@@ -28,8 +48,19 @@ export function Providers({ children }: ProvidersProps) {
       })
   );
 
+  // Use test config when TEST_MODE is enabled
+  const activeConfig = isTestMode() ? testConfig : config;
+  const testModeEnabled = isTestMode();
+
+  // Log test mode status on mount
+  useEffect(() => {
+    if (testModeEnabled) {
+      console.log('[Test Mode] Enabled - using mock wallet connector');
+    }
+  }, [testModeEnabled]);
+
   return (
-    <WagmiProvider config={config}>
+    <WagmiProvider config={activeConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider
           theme={darkTheme({
@@ -39,6 +70,8 @@ export function Providers({ children }: ProvidersProps) {
             fontStack: 'system',
           })}
         >
+          {/* Auto-connect test wallet in test mode */}
+          {testModeEnabled && <TestWalletAutoConnect />}
           <PoolProvider>{children}</PoolProvider>
         </RainbowKitProvider>
       </QueryClientProvider>

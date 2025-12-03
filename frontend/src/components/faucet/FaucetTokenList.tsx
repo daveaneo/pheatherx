@@ -33,7 +33,10 @@ function TokenRow({ token, onRequestTokens, onAddToWallet, isRequesting, request
   const isRequestingThis = isRequesting && requestingToken === token.address;
 
   return (
-    <div className="flex items-center justify-between p-4 bg-ash-gray/30 rounded-lg">
+    <div
+      data-testid={`faucet-token-${token.symbol.toLowerCase()}`}
+      className="flex items-center justify-between p-4 bg-ash-gray/30 rounded-lg"
+    >
       <div className="flex items-center gap-4">
         {/* Token Icon */}
         <div className="w-10 h-10 rounded-full bg-carbon-gray flex items-center justify-center text-xl">
@@ -43,7 +46,7 @@ function TokenRow({ token, onRequestTokens, onAddToWallet, isRequesting, request
         {/* Token Info */}
         <div>
           <div className="flex items-center gap-2">
-            <span className="font-medium text-feather-white">{token.symbol}</span>
+            <span className="font-medium text-feather-white" data-testid={`token-symbol-${token.symbol.toLowerCase()}`}>{token.symbol}</span>
             <span className="text-sm text-feather-white/50">{token.name}</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-feather-white/40">
@@ -96,6 +99,7 @@ function TokenRow({ token, onRequestTokens, onAddToWallet, isRequesting, request
             onClick={() => onRequestTokens(token)}
             loading={isRequestingThis}
             disabled={isRequesting}
+            data-testid={`faucet-request-${token.symbol.toLowerCase()}`}
           >
             Request
           </Button>

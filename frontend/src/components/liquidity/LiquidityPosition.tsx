@@ -13,7 +13,14 @@ export function LiquidityPosition() {
   const { isConnected } = useAccount();
   // Get tokens from selected pool
   const { token0, token1 } = useSelectedPool();
-  const { balance0, balance1, isLoading: positionLoading } = useLiquidityPosition();
+  const {
+    balance0,
+    balance1,
+    encryptedBalance0,
+    encryptedBalance1,
+    isEncrypted,
+    isLoading: positionLoading
+  } = useLiquidityPosition();
   const { reserve0, reserve1, isLoading: reservesLoading } = usePoolReserves();
 
   const isLoading = positionLoading || reservesLoading;
@@ -30,12 +37,13 @@ export function LiquidityPosition() {
       })
     : '0';
 
-  // Calculate share percentage
-  const share0 = reserve0 > 0n ? Number((balance0 * 10000n) / reserve0) / 100 : 0;
-  const share1 = reserve1 > 0n ? Number((balance1 * 10000n) / reserve1) / 100 : 0;
+  // Calculate share percentage (only if not encrypted)
+  const share0 = !isEncrypted && reserve0 > 0n ? Number((balance0 * 10000n) / reserve0) / 100 : 0;
+  const share1 = !isEncrypted && reserve1 > 0n ? Number((balance1 * 10000n) / reserve1) / 100 : 0;
   const avgShare = (share0 + share1) / 2;
 
-  const hasPosition = balance0 > 0n || balance1 > 0n;
+  // Check if user has a position (either plaintext balances or encrypted handles)
+  const hasPosition = balance0 > 0n || balance1 > 0n || encryptedBalance0 > 0n || encryptedBalance1 > 0n;
 
   if (!isConnected) {
     return (
@@ -53,16 +61,19 @@ export function LiquidityPosition() {
   }
 
   return (
-    <Card>
+    <Card data-testid="liquidity-position">
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle>Your Position</CardTitle>
           <p className="text-sm text-feather-white/60">
-            Your liquidity in the pool
+            {isEncrypted ? 'Encrypted FHE balances' : 'Your liquidity in the pool'}
           </p>
         </div>
-        {hasPosition && !isLoading && (
+        {hasPosition && !isLoading && !isEncrypted && (
           <Badge variant="success">{avgShare.toFixed(2)}% of pool</Badge>
+        )}
+        {hasPosition && !isLoading && isEncrypted && (
+          <Badge variant="warning">Encrypted</Badge>
         )}
       </CardHeader>
       <CardContent>
@@ -75,40 +86,56 @@ export function LiquidityPosition() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-ash-gray rounded-lg">
+            {isEncrypted && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg mb-4">
+                <p className="text-sm text-amber-400">
+                  Your balances are FHE encrypted on-chain. Use the Portfolio page to reveal your decrypted balances.
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between p-4 bg-ash-gray rounded-lg" data-testid="position-balance-0">
               <div>
                 <p className="text-sm text-feather-white/60">
                   {token0?.symbol || 'Token0'}
                 </p>
                 {isLoading ? (
                   <Skeleton className="h-6 w-20 mt-1" />
+                ) : isEncrypted && encryptedBalance0 > 0n ? (
+                  <p className="text-lg font-semibold text-feather-white/50 italic" data-testid="position-balance-0-encrypted">
+                    ****
+                  </p>
                 ) : (
-                  <p className="text-lg font-semibold text-feather-white">
+                  <p className="text-lg font-semibold text-feather-white" data-testid="position-balance-0-value">
                     {formattedBalance0}
                   </p>
                 )}
               </div>
-              {!isLoading && balance0 > 0n && (
+              {!isLoading && !isEncrypted && balance0 > 0n && (
                 <span className="text-sm text-feather-white/40">
                   {share0.toFixed(2)}%
                 </span>
               )}
             </div>
 
-            <div className="flex items-center justify-between p-4 bg-ash-gray rounded-lg">
+            <div className="flex items-center justify-between p-4 bg-ash-gray rounded-lg" data-testid="position-balance-1">
               <div>
                 <p className="text-sm text-feather-white/60">
                   {token1?.symbol || 'Token1'}
                 </p>
                 {isLoading ? (
                   <Skeleton className="h-6 w-20 mt-1" />
+                ) : isEncrypted && encryptedBalance1 > 0n ? (
+                  <p className="text-lg font-semibold text-feather-white/50 italic" data-testid="position-balance-1-encrypted">
+                    ****
+                  </p>
                 ) : (
-                  <p className="text-lg font-semibold text-feather-white">
+                  <p className="text-lg font-semibold text-feather-white" data-testid="position-balance-1-value">
                     {formattedBalance1}
                   </p>
                 )}
               </div>
-              {!isLoading && balance1 > 0n && (
+              {!isLoading && !isEncrypted && balance1 > 0n && (
                 <span className="text-sm text-feather-white/40">
                   {share1.toFixed(2)}%
                 </span>

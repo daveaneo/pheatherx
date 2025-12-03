@@ -1,13 +1,18 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useAccount, usePublicClient, useWriteContract } from 'wagmi';
+import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 import { PHEATHERX_ABI } from '@/lib/contracts/abi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
-import { isNativeEth } from '@/lib/tokens';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSelectedPool } from '@/stores/poolStore';
+import { useSmartWriteContract } from './useTestWriteContract';
+
+// Debug logger for add liquidity flow
+const debugLog = (stage: string, data?: unknown) => {
+  console.log(`[AddLiquidity Debug] ${stage}`, data !== undefined ? data : '');
+};
 
 type AddLiquidityStep =
   | 'idle'
@@ -31,15 +36,28 @@ interface UseAddLiquidityResult {
 }
 
 export function useAddLiquidity(): UseAddLiquidityResult {
-  const { address } = useAccount();
+  const { address, isConnected, connector } = useAccount();
   const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  const { data: walletClient } = useWalletClient();
+  const { writeContractAsync } = useSmartWriteContract();
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
 
   // Get selected pool from store
   const { hookAddress: selectedHookAddress, token0, token1 } = useSelectedPool();
+
+  // Log connection state on mount
+  debugLog('Hook initialized', {
+    address,
+    isConnected,
+    connectorName: connector?.name,
+    hookAddress: selectedHookAddress,
+    token0Address: token0?.address,
+    token1Address: token1?.address,
+    hasWalletClient: !!walletClient,
+    hasPublicClient: !!publicClient,
+  });
 
   const [step, setStep] = useState<AddLiquidityStep>('idle');
   const [token0TxHash, setToken0TxHash] = useState<`0x${string}` | null>(null);
@@ -102,56 +120,58 @@ export function useAddLiquidity(): UseAddLiquidityResult {
     try {
       // Token 0
       if (amount0 > 0n) {
-        console.log('[useAddLiquidity] Processing Token0, amount:', amount0.toString());
+        debugLog('Processing Token0', { amount: amount0.toString(), tokenAddress: token0Address });
 
         // Check allowance
         setStep('checking-token0');
-        if (!isNativeEth(token0Address)) {
-          const allowance = await publicClient.readContract({
+        debugLog('Checking Token0 allowance');
+
+        const allowance = await publicClient.readContract({
+          address: token0Address,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [address, hookAddress],
+        }) as bigint;
+
+        debugLog('Token0 allowance', { allowance: allowance.toString(), needsApproval: allowance < amount0 });
+
+        if (allowance < amount0) {
+          setStep('approving-token0');
+          debugLog('Approving Token0', { amount: amount0.toString() });
+
+          const approveHash = await writeContractAsync({
             address: token0Address,
             abi: ERC20_ABI,
-            functionName: 'allowance',
-            args: [address, hookAddress],
-          }) as bigint;
+            functionName: 'approve',
+            args: [hookAddress, amount0],
+          });
 
-          console.log('[useAddLiquidity] Token0 allowance:', allowance.toString());
+          debugLog('Token0 approval tx submitted', { hash: approveHash });
 
-          if (allowance < amount0) {
-            setStep('approving-token0');
-            console.log('[useAddLiquidity] Approving Token0...');
+          addTransaction({
+            hash: approveHash,
+            type: 'approve',
+            description: `Approve ${token0?.symbol || 'Token0'} for liquidity`,
+          });
 
-            const approveHash = await writeContractAsync({
-              address: token0Address,
-              abi: ERC20_ABI,
-              functionName: 'approve',
-              args: [hookAddress, amount0],
-            });
-
-            addTransaction({
-              hash: approveHash,
-              type: 'approve',
-              description: `Approve ${token0?.symbol || 'Token0'} for liquidity`,
-            });
-
-            await publicClient.waitForTransactionReceipt({ hash: approveHash });
-            updateTransaction(approveHash, { status: 'confirmed' });
-            console.log('[useAddLiquidity] Token0 approved');
-          }
+          debugLog('Waiting for Token0 approval confirmation');
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          updateTransaction(approveHash, { status: 'confirmed' });
+          debugLog('Token0 approval confirmed');
         }
 
-        // Deposit Token0
+        // Deposit Token0 (no value - ERC20 deposit is nonpayable)
         setStep('depositing-token0');
-        console.log('[useAddLiquidity] Depositing Token0...');
+        debugLog('Depositing Token0', { hookAddress, isToken0: true, amount: amount0.toString() });
 
         const deposit0Hash = await writeContractAsync({
           address: hookAddress,
           abi: PHEATHERX_ABI,
           functionName: 'deposit',
           args: [true, amount0],
-          ...(isNativeEth(token0Address) ? { value: amount0 } : {}),
         });
 
-        console.log('[useAddLiquidity] Token0 deposit tx:', deposit0Hash);
+        debugLog('Token0 deposit tx submitted', { hash: deposit0Hash });
         setToken0TxHash(deposit0Hash);
 
         addTransaction({
@@ -160,63 +180,66 @@ export function useAddLiquidity(): UseAddLiquidityResult {
           description: `Add ${token0?.symbol || 'Token0'} liquidity`,
         });
 
+        debugLog('Waiting for Token0 deposit confirmation');
         await publicClient.waitForTransactionReceipt({ hash: deposit0Hash });
         updateTransaction(deposit0Hash, { status: 'confirmed' });
-        console.log('[useAddLiquidity] Token0 deposited');
+        debugLog('Token0 deposit confirmed');
       }
 
       // Token 1
       if (amount1 > 0n) {
-        console.log('[useAddLiquidity] Processing Token1, amount:', amount1.toString());
+        debugLog('Processing Token1', { amount: amount1.toString(), tokenAddress: token1Address });
 
         // Check allowance
         setStep('checking-token1');
-        if (!isNativeEth(token1Address)) {
-          const allowance = await publicClient.readContract({
+        debugLog('Checking Token1 allowance');
+
+        const allowance = await publicClient.readContract({
+          address: token1Address,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [address, hookAddress],
+        }) as bigint;
+
+        debugLog('Token1 allowance', { allowance: allowance.toString(), needsApproval: allowance < amount1 });
+
+        if (allowance < amount1) {
+          setStep('approving-token1');
+          debugLog('Approving Token1', { amount: amount1.toString() });
+
+          const approveHash = await writeContractAsync({
             address: token1Address,
             abi: ERC20_ABI,
-            functionName: 'allowance',
-            args: [address, hookAddress],
-          }) as bigint;
+            functionName: 'approve',
+            args: [hookAddress, amount1],
+          });
 
-          console.log('[useAddLiquidity] Token1 allowance:', allowance.toString());
+          debugLog('Token1 approval tx submitted', { hash: approveHash });
 
-          if (allowance < amount1) {
-            setStep('approving-token1');
-            console.log('[useAddLiquidity] Approving Token1...');
+          addTransaction({
+            hash: approveHash,
+            type: 'approve',
+            description: `Approve ${token1?.symbol || 'Token1'} for liquidity`,
+          });
 
-            const approveHash = await writeContractAsync({
-              address: token1Address,
-              abi: ERC20_ABI,
-              functionName: 'approve',
-              args: [hookAddress, amount1],
-            });
-
-            addTransaction({
-              hash: approveHash,
-              type: 'approve',
-              description: `Approve ${token1?.symbol || 'Token1'} for liquidity`,
-            });
-
-            await publicClient.waitForTransactionReceipt({ hash: approveHash });
-            updateTransaction(approveHash, { status: 'confirmed' });
-            console.log('[useAddLiquidity] Token1 approved');
-          }
+          debugLog('Waiting for Token1 approval confirmation');
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          updateTransaction(approveHash, { status: 'confirmed' });
+          debugLog('Token1 approval confirmed');
         }
 
-        // Deposit Token1
+        // Deposit Token1 (no value - ERC20 deposit is nonpayable)
         setStep('depositing-token1');
-        console.log('[useAddLiquidity] Depositing Token1...');
+        debugLog('Depositing Token1', { hookAddress, isToken0: false, amount: amount1.toString() });
 
         const deposit1Hash = await writeContractAsync({
           address: hookAddress,
           abi: PHEATHERX_ABI,
           functionName: 'deposit',
           args: [false, amount1],
-          ...(isNativeEth(token1Address) ? { value: amount1 } : {}),
         });
 
-        console.log('[useAddLiquidity] Token1 deposit tx:', deposit1Hash);
+        debugLog('Token1 deposit tx submitted', { hash: deposit1Hash });
         setToken1TxHash(deposit1Hash);
 
         addTransaction({
@@ -225,17 +248,38 @@ export function useAddLiquidity(): UseAddLiquidityResult {
           description: `Add ${token1?.symbol || 'Token1'} liquidity`,
         });
 
+        debugLog('Waiting for Token1 deposit confirmation');
         await publicClient.waitForTransactionReceipt({ hash: deposit1Hash });
         updateTransaction(deposit1Hash, { status: 'confirmed' });
-        console.log('[useAddLiquidity] Token1 deposited');
+        debugLog('Token1 deposit confirmed');
       }
 
-      console.log('[useAddLiquidity] Complete');
+      debugLog('Add liquidity complete');
       setStep('complete');
       successToast('Liquidity added successfully');
-    } catch (err) {
-      console.error('[useAddLiquidity] Error:', err);
-      const message = err instanceof Error ? err.message : 'Failed to add liquidity';
+    } catch (err: unknown) {
+      debugLog('ERROR in add liquidity flow', {
+        error: err,
+        name: err instanceof Error ? err.name : 'Unknown',
+        message: err instanceof Error ? err.message : String(err),
+        code: (err as { code?: number })?.code,
+        details: (err as { details?: string })?.details,
+        cause: (err as { cause?: unknown })?.cause,
+        shortMessage: (err as { shortMessage?: string })?.shortMessage,
+      });
+
+      // Better error message parsing
+      let message = 'Failed to add liquidity';
+      if (err instanceof Error) {
+        if (err.message.includes('User rejected') || err.message.includes('user rejected')) {
+          message = 'Transaction was not signed. Please check your wallet - it may need you to approve the request.';
+        } else if (err.message.includes('insufficient funds')) {
+          message = 'Insufficient funds for this transaction';
+        } else {
+          message = err.message;
+        }
+      }
+
       setError(message);
       setStep('error');
       errorToast('Failed to add liquidity', message);

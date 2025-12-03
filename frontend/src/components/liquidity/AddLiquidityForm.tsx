@@ -14,8 +14,8 @@ import { useAddLiquidity } from '@/hooks/useAddLiquidity';
 import { useSelectedPool } from '@/stores/poolStore';
 
 const addLiquiditySchema = z.object({
-  amount0: z.string().min(1, 'Enter amount'),
-  amount1: z.string().min(1, 'Enter amount'),
+  amount0: z.string(),
+  amount1: z.string(),
 }).refine(
   (data) => {
     const a0 = parseFloat(data.amount0 || '0');
@@ -150,6 +150,7 @@ export function AddLiquidityForm() {
               inputMode="decimal"
               placeholder="0.0"
               error={!!errors.amount0}
+              data-testid="deposit-amount-0"
             />
             {errors.amount0 && (
               <p className="text-deep-magenta text-sm mt-1">
@@ -168,6 +169,7 @@ export function AddLiquidityForm() {
               inputMode="decimal"
               placeholder="0.0"
               error={!!errors.amount1}
+              data-testid="deposit-amount-1"
             />
             {errors.amount1 && (
               <p className="text-deep-magenta text-sm mt-1">
@@ -183,7 +185,7 @@ export function AddLiquidityForm() {
           )}
 
           {step === 'complete' && (
-            <div className="p-3 bg-electric-teal/10 border border-electric-teal/30 rounded-lg space-y-2">
+            <div className="p-3 bg-electric-teal/10 border border-electric-teal/30 rounded-lg space-y-2" data-testid="deposit-success">
               <p className="text-electric-teal text-sm">
                 Liquidity added successfully!
               </p>
@@ -202,6 +204,7 @@ export function AddLiquidityForm() {
               loading={isLoading}
               disabled={step === 'complete'}
               className="flex-1"
+              data-testid="deposit-submit"
             >
               {getButtonText()}
             </Button>

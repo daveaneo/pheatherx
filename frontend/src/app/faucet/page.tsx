@@ -57,7 +57,10 @@ export default function FaucetPage() {
               Get test tokens for the PheatherX ecosystem
             </p>
           </div>
-          <div className="px-3 py-1 bg-electric-teal/10 text-electric-teal rounded-full text-sm">
+          <div
+            className="px-3 py-1 bg-electric-teal/10 text-electric-teal rounded-full text-sm"
+            data-testid="faucet-network-badge"
+          >
             {networkName}
           </div>
         </div>

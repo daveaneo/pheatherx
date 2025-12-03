@@ -163,7 +163,7 @@ export const PHEATHERX_ABI = [
       { name: 'amount', type: 'uint256' },
     ],
     outputs: [],
-    stateMutability: 'payable', // Payable to support native ETH deposits
+    stateMutability: 'nonpayable', // Contract uses ERC20 tokens, not native ETH
   },
   {
     type: 'function',
