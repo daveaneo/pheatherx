@@ -6,6 +6,7 @@ import { immer } from 'zustand/middleware/immer';
 import { BALANCE_CACHE_TTL_MS } from '@/lib/constants';
 
 type SessionStatus = 'disconnected' | 'initializing' | 'ready' | 'expired' | 'error';
+type InitSource = 'auto' | 'manual' | null;
 
 interface RevealedBalance {
   value: bigint;
@@ -18,8 +19,16 @@ interface FheState {
   sessionExpiresAt: number | null;
   revealedBalances: Record<string, { value: string; revealedAt: number }>;
 
+  // Auto-init tracking
+  autoInitAttempted: boolean;
+  autoInitRejected: boolean;
+  initSource: InitSource;
+
   setSessionStatus: (status: SessionStatus, error?: string) => void;
   setSessionExpiry: (expiresAt: number) => void;
+  setAutoInitAttempted: (attempted: boolean) => void;
+  setAutoInitRejected: (rejected: boolean) => void;
+  setInitSource: (source: InitSource) => void;
   cacheBalance: (key: string, value: bigint) => void;
   getCachedBalance: (key: string) => RevealedBalance | null;
   clearBalances: () => void;
@@ -33,6 +42,9 @@ export const useFheStore = create<FheState>()(
       sessionError: null,
       sessionExpiresAt: null,
       revealedBalances: {},
+      autoInitAttempted: false,
+      autoInitRejected: false,
+      initSource: null,
 
       setSessionStatus: (status, error) =>
         set(state => {
@@ -43,6 +55,21 @@ export const useFheStore = create<FheState>()(
       setSessionExpiry: expiresAt =>
         set(state => {
           state.sessionExpiresAt = expiresAt;
+        }),
+
+      setAutoInitAttempted: attempted =>
+        set(state => {
+          state.autoInitAttempted = attempted;
+        }),
+
+      setAutoInitRejected: rejected =>
+        set(state => {
+          state.autoInitRejected = rejected;
+        }),
+
+      setInitSource: source =>
+        set(state => {
+          state.initSource = source;
         }),
 
       cacheBalance: (key, value) =>
@@ -74,6 +101,9 @@ export const useFheStore = create<FheState>()(
           state.sessionError = null;
           state.sessionExpiresAt = null;
           state.revealedBalances = {};
+          state.autoInitAttempted = false;
+          state.autoInitRejected = false;
+          state.initSource = null;
         }),
     })),
     {

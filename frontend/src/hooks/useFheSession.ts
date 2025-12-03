@@ -25,8 +25,12 @@ export function useFheSession() {
     sessionStatus,
     sessionError,
     sessionExpiresAt,
+    autoInitRejected,
+    initSource,
     setSessionStatus,
     setSessionExpiry,
+    setAutoInitRejected,
+    setInitSource,
     reset,
   } = useFheStore();
 
@@ -68,6 +72,8 @@ export function useFheSession() {
 
     if (isInitializing) return;
     setIsInitializing(true);
+    setInitSource('manual');
+    setAutoInitRejected(false); // Clear rejection flag on manual attempt
     setSessionStatus('initializing');
 
     try {
@@ -92,7 +98,7 @@ export function useFheSession() {
     } finally {
       setIsInitializing(false);
     }
-  }, [provider, signer, hookAddress, isConnected, isMock, setSessionStatus, setSessionExpiry, isInitializing]);
+  }, [provider, signer, hookAddress, isConnected, isMock, setSessionStatus, setSessionExpiry, setInitSource, setAutoInitRejected, isInitializing]);
 
   // Auto-check expiry
   useEffect(() => {
@@ -134,6 +140,10 @@ export function useFheSession() {
     isMock,
     cofheLoadStatus,
     isCofheReady: cofheLoadStatus === 'loaded',
+    // Auto-init tracking
+    initSource,
+    wasAutoInitRejected: autoInitRejected,
+    // Actions
     initialize,
     encrypt: fheSingleton.isSessionValid() ? fheSingleton.encryptUint128 : undefined,
     encryptBool: fheSingleton.isSessionValid() ? fheSingleton.encryptBool : undefined,

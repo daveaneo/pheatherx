@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { config, testConfig, isTestMode } from '@/lib/wagmiConfig';
 import { PoolProvider } from '@/components/providers/PoolProvider';
+import { FheAutoInitProvider } from '@/components/providers/FheAutoInitProvider';
 
 import '@rainbow-me/rainbowkit/styles.css';
 
@@ -72,7 +73,9 @@ export function Providers({ children }: ProvidersProps) {
         >
           {/* Auto-connect test wallet in test mode */}
           {testModeEnabled && <TestWalletAutoConnect />}
-          <PoolProvider>{children}</PoolProvider>
+          <FheAutoInitProvider>
+            <PoolProvider>{children}</PoolProvider>
+          </FheAutoInitProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

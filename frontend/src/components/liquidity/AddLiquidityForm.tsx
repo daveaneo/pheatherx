@@ -29,7 +29,7 @@ type AddLiquidityFormValues = z.infer<typeof addLiquiditySchema>;
 
 export function AddLiquidityForm() {
   // Get tokens from selected pool
-  const { pool, token0, token1, isLoading: isLoadingPool } = useSelectedPool();
+  const { pool, token0, token1, isLoading: isLoadingPool, poolsLoaded } = useSelectedPool();
 
   const {
     register,
@@ -99,7 +99,8 @@ export function AddLiquidityForm() {
     }
   };
 
-  if (isLoadingPool) {
+  // Show loading while pools are being fetched
+  if (isLoadingPool || !poolsLoaded) {
     return (
       <Card>
         <CardContent className="py-12">
@@ -112,6 +113,7 @@ export function AddLiquidityForm() {
     );
   }
 
+  // Show "no pools" only after discovery has completed
   if (!pool) {
     return (
       <Card>

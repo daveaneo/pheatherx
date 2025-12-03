@@ -10,6 +10,8 @@ interface PoolState {
   currentChainId: number | null;
   isLoadingPools: boolean;
   poolsError: string | null;
+  // Track which chains have completed initial pool discovery
+  poolsLoadedByChain: Record<number, boolean>;
 
   // Selection state (per chain)
   selectedPoolAddressByChain: Record<number, `0x${string}` | null>;
@@ -26,6 +28,7 @@ interface PoolState {
   // Derived getters (use currentChainId)
   pools: Pool[];
   selectedPoolAddress: `0x${string}` | null;
+  poolsLoaded: boolean;
   getSelectedPool: () => Pool | undefined;
   getPoolByAddress: (hookAddress: `0x${string}`) => Pool | undefined;
 }
@@ -38,6 +41,7 @@ export const usePoolStore = create<PoolState>()(
       currentChainId: null,
       isLoadingPools: false,
       poolsError: null,
+      poolsLoadedByChain: {},
       selectedPoolAddressByChain: {},
 
       // Computed properties
@@ -51,6 +55,11 @@ export const usePoolStore = create<PoolState>()(
         return currentChainId ? (selectedPoolAddressByChain[currentChainId] || null) : null;
       },
 
+      get poolsLoaded() {
+        const { poolsLoadedByChain, currentChainId } = get();
+        return currentChainId ? (poolsLoadedByChain[currentChainId] || false) : false;
+      },
+
       // Actions
       setPools: (chainId, pools) => {
         const currentSelection = get().selectedPoolAddressByChain[chainId];
@@ -60,6 +69,11 @@ export const usePoolStore = create<PoolState>()(
           poolsByChain: {
             ...state.poolsByChain,
             [chainId]: pools,
+          },
+          // Mark this chain as having completed pool discovery
+          poolsLoadedByChain: {
+            ...state.poolsLoadedByChain,
+            [chainId]: true,
           },
           // Auto-select first pool if no valid selection for this chain
           selectedPoolAddressByChain: {
@@ -159,10 +173,12 @@ export function useSelectedPool(): {
   token0: Token | undefined;
   token1: Token | undefined;
   isLoading: boolean;
+  poolsLoaded: boolean;
   error: string | null;
 } {
   const pool = usePoolStore(state => state.getSelectedPool());
   const isLoading = usePoolStore(state => state.isLoadingPools);
+  const poolsLoaded = usePoolStore(state => state.poolsLoaded);
   const error = usePoolStore(state => state.poolsError);
 
   return {
@@ -171,6 +187,7 @@ export function useSelectedPool(): {
     token0: pool?.token0Meta,
     token1: pool?.token1Meta,
     isLoading,
+    poolsLoaded,
     error,
   };
 }

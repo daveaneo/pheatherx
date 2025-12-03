@@ -17,7 +17,7 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
 
   const pools = usePoolStore(state => state.pools);
   const selectPool = usePoolStore(state => state.selectPool);
-  const { pool: selectedPool, isLoading } = useSelectedPool();
+  const { pool: selectedPool, isLoading, poolsLoaded } = useSelectedPool();
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -56,12 +56,14 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  if (isLoading) {
+  // Show loading state while pools are being fetched
+  if (isLoading || !poolsLoaded) {
     return (
       <div className={cn('animate-pulse bg-carbon-gray rounded-lg h-10 w-40', className)} />
     );
   }
 
+  // Only show "no pools" after pool discovery has completed
   if (pools.length === 0) {
     return (
       <div className={cn('text-feather-white/50 text-sm px-3 py-2', className)}>
