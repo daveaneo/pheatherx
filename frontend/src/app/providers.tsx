@@ -7,6 +7,7 @@ import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { config, testConfig, isTestMode } from '@/lib/wagmiConfig';
 import { PoolProvider } from '@/components/providers/PoolProvider';
 import { FheAutoInitProvider } from '@/components/providers/FheAutoInitProvider';
+import { WalletAutoConnect } from '@/components/common/WalletAutoConnect';
 
 import '@rainbow-me/rainbowkit/styles.css';
 
@@ -73,6 +74,8 @@ export function Providers({ children }: ProvidersProps) {
         >
           {/* Auto-connect test wallet in test mode */}
           {testModeEnabled && <TestWalletAutoConnect />}
+          {/* Auto-open wallet modal on dApp pages if not connected */}
+          {!testModeEnabled && <WalletAutoConnect />}
           <FheAutoInitProvider>
             <PoolProvider>{children}</PoolProvider>
           </FheAutoInitProvider>

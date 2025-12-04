@@ -10,27 +10,60 @@ const nextConfig: NextConfig = {
       '@react-native-async-storage/async-storage': false,
     };
 
-    // Enable WASM support for cofhejs/tfhe
+    // Enable WASM support for cofhejs/tfhe (from official cofhejs docs)
     config.experiments = {
       ...config.experiments,
       asyncWebAssembly: true,
       layers: true,
+      topLevelAwait: true,
     };
 
-    // Handle WASM files
+    // Named module IDs for better debugging
+    config.optimization = config.optimization || {};
+    config.optimization.moduleIds = 'named';
+
+    // Handle WASM files as static resources
     config.module.rules.push({
       test: /\.wasm$/,
-      type: 'webassembly/async',
+      type: 'asset/resource',
     });
+
+    // Set WASM output paths
+    if (isServer) {
+      config.output.webassemblyModuleFilename = './../static/wasm/tfhe_bg.wasm';
+    } else {
+      config.output.webassemblyModuleFilename = 'static/wasm/tfhe_bg.wasm';
+      // Enable async functions in output environment for client
+      config.output.environment = {
+        ...config.output.environment,
+        asyncFunction: true
+      };
+    }
 
     // Don't bundle cofhejs on server-side (it's client-only with WASM)
     if (isServer) {
       config.externals = config.externals || [];
-      // Use regex to match all cofhejs and tfhe imports
       config.externals.push(
         /^cofhejs.*/,
-        /^tfhe.*/
+        /^tfhe.*/,
+        /^node-tfhe.*/
       );
+    }
+
+    // Ignore the 'wbg' import in tfhe - it's handled internally
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'wbg': false,
+    };
+
+    // Provide fallbacks for Node.js modules used by cofhejs in browser
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+      };
     }
 
     return config;

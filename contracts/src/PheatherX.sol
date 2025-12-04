@@ -357,7 +357,9 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
         euint128 newReserveOut = FHE.sub(reserveOut, amountOut);
 
         encReserve0 = FHE.select(direction, newReserveIn, newReserveOut);
+        FHE.allowThis(encReserve0);
         encReserve1 = FHE.select(direction, newReserveOut, newReserveIn);
+        FHE.allowThis(encReserve1);
 
         return amountOut;
     }
@@ -373,7 +375,9 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
         uint256 amount1 = uint256(int256(params.liquidityDelta));
 
         encReserve0 = FHE.add(encReserve0, FHE.asEuint128(uint128(amount0)));
+        FHE.allowThis(encReserve0);
         encReserve1 = FHE.add(encReserve1, FHE.asEuint128(uint128(amount1)));
+        FHE.allowThis(encReserve1);
 
         // Update display cache (amounts are plaintext)
         reserve0 += amount0;
@@ -392,7 +396,9 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
         uint256 amount1 = uint256(int256(-params.liquidityDelta));
 
         encReserve0 = FHE.sub(encReserve0, FHE.asEuint128(uint128(amount0)));
+        FHE.allowThis(encReserve0);
         encReserve1 = FHE.sub(encReserve1, FHE.asEuint128(uint128(amount1)));
+        FHE.allowThis(encReserve1);
 
         reserve0 -= amount0;
         reserve1 -= amount1;
@@ -415,11 +421,17 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
 
         if (isToken0) {
             userBalanceToken0[msg.sender] = FHE.add(userBalanceToken0[msg.sender], encAmount);
+            FHE.allowThis(userBalanceToken0[msg.sender]);
+            FHE.allow(userBalanceToken0[msg.sender], msg.sender);
             encReserve0 = FHE.add(encReserve0, encAmount);
+            FHE.allowThis(encReserve0);
             reserve0 += amount; // Known plaintext
         } else {
             userBalanceToken1[msg.sender] = FHE.add(userBalanceToken1[msg.sender], encAmount);
+            FHE.allowThis(userBalanceToken1[msg.sender]);
+            FHE.allow(userBalanceToken1[msg.sender], msg.sender);
             encReserve1 = FHE.add(encReserve1, encAmount);
+            FHE.allowThis(encReserve1);
             reserve1 += amount; // Known plaintext
         }
 
@@ -434,12 +446,18 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
         // Debit user's balance (this will underflow if insufficient - handled by FHE)
         if (isToken0) {
             userBalanceToken0[msg.sender] = FHE.sub(userBalanceToken0[msg.sender], encAmount);
+            FHE.allowThis(userBalanceToken0[msg.sender]);
+            FHE.allow(userBalanceToken0[msg.sender], msg.sender);
             encReserve0 = FHE.sub(encReserve0, encAmount);
+            FHE.allowThis(encReserve0);
             reserve0 -= amount;
             token0.safeTransfer(msg.sender, amount);
         } else {
             userBalanceToken1[msg.sender] = FHE.sub(userBalanceToken1[msg.sender], encAmount);
+            FHE.allowThis(userBalanceToken1[msg.sender]);
+            FHE.allow(userBalanceToken1[msg.sender], msg.sender);
             encReserve1 = FHE.sub(encReserve1, encAmount);
+            FHE.allowThis(encReserve1);
             reserve1 -= amount;
             token1.safeTransfer(msg.sender, amount);
         }
@@ -635,7 +653,9 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
         euint128 newReserveOut = FHE.sub(reserveOut, amountOut);
 
         encReserve0 = FHE.select(direction, newReserveIn, newReserveOut);
+        FHE.allowThis(encReserve0);
         encReserve1 = FHE.select(direction, newReserveOut, newReserveIn);
+        FHE.allowThis(encReserve1);
     }
 
     function _debitUserBalance(address user, ebool direction, euint128 amount) internal {
@@ -644,10 +664,14 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
             userBalanceToken0[user],
             FHE.select(direction, amount, ENC_ZERO)
         );
+        FHE.allowThis(userBalanceToken0[user]);
+        FHE.allow(userBalanceToken0[user], user);
         userBalanceToken1[user] = FHE.sub(
             userBalanceToken1[user],
             FHE.select(direction, ENC_ZERO, amount)
         );
+        FHE.allowThis(userBalanceToken1[user]);
+        FHE.allow(userBalanceToken1[user], user);
     }
 
     function _creditUserBalance(address user, ebool direction, euint128 amount) internal {
@@ -656,10 +680,14 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
             userBalanceToken0[user],
             FHE.select(direction, ENC_ZERO, amount)
         );
+        FHE.allowThis(userBalanceToken0[user]);
+        FHE.allow(userBalanceToken0[user], user);
         userBalanceToken1[user] = FHE.add(
             userBalanceToken1[user],
             FHE.select(direction, amount, ENC_ZERO)
         );
+        FHE.allowThis(userBalanceToken1[user]);
+        FHE.allow(userBalanceToken1[user], user);
     }
 
     function _creditUserBalanceReverse(address user, ebool direction, euint128 amount) internal {
@@ -668,10 +696,14 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
             userBalanceToken0[user],
             FHE.select(direction, amount, ENC_ZERO)
         );
+        FHE.allowThis(userBalanceToken0[user]);
+        FHE.allow(userBalanceToken0[user], user);
         userBalanceToken1[user] = FHE.add(
             userBalanceToken1[user],
             FHE.select(direction, ENC_ZERO, amount)
         );
+        FHE.allowThis(userBalanceToken1[user]);
+        FHE.allow(userBalanceToken1[user], user);
     }
 
     function _requestReserveSync() internal {

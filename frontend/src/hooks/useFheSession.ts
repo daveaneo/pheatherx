@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { useEthersSigner } from './useEthersSigner';
 import { useEthersProvider } from './useEthersProvider';
@@ -21,6 +21,9 @@ export function useFheSession() {
     fheSingleton.getLoadStatus()
   );
 
+  // Track previous chainId to detect actual changes
+  const prevChainIdRef = useRef<number | null>(null);
+
   const {
     sessionStatus,
     sessionError,
@@ -38,38 +41,42 @@ export function useFheSession() {
   const networkFheSupport = fheSupport[chainId];
   const isMock = networkFheSupport !== 'full';
 
-  // Subscribe to cofhe load status changes
+  // Check cofhe status once on mount
   useEffect(() => {
     setCofheLoadStatus(fheSingleton.getLoadStatus());
 
-    const unsubscribe = fheSingleton.onLoadStatusChange((status) => {
-      setCofheLoadStatus(status === 'loading' ? 'loading' : status === 'loaded' ? 'loaded' : 'error');
-    });
-
-    return unsubscribe;
-  }, []);
-
-  // Check if we already have a valid session from the singleton
-  useEffect(() => {
+    // Check if we already have a valid session from the singleton
     if (fheSingleton.isSessionValid() && sessionStatus !== 'ready') {
       setSessionStatus('ready');
       setSessionExpiry(fheSingleton.getSessionExpiry()!);
     }
-  }, [sessionStatus, setSessionStatus, setSessionExpiry]);
+    // Only run on mount - don't subscribe to changes to avoid loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const initialize = useCallback(async () => {
-    if (!provider || !hookAddress || !isConnected) {
+    // Note: hookAddress can be zero address if contract not deployed yet
+    // FHE session init doesn't require a deployed contract
+    if (!provider || !isConnected) {
       setSessionStatus('disconnected');
       return;
     }
 
-    // Check if we already have a valid session
+    // Use a placeholder address if no hook deployed yet
+    const contractAddr = hookAddress && hookAddress !== '0x0000000000000000000000000000000000000000'
+      ? hookAddress
+      : '0x0000000000000000000000000000000000000001' as `0x${string}`;
+
+    // Check if we already have a valid session (check singleton directly)
     if (fheSingleton.isSessionValid()) {
-      setSessionStatus('ready');
-      setSessionExpiry(fheSingleton.getSessionExpiry()!);
+      if (sessionStatus !== 'ready') {
+        setSessionStatus('ready');
+        setSessionExpiry(fheSingleton.getSessionExpiry()!);
+      }
       return;
     }
 
+    // Prevent multiple concurrent initializations
     if (isInitializing) return;
     setIsInitializing(true);
     setInitSource('manual');
@@ -80,7 +87,7 @@ export function useFheSession() {
       if (isMock) {
         // Use mock client for local/unsupported networks
         const client = new MockFheClient();
-        const session = await client.initSession(hookAddress);
+        const session = await client.initSession(contractAddr);
         setSessionStatus('ready');
         setSessionExpiry(session.expiresAt);
       } else {
@@ -88,7 +95,7 @@ export function useFheSession() {
         if (!signer) throw new Error('Signer not available');
 
         // This will wait for cofhejs to load if still loading
-        const session = await fheSingleton.initializeSession(provider, signer, hookAddress);
+        const session = await fheSingleton.initializeSession(provider, signer, contractAddr);
         setSessionStatus('ready');
         setSessionExpiry(session.expiresAt);
       }
@@ -125,10 +132,13 @@ export function useFheSession() {
     }
   }, [isConnected, reset]);
 
-  // Reset on chain change
+  // Reset on chain change (only when chainId actually changes)
   useEffect(() => {
-    reset();
-    fheSingleton.clearSession();
+    if (prevChainIdRef.current !== null && prevChainIdRef.current !== chainId) {
+      reset();
+      fheSingleton.clearSession();
+    }
+    prevChainIdRef.current = chainId;
   }, [chainId, reset]);
 
   return {

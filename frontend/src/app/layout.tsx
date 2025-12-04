@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { Providers } from './providers';
-import { Header } from '@/components/layout/Header';
-import { MobileNav } from '@/components/layout/MobileNav';
+import { LayoutWrapper } from '@/components/layout/LayoutWrapper';
 import { NetworkGuard } from '@/components/common/NetworkGuard';
 import { AppLoader } from '@/components/common/AppLoader';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
@@ -43,13 +42,13 @@ export default function RootLayout({
           <AppLoader>
             <ErrorBoundary>
               <div className="flex flex-col min-h-screen">
-                <Header />
-                <NetworkGuard>
-                  <main className="flex-1 container mx-auto px-4 py-6 pb-20 md:pb-6">
-                    {children}
-                  </main>
-                </NetworkGuard>
-                <MobileNav />
+                <LayoutWrapper>
+                  <NetworkGuard>
+                    <main className="flex-1 container mx-auto px-4 py-6 pb-20 md:pb-6">
+                      {children}
+                    </main>
+                  </NetworkGuard>
+                </LayoutWrapper>
               </div>
               <ToastContainer />
             </ErrorBoundary>

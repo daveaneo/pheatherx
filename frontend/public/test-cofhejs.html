@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>cofhejs Init Test</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.9.0/ethers.umd.min.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #0f0; }
+    pre { background: #000; padding: 10px; border: 1px solid #333; overflow-x: auto; }
+    button { margin: 5px; padding: 10px 20px; cursor: pointer; }
+    .error { color: #f00; }
+    .success { color: #0f0; }
+    h3 { color: #fff; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>cofhejs Initialization Test</h1>
+  <p>Open browser console for detailed logs</p>
+
+  <div id="network-info" style="background: #333; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
+    <strong>Network:</strong> <span id="network-name">Not connected</span>
+    <span id="chain-badge" style="padding: 2px 8px; border-radius: 3px; margin-left: 10px;"></span>
+  </div>
+
+  <div>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <button onclick="testVariation(1)">Test 1: env + permit</button>
+    <button onclick="testVariation(2)">Test 2: env only</button>
+    <button onclick="testVariation(3)">Test 3: permit only</button>
+    <button onclick="testVariation(4)">Test 4: minimal</button>
+    <button onclick="addArbitrumSepolia()" style="background: #12AAFF; color: white;">Add Arbitrum Sepolia</button>
+    <button onclick="testAlternativeInit()" style="background: #ff8c00; color: white;">Test initialize() (alt)</button>
+  </div>
+
+  <div id="output"></div>
+
+  <script type="module">
+    const output = document.getElementById('output');
+
+    function log(msg, isError = false) {
+      const div = document.createElement('pre');
+      div.className = isError ? 'error' : '';
+      div.textContent = typeof msg === 'object' ? JSON.stringify(msg, null, 2) : msg;
+      output.appendChild(div);
+      console.log(msg);
+    }
+
+    function clearOutput() {
+      output.innerHTML = '';
+    }
+
+    // Load cofhejs - try local bundle first, then CDN fallback
+    let cofhejs = null;
+    let cofheModule = null;
+
+    async function loadCofhejs() {
+      // Method 1: Try loading from Next.js bundled version via a dynamic script
+      // Since this is a static HTML file, we need to load from CDN or use the app's bundle
+
+      // Method 2: Load from CDN (esm.sh)
+      log('Loading cofhejs from esm.sh CDN...');
+      try {
+        const mod = await import('https://esm.sh/cofhejs@0.3.1/web');
+        cofhejs = mod.cofhejs;
+        cofheModule = mod;
+        log('cofhejs loaded from CDN!', false);
+        window.cofhejs = cofhejs;
+        window.cofheModule = mod;
+        return true;
+      } catch (e) {
+        log('CDN load failed: ' + e.message, true);
+      }
+
+      // Method 3: Try unpkg as alternative CDN
+      log('Trying unpkg CDN...');
+      try {
+        const mod = await import('https://unpkg.com/cofhejs@0.3.1/dist/web.mjs');
+        cofhejs = mod.cofhejs;
+        cofheModule = mod;
+        log('cofhejs loaded from unpkg!', false);
+        window.cofhejs = cofhejs;
+        window.cofheModule = mod;
+        return true;
+      } catch (e) {
+        log('unpkg load failed: ' + e.message, true);
+      }
+
+      // Method 4: Try jsdelivr
+      log('Trying jsdelivr CDN...');
+      try {
+        const mod = await import('https://cdn.jsdelivr.net/npm/cofhejs@0.3.1/dist/web.mjs');
+        cofhejs = mod.cofhejs;
+        cofheModule = mod;
+        log('cofhejs loaded from jsdelivr!', false);
+        window.cofhejs = cofhejs;
+        window.cofheModule = mod;
+        return true;
+      } catch (e) {
+        log('jsdelivr load failed: ' + e.message, true);
+      }
+
+      return false;
+    }
+
+    const loaded = await loadCofhejs();
+    if (!loaded) {
+      log('All CDN sources failed! Try the app at /portfolio instead.', true);
+    }
+
+    const CHAIN_NAMES = {
+      1: 'Ethereum Mainnet',
+      11155111: 'Ethereum Sepolia',
+      421614: 'Arbitrum Sepolia',
+      42161: 'Arbitrum One',
+    };
+
+    const SUPPORTED_FHE_CHAINS = [11155111, 421614]; // ETH Sepolia, Arb Sepolia
+
+    function updateNetworkDisplay(chainId) {
+      const name = CHAIN_NAMES[chainId] || `Unknown (${chainId})`;
+      document.getElementById('network-name').textContent = name;
+      const badge = document.getElementById('chain-badge');
+
+      if (SUPPORTED_FHE_CHAINS.includes(Number(chainId))) {
+        badge.textContent = 'FHE Supported';
+        badge.style.background = '#0f0';
+        badge.style.color = '#000';
+      } else {
+        badge.textContent = 'FHE Not Supported';
+        badge.style.background = '#f00';
+        badge.style.color = '#fff';
+      }
+    }
+
+    // Listen for chain changes
+    if (window.ethereum) {
+      window.ethereum.on('chainChanged', (chainId) => {
+        updateNetworkDisplay(parseInt(chainId, 16));
+      });
+    }
+
+    window.addArbitrumSepolia = async function() {
+      try {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x66eee', // 421614 in hex
+            chainName: 'Arbitrum Sepolia',
+            nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+            rpcUrls: ['https://sepolia-rollup.arbitrum.io/rpc'],
+            blockExplorerUrls: ['https://sepolia.arbiscan.io/'],
+          }],
+        });
+        log('Arbitrum Sepolia added to wallet!');
+      } catch (e) {
+        log('Failed to add network: ' + e.message, true);
+      }
+    };
+
+    async function getProviderAndSigner() {
+      if (!window.ethereum) {
+        throw new Error('No wallet detected. Please install MetaMask or similar.');
+      }
+
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId);
+
+      updateNetworkDisplay(chainId);
+
+      log(`Connected: ${address}`);
+      log(`Chain ID: ${chainId} (${CHAIN_NAMES[chainId] || 'Unknown'})`);
+
+      if (!SUPPORTED_FHE_CHAINS.includes(chainId)) {
+        log(`⚠️ WARNING: Chain ${chainId} is not a supported FHE chain!`, true);
+        log(`Supported chains: ETH Sepolia (11155111), Arbitrum Sepolia (421614)`);
+      }
+
+      return { provider, signer };
+    }
+
+    async function testInit(name, options) {
+      log(`\n=== ${name} ===`);
+      log('Options: ' + Object.keys(options).join(', '));
+
+      try {
+        const startTime = Date.now();
+        const result = await cofhejs.initializeWithEthers(options);
+        const elapsed = Date.now() - startTime;
+
+        log(`Completed in ${elapsed}ms`);
+
+        if (result && typeof result === 'object') {
+          if ('success' in result) {
+            if (result.success) {
+              log('SUCCESS! Result:', false);
+              log(result);
+            } else {
+              log('FAILED (success=false):', true);
+              log(result.error);
+            }
+          } else if ('error' in result) {
+            log('FAILED (has error):', true);
+            log(result.error);
+          } else {
+            log('Result (no success/error field):');
+            log(result);
+          }
+        } else {
+          log('Result: ' + String(result));
+        }
+      } catch (error) {
+        log('THREW EXCEPTION:', true);
+        log({
+          name: error.name,
+          message: error.message,
+          cause: error.cause,
+          code: error.code,
+        });
+        console.error('Full error:', error);
+      }
+    }
+
+    window.testVariation = async function(num) {
+      clearOutput();
+
+      if (!cofhejs) {
+        log('cofhejs not loaded!', true);
+        return;
+      }
+
+      try {
+        const { provider, signer } = await getProviderAndSigner();
+
+        const variations = {
+          1: {
+            name: 'Variation 1: With environment + generatePermit',
+            options: { ethersProvider: provider, ethersSigner: signer, environment: 'TESTNET', generatePermit: true }
+          },
+          2: {
+            name: 'Variation 2: With environment, no generatePermit',
+            options: { ethersProvider: provider, ethersSigner: signer, environment: 'TESTNET' }
+          },
+          3: {
+            name: 'Variation 3: No environment (auto-detect), with generatePermit',
+            options: { ethersProvider: provider, ethersSigner: signer, generatePermit: true }
+          },
+          4: {
+            name: 'Variation 4: Minimal - only provider and signer',
+            options: { ethersProvider: provider, ethersSigner: signer }
+          }
+        };
+
+        const v = variations[num];
+        await testInit(v.name, v.options);
+
+      } catch (e) {
+        log('Setup error: ' + e.message, true);
+      }
+    };
+
+    window.runAllTests = async function() {
+      clearOutput();
+
+      if (!cofhejs) {
+        log('cofhejs not loaded!', true);
+        return;
+      }
+
+      try {
+        const { provider, signer } = await getProviderAndSigner();
+
+        const variations = [
+          { name: 'Variation 1: env + generatePermit', options: { ethersProvider: provider, ethersSigner: signer, environment: 'TESTNET', generatePermit: true } },
+          { name: 'Variation 2: env only', options: { ethersProvider: provider, ethersSigner: signer, environment: 'TESTNET' } },
+          { name: 'Variation 3: permit only', options: { ethersProvider: provider, ethersSigner: signer, generatePermit: true } },
+          { name: 'Variation 4: minimal', options: { ethersProvider: provider, ethersSigner: signer } },
+        ];
+
+        for (const v of variations) {
+          await testInit(v.name, v.options);
+          // Small delay between tests
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
+        log('\n=== All tests complete ===');
+
+      } catch (e) {
+        log('Setup error: ' + e.message, true);
+      }
+    };
+
+    // Test the alternative initialize() method (not initializeWithEthers)
+    window.testAlternativeInit = async function() {
+      clearOutput();
+
+      if (!cofhejs) {
+        log('cofhejs not loaded!', true);
+        return;
+      }
+
+      try {
+        const { provider, signer } = await getProviderAndSigner();
+
+        log('\n=== Testing cofhejs.initialize() (alternative method) ===');
+        log('This uses { provider, signer } instead of { ethersProvider, ethersSigner }');
+
+        const startTime = Date.now();
+        try {
+          const result = await cofhejs.initialize({
+            provider: provider,
+            signer: signer,
+          });
+          const elapsed = Date.now() - startTime;
+          log(`Completed in ${elapsed}ms`);
+
+          if (result && typeof result === 'object') {
+            if ('success' in result && result.success) {
+              log('SUCCESS!', false);
+              log(result);
+
+              // Try to create permit
+              log('\nTrying createPermit()...');
+              const permitResult = await cofhejs.createPermit();
+              log('Permit result:');
+              log(permitResult);
+            } else if ('error' in result) {
+              log('FAILED:', true);
+              log(result.error);
+            } else {
+              log('Result:');
+              log(result);
+            }
+          } else {
+            log('Result: ' + String(result));
+          }
+        } catch (error) {
+          log('THREW EXCEPTION:', true);
+          log({
+            name: error.name,
+            message: error.message,
+            cause: error.cause,
+            code: error.code,
+          });
+        }
+
+      } catch (e) {
+        log('Setup error: ' + e.message, true);
+      }
+    };
+  </script>
+</body>
+</html>

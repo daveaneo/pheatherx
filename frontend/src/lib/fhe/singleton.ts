@@ -1,111 +1,62 @@
 /**
  * Global FHE Client Singleton
  *
- * This module provides a single global instance of the FHE client that:
- * 1. Starts loading cofhejs in the background on app mount
- * 2. Persists across page navigation
- * 3. Caches the loaded module for instant access
+ * This module provides FHE functionality via server-side API routes
+ * because cofhejs/web has WASM initialization issues in browsers.
+ * The server runs cofhejs/node which works correctly.
  */
 
 import type { FheSession } from '@/types/fhe';
 import { FHE_SESSION_DURATION_MS } from '@/lib/constants';
 
-// Type for the cofhejs/web module exports
-type CofheModule = {
-  cofhejs: any;
-  Encryptable: any;
-  FheTypes: any;
-};
-
-// Module state
-let cofheModule: CofheModule | null = null;
-let loadingPromise: Promise<CofheModule | null> | null = null;
-let isInitialized = false;
+// Session state
+let currentSessionId: string | null = null;
 let currentSession: FheSession | null = null;
 let sessionExpiry: number | null = null;
+let initializationInProgress: Promise<FheSession> | null = null;
 
-// Event listeners for load status
-type LoadListener = (status: 'loading' | 'loaded' | 'error', error?: Error) => void;
-const loadListeners: Set<LoadListener> = new Set();
+// Event listeners for status
+type StatusListener = (status: 'idle' | 'initializing' | 'ready' | 'error', error?: Error) => void;
+const statusListeners: Set<StatusListener> = new Set();
+
+let currentStatus: 'idle' | 'initializing' | 'ready' | 'error' = 'idle';
+
+function notifyListeners(status: typeof currentStatus, error?: Error) {
+  currentStatus = status;
+  statusListeners.forEach(listener => listener(status, error));
+}
 
 /**
- * Get the current loading status
+ * Get the current status
  */
 export function getLoadStatus(): 'idle' | 'loading' | 'loaded' | 'error' {
-  if (cofheModule) return 'loaded';
-  if (loadingPromise) return 'loading';
-  return 'idle';
-}
-
-/**
- * Subscribe to load status changes
- */
-export function onLoadStatusChange(listener: LoadListener): () => void {
-  loadListeners.add(listener);
-  return () => loadListeners.delete(listener);
-}
-
-function notifyListeners(status: 'loading' | 'loaded' | 'error', error?: Error) {
-  loadListeners.forEach(listener => listener(status, error));
-}
-
-/**
- * Start loading cofhejs in the background
- * Safe to call multiple times - will only load once
- */
-export function preloadCofhe(): Promise<CofheModule | null> {
-  // Already loaded
-  if (cofheModule) {
-    return Promise.resolve(cofheModule);
+  // Map to legacy status names for compatibility
+  switch (currentStatus) {
+    case 'idle': return 'idle';
+    case 'initializing': return 'loading';
+    case 'ready': return 'loaded';
+    case 'error': return 'error';
   }
-
-  // Already loading
-  if (loadingPromise) {
-    return loadingPromise;
-  }
-
-  // Only load in browser
-  if (typeof window === 'undefined') {
-    return Promise.resolve(null);
-  }
-
-  notifyListeners('loading');
-
-  loadingPromise = (async () => {
-    try {
-      // Dynamic import with variable to prevent webpack from analyzing on server
-      // This ensures cofhejs/web is only loaded at runtime in the browser
-      const moduleName = 'cofhejs/web';
-      const mod = await import(/* webpackIgnore: true */ moduleName);
-      cofheModule = mod as CofheModule;
-      notifyListeners('loaded');
-      console.log('[FHE] cofhejs loaded successfully');
-      return cofheModule;
-    } catch (error) {
-      console.error('[FHE] Failed to load cofhejs:', error);
-      notifyListeners('error', error instanceof Error ? error : new Error('Failed to load cofhejs'));
-      loadingPromise = null; // Allow retry
-      return null;
-    }
-  })();
-
-  return loadingPromise;
 }
 
 /**
- * Get the cofhejs module (waits if still loading)
+ * Subscribe to status changes
  */
-export async function getCofhe(): Promise<CofheModule | null> {
-  if (cofheModule) return cofheModule;
-  if (loadingPromise) return loadingPromise;
-  return preloadCofhe();
+export function onLoadStatusChange(listener: (status: 'loading' | 'loaded' | 'error', error?: Error) => void): () => void {
+  const wrappedListener: StatusListener = (status, error) => {
+    if (status === 'initializing') listener('loading', error);
+    else if (status === 'ready') listener('loaded', error);
+    else if (status === 'error') listener('error', error);
+  };
+  statusListeners.add(wrappedListener);
+  return () => statusListeners.delete(wrappedListener);
 }
 
 /**
- * Check if cofhejs is ready (loaded and available)
+ * Check if cofhejs is ready (session initialized)
  */
 export function isCofheReady(): boolean {
-  return cofheModule !== null;
+  return currentStatus === 'ready' && isSessionValid();
 }
 
 /**
@@ -116,6 +67,7 @@ export function getSession(): FheSession | null {
   if (sessionExpiry && Date.now() > sessionExpiry) {
     currentSession = null;
     sessionExpiry = null;
+    currentSessionId = null;
     return null;
   }
   return currentSession;
@@ -136,54 +88,100 @@ export function getSessionExpiry(): number | null {
 }
 
 /**
- * Initialize FHE session with the given provider/signer
+ * Preload - for API-based approach, this is a no-op
+ * The actual initialization happens in initializeSession
+ */
+export function preloadCofhe(): Promise<any> {
+  // No preloading needed for API approach
+  // Just mark as ready to proceed
+  return Promise.resolve({ ready: true });
+}
+
+/**
+ * Get cofhe module - for API approach, returns a stub
+ */
+export async function getCofhe(): Promise<any> {
+  return { ready: true, api: true };
+}
+
+/**
+ * Initialize FHE session via server-side API
  */
 export async function initializeSession(
   provider: any,
   signer: any,
   contractAddress: `0x${string}`
 ): Promise<FheSession> {
-  const cofhe = await getCofhe();
-
-  if (!cofhe) {
-    throw new Error('cofhejs not available');
+  // If already have a valid session, return it
+  if (currentSession && sessionExpiry && Date.now() < sessionExpiry) {
+    return currentSession;
   }
 
-  const { cofhejs } = cofhe;
-
-  // Initialize cofhejs with ethers provider/signer
-  const result = await cofhejs.initializeWithEthers({
-    ethersProvider: provider,
-    ethersSigner: signer,
-    generatePermit: true,
-  });
-
-  if ('error' in result && result.error) {
-    throw new Error(result.error.message || 'Failed to initialize cofhejs');
+  // If initialization is already in progress, wait for it
+  if (initializationInProgress) {
+    console.log('[FHE] Waiting for existing initialization...');
+    return initializationInProgress;
   }
 
-  // Get the generated permit
-  const permitResult = cofhejs.getPermit();
+  // Start new initialization
+  initializationInProgress = (async () => {
+    notifyListeners('initializing');
 
-  if ('error' in permitResult && permitResult.error) {
-    throw new Error(permitResult.error.message || 'Failed to get permit');
-  }
+    try {
+      // Get chain ID from provider
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId);
 
-  const permit = 'data' in permitResult ? permitResult.data : permitResult;
+      // Get user address from signer
+      const userAddress = await signer.getAddress();
 
-  const session: FheSession = {
-    permit,
-    client: cofhejs,
-    contractAddress,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + FHE_SESSION_DURATION_MS,
-  };
+      console.log('[FHE] Initializing session via API...', { chainId, userAddress });
 
-  currentSession = session;
-  sessionExpiry = session.expiresAt;
-  isInitialized = true;
+      // Call server-side API to initialize
+      const response = await fetch('/api/fhe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'initialize',
+          chainId,
+          userAddress,
+        }),
+      });
 
-  return session;
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error?.message || result.error || 'Failed to initialize FHE session');
+      }
+
+      console.log('[FHE] Session initialized:', result.sessionId);
+
+      // Store session
+      currentSessionId = result.sessionId;
+      sessionExpiry = result.expiresAt;
+
+      const session: FheSession = {
+        permit: result.permit,
+        client: { sessionId: result.sessionId, api: true },
+        contractAddress,
+        createdAt: Date.now(),
+        expiresAt: result.expiresAt,
+      };
+
+      currentSession = session;
+      notifyListeners('ready');
+
+      return session;
+    } catch (error) {
+      console.error('[FHE] Session init failed:', error);
+      notifyListeners('error', error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    } finally {
+      initializationInProgress = null;
+    }
+  })();
+
+  return initializationInProgress;
 }
 
 /**
@@ -192,82 +190,108 @@ export async function initializeSession(
 export function clearSession(): void {
   currentSession = null;
   sessionExpiry = null;
-  isInitialized = false;
+  currentSessionId = null;
+  initializationInProgress = null;
+  notifyListeners('idle');
 }
 
 /**
- * Encrypt a uint128 value
+ * Encrypt a uint128 value via server-side API
  */
 export async function encryptUint128(value: bigint): Promise<Uint8Array> {
-  if (!isSessionValid()) {
+  if (!currentSessionId) {
     throw new Error('No valid FHE session');
   }
 
-  const cofhe = await getCofhe();
-  if (!cofhe) throw new Error('cofhejs not available');
+  const response = await fetch('/api/fhe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'encrypt',
+      chainId: 0, // Not needed for encrypt
+      data: {
+        sessionId: currentSessionId,
+        value: value.toString(),
+        type: 'uint128',
+      },
+    }),
+  });
 
-  const { cofhejs, Encryptable } = cofhe;
+  const result = await response.json();
 
-  const result = await cofhejs.encrypt([Encryptable.uint128(value)]);
-
-  if ('error' in result && result.error) {
-    throw new Error(result.error.message || 'Failed to encrypt uint128');
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to encrypt');
   }
 
-  const encrypted = 'data' in result ? result.data : result;
-  const ctHash = encrypted[0].ctHash;
+  // Convert ciphertext string to bytes
+  const ctHash = BigInt(result.ciphertext);
   return bigintToBytes(ctHash);
 }
 
 /**
- * Encrypt a boolean value
+ * Encrypt a boolean value via server-side API
  */
 export async function encryptBool(value: boolean): Promise<Uint8Array> {
-  if (!isSessionValid()) {
+  if (!currentSessionId) {
     throw new Error('No valid FHE session');
   }
 
-  const cofhe = await getCofhe();
-  if (!cofhe) throw new Error('cofhejs not available');
+  const response = await fetch('/api/fhe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'encrypt',
+      chainId: 0,
+      data: {
+        sessionId: currentSessionId,
+        value,
+        type: 'bool',
+      },
+    }),
+  });
 
-  const { cofhejs, Encryptable } = cofhe;
+  const result = await response.json();
 
-  const result = await cofhejs.encrypt([Encryptable.bool(value)]);
-
-  if ('error' in result && result.error) {
-    throw new Error(result.error.message || 'Failed to encrypt bool');
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to encrypt');
   }
 
-  const encrypted = 'data' in result ? result.data : result;
-  const ctHash = encrypted[0].ctHash;
+  const ctHash = BigInt(result.ciphertext);
   return bigintToBytes(ctHash);
 }
 
 /**
- * Unseal (decrypt) a ciphertext
+ * Unseal (decrypt) a ciphertext via server-side API
  */
 export async function unseal(ciphertext: string, maxRetries: number = 3): Promise<bigint> {
-  if (!isSessionValid()) {
+  if (!currentSessionId) {
     throw new Error('No valid FHE session');
   }
-
-  const cofhe = await getCofhe();
-  if (!cofhe) throw new Error('cofhejs not available');
-
-  const { cofhejs, FheTypes } = cofhe;
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const ctHash = BigInt(ciphertext);
-      const result = await cofhejs.unseal(ctHash, FheTypes.Uint128);
+      const response = await fetch('/api/fhe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'unseal',
+          chainId: 0,
+          data: {
+            sessionId: currentSessionId,
+            ciphertext,
+            type: 'uint128',
+          },
+        }),
+      });
 
-      if ('error' in result && result.error) {
-        throw new Error(result.error.message || 'Failed to unseal');
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to unseal');
       }
 
-      const unsealed = 'data' in result ? result.data : result;
-      return BigInt(unsealed.toString());
+      return BigInt(result.value);
     } catch (error) {
       lastError = error;
       console.warn(`FHE unseal attempt ${attempt}/${maxRetries} failed:`, error);

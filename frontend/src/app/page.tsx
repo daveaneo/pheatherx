@@ -130,9 +130,9 @@ export default function HomePage() {
             PheatherX keeps your orders hidden from everyone - including validators.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/swap">
+            <Link href="/portfolio">
               <Button size="lg" className="w-full sm:w-auto">
-                Launch App
+                Launch dApp
               </Button>
             </Link>
             <Link href="#how-it-works">
@@ -256,9 +256,9 @@ export default function HomePage() {
           <p className="text-feather-white/70 mb-6 max-w-xl mx-auto">
             Connect your wallet and experience the future of private DeFi trading.
           </p>
-          <Link href="/swap">
+          <Link href="/portfolio">
             <Button size="lg">
-              Launch App
+              Launch dApp
             </Button>
           </Link>
         </Card>
