@@ -126,7 +126,8 @@ library TickBitmap {
         (int16 wordPos, uint8 bitPos) = position(tick);
 
         // Create mask for all bits at or below current position
-        uint256 mask = (1 << (bitPos + 1)) - 1;
+        // Handle overflow when bitPos = 255: (1 << 256) - 1 = type(uint256).max
+        uint256 mask = bitPos == 255 ? type(uint256).max : (1 << (bitPos + 1)) - 1;
         uint256 masked = self[wordPos] & mask;
 
         if (masked != 0) {
