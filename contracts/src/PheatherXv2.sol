@@ -429,8 +429,8 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         FHE.allow(amt0, address(fheToken0));
         FHE.allow(amt1, address(fheToken1));
 
-        fheToken0.transferFromEncrypted(msg.sender, address(this), amount0);
-        fheToken1.transferFromEncrypted(msg.sender, address(this), amount1);
+        fheToken0.transferFromEncryptedDirect(msg.sender, address(this), amt0);
+        fheToken1.transferFromEncryptedDirect(msg.sender, address(this), amt1);
 
         // Update encrypted reserves
         encReserve0 = FHE.add(encReserve0, amt0);

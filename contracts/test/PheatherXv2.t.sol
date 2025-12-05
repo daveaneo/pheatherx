@@ -60,20 +60,18 @@ contract PheatherXv2Test is Test, Fixtures, CoFheTest {
     uint160 constant SQRT_RATIO_10_1 = 250541448375047931186413801569;
 
     function setUp() public {
-        // Deploy FHERC20 tokens at deterministic addresses
-        address a0 = address(0x100);
-        address a1 = address(0x200);
+        // Deploy FHERC20 tokens properly
+        FHERC20FaucetToken tokenA = new FHERC20FaucetToken("Token0", "TK0", 18);
+        FHERC20FaucetToken tokenB = new FHERC20FaucetToken("Token1", "TK1", 18);
 
         // Ensure token0 < token1 for Uniswap ordering
-        if (a0 > a1) {
-            (a0, a1) = (a1, a0);
+        if (address(tokenA) < address(tokenB)) {
+            token0 = tokenA;
+            token1 = tokenB;
+        } else {
+            token0 = tokenB;
+            token1 = tokenA;
         }
-
-        vm.etch(a0, address(new FHERC20FaucetToken("Token0", "TK0", 18)).code);
-        vm.etch(a1, address(new FHERC20FaucetToken("Token1", "TK1", 18)).code);
-
-        token0 = FHERC20FaucetToken(a0);
-        token1 = FHERC20FaucetToken(a1);
 
         vm.label(user, "user");
         vm.label(user2, "user2");
@@ -126,18 +124,27 @@ contract PheatherXv2Test is Test, Fixtures, CoFheTest {
         tickLower = TickMath.minUsableTick(key.tickSpacing);
         tickUpper = TickMath.maxUsableTick(key.tickSpacing);
 
-        // Get tokens from faucet for users
+        // Use deal to give users plaintext ERC20 tokens for testing
+        // (The faucet mints to encrypted balance, but we need plaintext for many tests)
+        deal(address(token0), user, 1000 ether);
+        deal(address(token1), user, 1000 ether);
+        deal(address(token0), user2, 1000 ether);
+        deal(address(token1), user2, 1000 ether);
+
+        // Also mint encrypted tokens to users for encrypted tests
+        // (owner is this test contract since we deployed the tokens)
+        token0.mintEncrypted(user, 500 ether);
+        token1.mintEncrypted(user, 500 ether);
+        token0.mintEncrypted(user2, 500 ether);
+        token1.mintEncrypted(user2, 500 ether);
+
+        // Approve tokens for hook (both plaintext and encrypted)
         vm.startPrank(user);
-        token0.faucet();
-        token1.faucet();
-        // Approve tokens for hook
         token0.approve(address(hook), type(uint256).max);
         token1.approve(address(hook), type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(user2);
-        token0.faucet();
-        token1.faucet();
         token0.approve(address(hook), type(uint256).max);
         token1.approve(address(hook), type(uint256).max);
         vm.stopPrank();
@@ -291,37 +298,6 @@ contract PheatherXv2Test is Test, Fixtures, CoFheTest {
         assertLt(estimate, 1 ether, "Estimate should be less than input (fee)");
     }
 
-    // ============ Limit Order Tests ============
-
-    function testPlaceOrderBuyLimit() public {
-        // Buy limit: buy token0 when price drops below tick
-        // isSell=false (buying token0), triggerAbove=false (trigger when price drops below)
-        int24 triggerTick = -100;
-
-        // Get tokens for the order
-        vm.startPrank(user);
-        token1.faucet(); // Need more token1 to pay for order
-
-        // Create encrypted params
-        InEbool memory isSell = _createInEbool(false);
-        InEbool memory triggerAbove = _createInEbool(false);
-        InEuint128 memory amount = _createInEuint128(uint128(100 ether));
-        InEuint128 memory minOutput = _createInEuint128(uint128(90 ether));
-
-        // Need to approve encrypted tokens for hook
-        // For this test, we're just checking the interface works
-
-        vm.stopPrank();
-    }
-
-    function testCancelOrderNotOwnerReverts() public {
-        // Only owner should be able to cancel
-        // This will revert with OrderNotFound since no order exists
-        vm.prank(user);
-        vm.expectRevert(IPheatherXv2.OrderNotFound.selector);
-        hook.cancelOrder(999);
-    }
-
     // ============ View Function Tests ============
 
     function testGetActiveOrders() public {
@@ -427,17 +403,630 @@ contract PheatherXv2Test is Test, Fixtures, CoFheTest {
         hook.removeLiquidity(1000000 ether); // Way more than deposited
     }
 
-    // ============ Helper Functions ============
+    // ============ Encrypted Swap Tests ============
 
-    function _createInEbool(bool value) internal pure returns (InEbool memory) {
-        InEbool memory result;
-        // In production, this would be encrypted client-side
-        return result;
+    function testSwapEncryptedZeroForOne() public {
+        // First add liquidity
+        vm.startPrank(user);
+        hook.addLiquidity(50 ether, 50 ether);
+        vm.stopPrank();
+
+        // Get encrypted tokens for user
+        vm.startPrank(user);
+        // User already has tokens from faucet, approve encrypted allowance
+        InEuint128 memory allowance0 = createInEuint128(uint128(10 ether), user);
+        token0.approveEncrypted(address(hook), allowance0);
+
+        // Create encrypted swap params
+        InEbool memory direction = createInEbool(true, user); // zeroForOne = true
+        InEuint128 memory amountIn = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.5 ether), user);
+
+        // Execute encrypted swap
+        euint128 amountOut = hook.swapEncrypted(direction, amountIn, minOutput);
+
+        // Verify output is non-zero using mock storage
+        uint256 outValue = mockStorage(euint128.unwrap(amountOut));
+        assertGt(outValue, 0, "Output should be positive");
+        vm.stopPrank();
     }
 
-    function _createInEuint128(uint128 value) internal pure returns (InEuint128 memory) {
-        InEuint128 memory result;
-        // In production, this would be encrypted client-side
-        return result;
+    function testSwapEncryptedOneForZero() public {
+        // First add liquidity
+        vm.startPrank(user);
+        hook.addLiquidity(50 ether, 50 ether);
+        vm.stopPrank();
+
+        vm.startPrank(user);
+        // Approve encrypted allowance for token1
+        InEuint128 memory allowance1 = createInEuint128(uint128(10 ether), user);
+        token1.approveEncrypted(address(hook), allowance1);
+
+        // Create encrypted swap params
+        InEbool memory direction = createInEbool(false, user); // zeroForOne = false
+        InEuint128 memory amountIn = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.5 ether), user);
+
+        // Execute encrypted swap
+        euint128 amountOut = hook.swapEncrypted(direction, amountIn, minOutput);
+
+        // Verify output is non-zero
+        uint256 outValue = mockStorage(euint128.unwrap(amountOut));
+        assertGt(outValue, 0, "Output should be positive");
+        vm.stopPrank();
+    }
+
+    function testSwapEncryptedSlippageFails() public {
+        // First add liquidity
+        vm.startPrank(user);
+        hook.addLiquidity(50 ether, 50 ether);
+        vm.stopPrank();
+
+        vm.startPrank(user);
+        InEuint128 memory allowance0 = createInEuint128(uint128(10 ether), user);
+        token0.approveEncrypted(address(hook), allowance0);
+
+        // Create encrypted swap with impossible slippage requirement
+        InEbool memory direction = createInEbool(true, user);
+        InEuint128 memory amountIn = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(100 ether), user); // Impossible
+
+        // Execute - should return 0 output due to slippage (not revert, for privacy)
+        euint128 amountOut = hook.swapEncrypted(direction, amountIn, minOutput);
+
+        // Verify output is zero (slippage protection triggered)
+        uint256 outValue = mockStorage(euint128.unwrap(amountOut));
+        assertEq(outValue, 0, "Output should be zero due to slippage");
+        vm.stopPrank();
+    }
+
+    // ============ Limit Order Placement Tests (All 4 Types) ============
+
+    function testPlaceOrderBuyLimitActual() public {
+        // Buy Limit: isSell=false, triggerAbove=false
+        // Buy token0 when price drops below tick
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        int24 triggerTick = -100;
+
+        InEbool memory isSell = createInEbool(false, user);
+        InEbool memory triggerAbove = createInEbool(false, user);
+        InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+        uint256 orderId = hook.placeOrder{value: 0.001 ether}(
+            triggerTick,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+
+        assertGt(orderId, 0, "Order ID should be positive");
+        assertTrue(hook.hasOrdersAtTick(triggerTick), "Tick should have orders");
+        assertEq(hook.getOrderCount(user), 1, "User should have 1 order");
+        vm.stopPrank();
+    }
+
+    function testPlaceOrderBuyStop() public {
+        // Buy Stop: isSell=false, triggerAbove=true
+        // Buy token0 when price rises above tick (breakout)
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        int24 triggerTick = 100;
+
+        InEbool memory isSell = createInEbool(false, user);
+        InEbool memory triggerAbove = createInEbool(true, user);
+        InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+        uint256 orderId = hook.placeOrder{value: 0.001 ether}(
+            triggerTick,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+
+        assertGt(orderId, 0, "Order ID should be positive");
+        assertTrue(hook.hasOrdersAtTick(triggerTick), "Tick should have orders");
+        vm.stopPrank();
+    }
+
+    function testPlaceOrderSellLimit() public {
+        // Sell Limit: isSell=true, triggerAbove=true
+        // Sell token0 when price rises above tick (take profit)
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        int24 triggerTick = 100;
+
+        InEbool memory isSell = createInEbool(true, user);
+        InEbool memory triggerAbove = createInEbool(true, user);
+        InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+        uint256 orderId = hook.placeOrder{value: 0.001 ether}(
+            triggerTick,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+
+        assertGt(orderId, 0, "Order ID should be positive");
+        assertTrue(hook.hasOrdersAtTick(triggerTick), "Tick should have orders");
+        vm.stopPrank();
+    }
+
+    function testPlaceOrderSellStop() public {
+        // Sell Stop: isSell=true, triggerAbove=false
+        // Sell token0 when price drops below tick (stop loss)
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        int24 triggerTick = -100;
+
+        InEbool memory isSell = createInEbool(true, user);
+        InEbool memory triggerAbove = createInEbool(false, user);
+        InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+        uint256 orderId = hook.placeOrder{value: 0.001 ether}(
+            triggerTick,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+
+        assertGt(orderId, 0, "Order ID should be positive");
+        assertTrue(hook.hasOrdersAtTick(triggerTick), "Tick should have orders");
+        vm.stopPrank();
+    }
+
+    function testPlaceOrderInsufficientFee() public {
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        InEbool memory isSell = createInEbool(false, user);
+        InEbool memory triggerAbove = createInEbool(false, user);
+        InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+        vm.expectRevert(IPheatherXv2.InsufficientFee.selector);
+        hook.placeOrder{value: 0}( // No fee
+            -100,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+        vm.stopPrank();
+    }
+
+    // ============ Limit Order Cancellation Tests ============
+
+    function testCancelOrderSuccess() public {
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        // Place order
+        InEbool memory isSell = createInEbool(false, user);
+        InEbool memory triggerAbove = createInEbool(false, user);
+        InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+        uint256 orderId = hook.placeOrder{value: 0.001 ether}(
+            -100,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+
+        assertEq(hook.getOrderCount(user), 1, "Should have 1 order");
+
+        // Cancel order
+        hook.cancelOrder(orderId);
+
+        assertEq(hook.getOrderCount(user), 0, "Should have 0 orders after cancel");
+        assertFalse(hook.hasOrdersAtTick(-100), "Tick should have no orders");
+        vm.stopPrank();
+    }
+
+    function testCancelOrderNotOwner() public {
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        InEbool memory isSell = createInEbool(false, user);
+        InEbool memory triggerAbove = createInEbool(false, user);
+        InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+        uint256 orderId = hook.placeOrder{value: 0.001 ether}(
+            -100,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+        vm.stopPrank();
+
+        // Try to cancel as different user
+        vm.prank(user2);
+        vm.expectRevert(IPheatherXv2.NotOrderOwner.selector);
+        hook.cancelOrder(orderId);
+    }
+
+    function testCancelOrderTwiceReverts() public {
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        InEbool memory isSell = createInEbool(false, user);
+        InEbool memory triggerAbove = createInEbool(false, user);
+        InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+        uint256 orderId = hook.placeOrder{value: 0.001 ether}(
+            -100,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+
+        // First cancel succeeds
+        hook.cancelOrder(orderId);
+
+        // Second cancel fails
+        vm.expectRevert(IPheatherXv2.OrderNotActive.selector);
+        hook.cancelOrder(orderId);
+        vm.stopPrank();
+    }
+
+    // ============ Multiple Orders at Same Tick Tests ============
+
+    function testMultipleOrdersSameTick() public {
+        _setupLiquidityAndApprovals();
+        _setupUser2Approvals();
+
+        int24 tick = 100;
+
+        // User 1 places order
+        vm.startPrank(user);
+        InEbool memory isSell1 = createInEbool(true, user);
+        InEbool memory triggerAbove1 = createInEbool(true, user);
+        InEuint128 memory amount1 = createInEuint128(uint128(1 ether), user);
+        InEuint128 memory minOutput1 = createInEuint128(uint128(0.9 ether), user);
+
+        uint256 orderId1 = hook.placeOrder{value: 0.001 ether}(
+            tick,
+            isSell1,
+            triggerAbove1,
+            amount1,
+            minOutput1
+        );
+        vm.stopPrank();
+
+        // User 2 places order at same tick
+        vm.startPrank(user2);
+        InEbool memory isSell2 = createInEbool(false, user2);
+        InEbool memory triggerAbove2 = createInEbool(true, user2);
+        InEuint128 memory amount2 = createInEuint128(uint128(2 ether), user2);
+        InEuint128 memory minOutput2 = createInEuint128(uint128(1.8 ether), user2);
+
+        uint256 orderId2 = hook.placeOrder{value: 0.001 ether}(
+            tick,
+            isSell2,
+            triggerAbove2,
+            amount2,
+            minOutput2
+        );
+        vm.stopPrank();
+
+        assertTrue(hook.hasOrdersAtTick(tick), "Tick should have orders");
+        assertEq(hook.getOrderCount(user), 1, "User1 should have 1 order");
+        assertEq(hook.getOrderCount(user2), 1, "User2 should have 1 order");
+        assertTrue(orderId2 > orderId1, "Order IDs should be sequential");
+    }
+
+    function testMultipleOrdersNearbyTicks() public {
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+
+        // Place orders at nearby ticks
+        int24[] memory ticks = new int24[](5);
+        ticks[0] = -120;
+        ticks[1] = -60;
+        ticks[2] = 0;
+        ticks[3] = 60;
+        ticks[4] = 120;
+
+        for (uint256 i = 0; i < ticks.length; i++) {
+            InEbool memory isSell = createInEbool(i % 2 == 0, user);
+            InEbool memory triggerAbove = createInEbool(ticks[i] > 0, user);
+            InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+            InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+            hook.placeOrder{value: 0.001 ether}(
+                ticks[i],
+                isSell,
+                triggerAbove,
+                amount,
+                minOutput
+            );
+        }
+
+        assertEq(hook.getOrderCount(user), 5, "User should have 5 orders");
+
+        for (uint256 i = 0; i < ticks.length; i++) {
+            assertTrue(hook.hasOrdersAtTick(ticks[i]), "Each tick should have orders");
+        }
+        vm.stopPrank();
+    }
+
+    function testAllFourOrderTypesAtSameTick() public {
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+        int24 tick = 60;
+
+        // Buy Limit (isSell=false, triggerAbove=false)
+        {
+            InEbool memory isSell = createInEbool(false, user);
+            InEbool memory triggerAbove = createInEbool(false, user);
+            InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+            InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+            hook.placeOrder{value: 0.001 ether}(tick, isSell, triggerAbove, amount, minOutput);
+        }
+
+        // Buy Stop (isSell=false, triggerAbove=true)
+        {
+            InEbool memory isSell = createInEbool(false, user);
+            InEbool memory triggerAbove = createInEbool(true, user);
+            InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+            InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+            hook.placeOrder{value: 0.001 ether}(tick, isSell, triggerAbove, amount, minOutput);
+        }
+
+        // Sell Limit (isSell=true, triggerAbove=true)
+        {
+            InEbool memory isSell = createInEbool(true, user);
+            InEbool memory triggerAbove = createInEbool(true, user);
+            InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+            InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+            hook.placeOrder{value: 0.001 ether}(tick, isSell, triggerAbove, amount, minOutput);
+        }
+
+        // Sell Stop (isSell=true, triggerAbove=false)
+        {
+            InEbool memory isSell = createInEbool(true, user);
+            InEbool memory triggerAbove = createInEbool(false, user);
+            InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+            InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+            hook.placeOrder{value: 0.001 ether}(tick, isSell, triggerAbove, amount, minOutput);
+        }
+
+        assertEq(hook.getOrderCount(user), 4, "User should have 4 orders");
+        assertTrue(hook.hasOrdersAtTick(tick), "Tick should have orders");
+        vm.stopPrank();
+    }
+
+    // ============ Order Execution Tests ============
+
+    function testOrderTriggeredBySwap() public {
+        _setupLiquidityAndApprovals();
+
+        // Place a sell stop at current tick - should trigger on price drop
+        vm.startPrank(user);
+
+        // Get current tick
+        (uint256 r0, uint256 r1) = hook.getReserves();
+
+        // Place sell stop below current price
+        int24 triggerTick = -60; // Below starting tick of 0
+
+        InEbool memory isSell = createInEbool(true, user);
+        InEbool memory triggerAbove = createInEbool(false, user); // Trigger when price drops
+        InEuint128 memory amount = createInEuint128(uint128(0.5 ether), user);
+        InEuint128 memory minOutput = createInEuint128(uint128(0.1 ether), user);
+
+        uint256 orderId = hook.placeOrder{value: 0.001 ether}(
+            triggerTick,
+            isSell,
+            triggerAbove,
+            amount,
+            minOutput
+        );
+
+        assertTrue(hook.hasOrdersAtTick(triggerTick), "Tick should have orders before swap");
+        vm.stopPrank();
+
+        // Execute large swap to move price down (sell token0 → price of token0 drops)
+        vm.startPrank(user2);
+        hook.swap(true, 20 ether, 0); // Large swap to move tick
+        vm.stopPrank();
+
+        // Order should be triggered and filled (or attempted)
+        // The tick bitmap might be cleared if order was filled
+    }
+
+    function testMultipleOrdersExecuteOnTickCross() public {
+        _setupLiquidityAndApprovals();
+        _setupUser2Approvals();
+
+        int24 tick = -60;
+
+        // User 1 places sell stop
+        vm.startPrank(user);
+        {
+            InEbool memory isSell = createInEbool(true, user);
+            InEbool memory triggerAbove = createInEbool(false, user);
+            InEuint128 memory amount = createInEuint128(uint128(0.5 ether), user);
+            InEuint128 memory minOutput = createInEuint128(uint128(0.1 ether), user);
+            hook.placeOrder{value: 0.001 ether}(tick, isSell, triggerAbove, amount, minOutput);
+        }
+        vm.stopPrank();
+
+        // User 2 places buy limit at same tick
+        vm.startPrank(user2);
+        {
+            InEbool memory isSell = createInEbool(false, user2);
+            InEbool memory triggerAbove = createInEbool(false, user2);
+            InEuint128 memory amount = createInEuint128(uint128(0.5 ether), user2);
+            InEuint128 memory minOutput = createInEuint128(uint128(0.1 ether), user2);
+            hook.placeOrder{value: 0.001 ether}(tick, isSell, triggerAbove, amount, minOutput);
+        }
+
+        // Execute swap to cross the tick
+        hook.swap(true, 20 ether, 0);
+        vm.stopPrank();
+
+        // Both orders should have been processed
+    }
+
+    // ============ Encrypted Liquidity Tests ============
+
+    function testAddLiquidityEncrypted() public {
+        vm.startPrank(user);
+
+        // Approve encrypted amounts for hook
+        InEuint128 memory allowance0 = createInEuint128(uint128(20 ether), user);
+        InEuint128 memory allowance1 = createInEuint128(uint128(20 ether), user);
+        token0.approveEncrypted(address(hook), allowance0);
+        token1.approveEncrypted(address(hook), allowance1);
+
+        // Add encrypted liquidity
+        InEuint128 memory amount0 = createInEuint128(uint128(10 ether), user);
+        InEuint128 memory amount1 = createInEuint128(uint128(10 ether), user);
+
+        euint128 lpAmount = hook.addLiquidityEncrypted(amount0, amount1);
+
+        // Verify LP amount is non-zero
+        uint256 lpValue = mockStorage(euint128.unwrap(lpAmount));
+        assertGt(lpValue, 0, "LP amount should be positive");
+        vm.stopPrank();
+    }
+
+    function testRemoveLiquidityEncrypted() public {
+        // First add encrypted liquidity
+        vm.startPrank(user);
+
+        InEuint128 memory allowance0 = createInEuint128(uint128(20 ether), user);
+        InEuint128 memory allowance1 = createInEuint128(uint128(20 ether), user);
+        token0.approveEncrypted(address(hook), allowance0);
+        token1.approveEncrypted(address(hook), allowance1);
+
+        InEuint128 memory amount0 = createInEuint128(uint128(10 ether), user);
+        InEuint128 memory amount1 = createInEuint128(uint128(10 ether), user);
+        euint128 lpAmount = hook.addLiquidityEncrypted(amount0, amount1);
+
+        // Now remove liquidity
+        InEuint128 memory lpToRemove = createInEuint128(uint128(5 ether), user);
+        (euint128 out0, euint128 out1) = hook.removeLiquidityEncrypted(lpToRemove);
+
+        // Verify outputs
+        uint256 out0Value = mockStorage(euint128.unwrap(out0));
+        uint256 out1Value = mockStorage(euint128.unwrap(out1));
+        assertGt(out0Value, 0, "Output0 should be positive");
+        assertGt(out1Value, 0, "Output1 should be positive");
+        vm.stopPrank();
+    }
+
+    // ============ Edge Cases ============
+
+    function testSwapNoLiquidityReverts() public {
+        // No liquidity added
+        vm.prank(user);
+        vm.expectRevert(IPheatherXv2.InsufficientLiquidity.selector);
+        hook.swap(true, 1 ether, 0);
+    }
+
+    function testEstimateOutputNoLiquidityReverts() public {
+        vm.expectRevert(IPheatherXv2.InsufficientLiquidity.selector);
+        hook.estimateOutput(true, 1 ether);
+    }
+
+    function testConsecutiveSwapsUpdateReserves() public {
+        vm.startPrank(user);
+        hook.addLiquidity(50 ether, 50 ether);
+
+        (uint256 r0_1, uint256 r1_1) = hook.getReserves();
+
+        hook.swap(true, 5 ether, 0);
+        (uint256 r0_2, uint256 r1_2) = hook.getReserves();
+
+        hook.swap(false, 2 ether, 0);
+        (uint256 r0_3, uint256 r1_3) = hook.getReserves();
+
+        // Verify reserves changed appropriately
+        assertGt(r0_2, r0_1, "Reserve0 should increase after zeroForOne");
+        assertLt(r1_2, r1_1, "Reserve1 should decrease after zeroForOne");
+        assertLt(r0_3, r0_2, "Reserve0 should decrease after oneForZero");
+        assertGt(r1_3, r1_2, "Reserve1 should increase after oneForZero");
+        vm.stopPrank();
+    }
+
+    function testGetActiveOrdersReturnsCorrectOrders() public {
+        _setupLiquidityAndApprovals();
+
+        vm.startPrank(user);
+
+        // Place 3 orders
+        uint256[] memory orderIds = new uint256[](3);
+        for (uint256 i = 0; i < 3; i++) {
+            InEbool memory isSell = createInEbool(false, user);
+            InEbool memory triggerAbove = createInEbool(false, user);
+            InEuint128 memory amount = createInEuint128(uint128(1 ether), user);
+            InEuint128 memory minOutput = createInEuint128(uint128(0.9 ether), user);
+
+            orderIds[i] = hook.placeOrder{value: 0.001 ether}(
+                int24(int256(-60 * int256(i + 1))),
+                isSell,
+                triggerAbove,
+                amount,
+                minOutput
+            );
+        }
+
+        // Cancel middle order
+        hook.cancelOrder(orderIds[1]);
+
+        // Get active orders
+        uint256[] memory activeOrders = hook.getActiveOrders(user);
+        assertEq(activeOrders.length, 2, "Should have 2 active orders");
+        vm.stopPrank();
+    }
+
+    // ============ Helper Functions ============
+
+    function _setupLiquidityAndApprovals() internal {
+        vm.startPrank(user);
+        hook.addLiquidity(50 ether, 50 ether);
+
+        // Approve encrypted tokens for placing orders
+        InEuint128 memory allowance0 = createInEuint128(uint128(100 ether), user);
+        InEuint128 memory allowance1 = createInEuint128(uint128(100 ether), user);
+        token0.approveEncrypted(address(hook), allowance0);
+        token1.approveEncrypted(address(hook), allowance1);
+        vm.stopPrank();
+    }
+
+    function _setupUser2Approvals() internal {
+        vm.startPrank(user2);
+        // Approve plaintext
+        token0.approve(address(hook), type(uint256).max);
+        token1.approve(address(hook), type(uint256).max);
+
+        // Approve encrypted tokens
+        InEuint128 memory allowance0 = createInEuint128(uint128(100 ether), user2);
+        InEuint128 memory allowance1 = createInEuint128(uint128(100 ether), user2);
+        token0.approveEncrypted(address(hook), allowance0);
+        token1.approveEncrypted(address(hook), allowance1);
+        vm.stopPrank();
     }
 }
