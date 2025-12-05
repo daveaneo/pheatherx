@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {euint128, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {euint128, ebool, InEuint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 /// @title IPheatherX
 /// @notice Interface for PheatherX - a private execution layer built on FHE
@@ -63,15 +63,27 @@ interface IPheatherX {
 
     // ============ User Functions ============
 
-    /// @notice Deposit tokens into the hook
+    /// @notice Deposit tokens into the hook (plaintext ERC20 path)
     /// @param isToken0 True to deposit token0, false for token1
     /// @param amount Amount to deposit
     function deposit(bool isToken0, uint256 amount) external;
 
-    /// @notice Withdraw tokens from the hook
+    /// @notice Deposit tokens into the hook (encrypted FHERC20 path)
+    /// @dev Uses transferFromEncrypted - requires approveEncrypted on the token first
+    /// @param isToken0 True to deposit token0, false for token1
+    /// @param encryptedAmount Encrypted amount from cofhejs
+    function depositEncrypted(bool isToken0, InEuint128 calldata encryptedAmount) external;
+
+    /// @notice Withdraw tokens from the hook (plaintext ERC20 path)
     /// @param isToken0 True to withdraw token0, false for token1
     /// @param amount Amount to withdraw
     function withdraw(bool isToken0, uint256 amount) external;
+
+    /// @notice Withdraw tokens from the hook (encrypted FHERC20 path)
+    /// @dev Transfers encrypted tokens directly to user's FHERC20 balance
+    /// @param isToken0 True to withdraw token0, false for token1
+    /// @param encryptedAmount Encrypted amount from cofhejs
+    function withdrawEncrypted(bool isToken0, InEuint128 calldata encryptedAmount) external;
 
     /// @notice Place a limit order
     /// @param triggerTick The tick at which the order triggers

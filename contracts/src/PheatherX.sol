@@ -32,6 +32,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {TickBitmap} from "./lib/TickBitmap.sol";
 import {DirectionLock} from "./lib/DirectionLock.sol";
 import {IPheatherX} from "./interface/IPheatherX.sol";
+import {IFHERC20} from "./interface/IFHERC20.sol";
 
 /// @title PheatherX
 /// @notice A private execution layer built on FHE within the Fhenix ecosystem
@@ -463,6 +464,75 @@ contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
         }
 
         emit Withdraw(msg.sender, isToken0 ? address(token0) : address(token1), amount);
+    }
+
+    /// @notice Deposit FHERC20 tokens into the hook (encrypted path - amount never revealed)
+    /// @dev Requires user to have called approveEncrypted on the FHERC20 token first
+    /// @param isToken0 True to deposit token0, false for token1
+    /// @param encryptedAmount Encrypted amount from cofhejs
+    function depositEncrypted(bool isToken0, InEuint128 calldata encryptedAmount) external nonReentrant {
+        IFHERC20 fheToken = isToken0 ? IFHERC20(address(token0)) : IFHERC20(address(token1));
+
+        // Transfer encrypted tokens from user to this contract
+        // This requires the user to have called approveEncrypted(address(this), amount) first
+        // The token returns the euint128 amount so we don't need to call FHE.asEuint128 again
+        euint128 amount = fheToken.transferFromEncrypted(msg.sender, address(this), encryptedAmount);
+
+        // Initialize user balances if this is their first interaction
+        _ensureUserBalancesInitialized(msg.sender);
+
+        if (isToken0) {
+            userBalanceToken0[msg.sender] = FHE.add(userBalanceToken0[msg.sender], amount);
+            FHE.allowThis(userBalanceToken0[msg.sender]);
+            FHE.allow(userBalanceToken0[msg.sender], msg.sender);
+            encReserve0 = FHE.add(encReserve0, amount);
+            FHE.allowThis(encReserve0);
+            // Note: reserve0 (public cache) is NOT updated - amount is encrypted/unknown
+        } else {
+            userBalanceToken1[msg.sender] = FHE.add(userBalanceToken1[msg.sender], amount);
+            FHE.allowThis(userBalanceToken1[msg.sender]);
+            FHE.allow(userBalanceToken1[msg.sender], msg.sender);
+            encReserve1 = FHE.add(encReserve1, amount);
+            FHE.allowThis(encReserve1);
+            // Note: reserve1 (public cache) is NOT updated - amount is encrypted/unknown
+        }
+
+        emit DepositEncrypted(msg.sender, address(fheToken), amount);
+    }
+
+    /// @notice Withdraw FHERC20 tokens from the hook (encrypted path - amount never revealed)
+    /// @dev Transfers encrypted tokens directly to user's FHERC20 wallet balance
+    /// @param isToken0 True to withdraw token0, false for token1
+    /// @param encryptedAmount Encrypted amount from cofhejs
+    function withdrawEncrypted(bool isToken0, InEuint128 calldata encryptedAmount) external nonReentrant {
+        IFHERC20 fheToken = isToken0 ? IFHERC20(address(token0)) : IFHERC20(address(token1));
+
+        // Convert input to euint128 for internal accounting
+        euint128 amount = FHE.asEuint128(encryptedAmount);
+
+        // Debit user's balance (this will underflow if insufficient - handled by FHE)
+        if (isToken0) {
+            userBalanceToken0[msg.sender] = FHE.sub(userBalanceToken0[msg.sender], amount);
+            FHE.allowThis(userBalanceToken0[msg.sender]);
+            FHE.allow(userBalanceToken0[msg.sender], msg.sender);
+            encReserve0 = FHE.sub(encReserve0, amount);
+            FHE.allowThis(encReserve0);
+            // Note: reserve0 (public cache) is NOT updated - amount is encrypted/unknown
+        } else {
+            userBalanceToken1[msg.sender] = FHE.sub(userBalanceToken1[msg.sender], amount);
+            FHE.allowThis(userBalanceToken1[msg.sender]);
+            FHE.allow(userBalanceToken1[msg.sender], msg.sender);
+            encReserve1 = FHE.sub(encReserve1, amount);
+            FHE.allowThis(encReserve1);
+            // Note: reserve1 (public cache) is NOT updated - amount is encrypted/unknown
+        }
+
+        // Transfer encrypted tokens to user's FHERC20 wallet
+        // Allow the token contract to access our amount for transfer
+        FHE.allow(amount, address(fheToken));
+        fheToken.transferEncryptedDirect(msg.sender, amount);
+
+        emit WithdrawEncrypted(msg.sender, address(fheToken), amount);
     }
 
     function placeOrder(

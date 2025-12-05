@@ -20,7 +20,6 @@ const navItems: NavItem[] = [
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/auctions', label: 'Auctions', comingSoon: true },
   { href: '/launchpad', label: 'Launchpad', comingSoon: true },
-  { href: '/faucet', label: 'Faucet', testnetOnly: true },
 ];
 
 // Testnets and local development chains
