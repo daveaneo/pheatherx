@@ -51,6 +51,15 @@ library TickBitmap {
         return (self[wordPos] & mask) != 0;
     }
 
+    /// @notice Alias for hasOrdersAtTick - checks if a tick's bit is set
+    /// @dev Provided for API compatibility with spec documentation
+    /// @param self The bitmap mapping
+    /// @param tick The tick to check
+    /// @return True if the tick's bit is set (has orders)
+    function isSet(mapping(int16 => uint256) storage self, int24 tick) internal view returns (bool) {
+        return hasOrdersAtTick(self, tick);
+    }
+
     /// @notice Finds the next tick with orders within the range
     /// @param self The bitmap mapping
     /// @param tick The current tick (exclusive - search starts at tick+1 for searchingUp)

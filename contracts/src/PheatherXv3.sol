@@ -492,7 +492,14 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         }
     }
 
-    /// @notice Initialize reserves for price estimation
+    /// @notice Initialize or update the plaintext reserve values used for price estimation
+    /// @dev These reserves are used to calculate the current price tick and estimate swap outputs.
+    ///      In production, reserves should reflect the actual pool liquidity. For testing, they can
+    ///      be set manually. The reserves are also used by frontends to display estimated prices.
+    ///      IMPORTANT: This should be called after deployment to set initial liquidity estimates,
+    ///      and can be called again if reserves drift significantly from actual pool state.
+    /// @param _reserve0 The amount of token0 in the pool (in token0's smallest unit)
+    /// @param _reserve1 The amount of token1 in the pool (in token1's smallest unit)
     function initializeReserves(uint256 _reserve0, uint256 _reserve1) external onlyOwner {
         reserve0 = _reserve0;
         reserve1 = _reserve1;
