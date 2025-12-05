@@ -287,6 +287,30 @@ contract FHERC20FaucetToken is ERC20, Ownable {
         return amount;
     }
 
+    /// @notice Transfer from encrypted allowance (direct euint128 for contract-to-contract)
+    /// @param from Token owner
+    /// @param to Recipient
+    /// @param amount The euint128 amount handle (caller must have allowance)
+    /// @return success True if the transfer succeeded
+    function transferFromEncryptedDirect(
+        address from,
+        address to,
+        euint128 amount
+    ) external returns (bool) {
+        // Subtract from allowance (will underflow if insufficient)
+        _encAllowances[from][msg.sender] = FHE.sub(_encAllowances[from][msg.sender], amount);
+
+        // Update allowance permissions
+        FHE.allowThis(_encAllowances[from][msg.sender]);
+        FHE.allow(_encAllowances[from][msg.sender], from);
+        FHE.allow(_encAllowances[from][msg.sender], msg.sender);
+
+        // Transfer
+        _transferEncrypted(from, to, amount);
+
+        return true;
+    }
+
     // ============ View Helpers ============
 
     /// @notice Get the plaintext ERC20 total supply (unwrapped tokens only)

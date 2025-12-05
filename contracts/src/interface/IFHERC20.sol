@@ -26,6 +26,17 @@ interface IFHERC20 {
         euint128 amount
     ) external returns (bool);
 
+    /// @notice Transfer encrypted tokens from one address to another (direct euint128 for contract-to-contract)
+    /// @param from The address to transfer from
+    /// @param to The address to transfer to
+    /// @param amount The encrypted amount handle (caller must have allowance)
+    /// @return success True if the transfer succeeded
+    function transferFromEncryptedDirect(
+        address from,
+        address to,
+        euint128 amount
+    ) external returns (bool);
+
     /// @notice Get encrypted balance handle
     /// @param account The address to query
     /// @return The encrypted balance handle
