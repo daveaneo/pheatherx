@@ -288,7 +288,10 @@ export async function unseal(ciphertext: string, maxRetries: number = 3): Promis
       const result = await response.json();
 
       if (!result.success) {
-        throw new Error(result.error || 'Failed to unseal');
+        const errorMsg = typeof result.error === 'string'
+          ? result.error
+          : result.error?.message || JSON.stringify(result.error) || 'Failed to unseal';
+        throw new Error(errorMsg);
       }
 
       return BigInt(result.value);

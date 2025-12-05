@@ -1,0 +1,42 @@
+{
+  "chainId": 11155111,
+  "deployedAt": "1764951960",
+  "tokens": {
+    "erc20": {
+      "tUSDC": {
+        "address": "0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56",
+        "symbol": "tUSDC",
+        "name": "Test USDC",
+        "decimals": 6,
+        "type": "erc20"
+      },
+      "tWETH": {
+        "address": "0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E",
+        "symbol": "tWETH",
+        "name": "Test WETH",
+        "decimals": 18,
+        "type": "erc20"
+      }
+    },
+    "fheerc20": {
+      "fheUSDC": {
+        "address": "0x1D77eE754b2080B354733299A5aC678539a0D740",
+        "symbol": "fheUSDC",
+        "name": "FHE Test USDC",
+        "decimals": 6,
+        "type": "fheerc20"
+      },
+      "fheWETH": {
+        "address": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
+        "symbol": "fheWETH",
+        "name": "FHE Test WETH",
+        "decimals": 18,
+        "type": "fheerc20"
+      }
+    }
+  },
+  "faucetConfig": {
+    "amount": 100,
+    "cooldownSeconds": 3600
+  }
+}

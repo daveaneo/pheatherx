@@ -1,18 +1,17 @@
 'use client';
 
-import { useAccount, useBalance } from 'wagmi';
+import { useState, useCallback } from 'react';
+import { useAccount, useBalance, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useAllTokens } from '@/stores/poolStore';
 import { useFaucet } from '@/hooks/useFaucet';
-import { cn } from '@/lib/utils';
-import type { Token } from '@/types/pool';
+import { getFaucetTokens, type FaucetToken } from '@/lib/faucetTokens';
 
 interface TokenRowProps {
-  token: Token;
-  onRequestTokens: (token: Token) => void;
-  onAddToWallet: (token: Token) => void;
+  token: FaucetToken;
+  onRequestTokens: (token: FaucetToken) => void;
+  onAddToWallet: (token: FaucetToken) => void;
   isRequesting: boolean;
   requestingToken: `0x${string}` | null;
 }
@@ -32,6 +31,30 @@ function TokenRow({ token, onRequestTokens, onAddToWallet, isRequesting, request
 
   const isRequestingThis = isRequesting && requestingToken === token.address;
 
+  // Get icon based on token type
+  const getTokenIcon = () => {
+    if (token.type === 'fheerc20') {
+      return '\uD83D\uDD10'; // Lock icon for FHE tokens
+    }
+    return '\uD83D\uDCB0'; // Money bag for standard ERC20
+  };
+
+  // Get badge for token type
+  const getTypeBadge = () => {
+    if (token.type === 'fheerc20') {
+      return (
+        <span className="px-1.5 py-0.5 bg-phoenix-ember/20 text-phoenix-ember text-xs rounded">
+          FHE
+        </span>
+      );
+    }
+    return (
+      <span className="px-1.5 py-0.5 bg-electric-teal/20 text-electric-teal text-xs rounded">
+        ERC20
+      </span>
+    );
+  };
+
   return (
     <div
       data-testid={`faucet-token-${token.symbol.toLowerCase()}`}
@@ -40,13 +63,16 @@ function TokenRow({ token, onRequestTokens, onAddToWallet, isRequesting, request
       <div className="flex items-center gap-4">
         {/* Token Icon */}
         <div className="w-10 h-10 rounded-full bg-carbon-gray flex items-center justify-center text-xl">
-          {'\uD83D\uDCB0'}
+          {getTokenIcon()}
         </div>
 
         {/* Token Info */}
         <div>
           <div className="flex items-center gap-2">
-            <span className="font-medium text-feather-white" data-testid={`token-symbol-${token.symbol.toLowerCase()}`}>{token.symbol}</span>
+            <span className="font-medium text-feather-white" data-testid={`token-symbol-${token.symbol.toLowerCase()}`}>
+              {token.symbol}
+            </span>
+            {getTypeBadge()}
             <span className="text-sm text-feather-white/50">{token.name}</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-feather-white/40">
@@ -110,16 +136,27 @@ function TokenRow({ token, onRequestTokens, onAddToWallet, isRequesting, request
 }
 
 export function FaucetTokenList() {
-  const tokens = useAllTokens();
-  const { requestTokens, addTokenToWallet, isRequesting, requestingToken } = useFaucet();
+  const chainId = useChainId();
+  const tokens = getFaucetTokens(chainId);
+  const { requestTokens, addTokenToWallet, isRequesting, requestingToken, requestAllTokens } = useFaucet();
+  const [isRequestingAll, setIsRequestingAll] = useState(false);
+
+  const handleRequestAll = useCallback(async () => {
+    setIsRequestingAll(true);
+    try {
+      await requestAllTokens(tokens);
+    } finally {
+      setIsRequestingAll(false);
+    }
+  }, [tokens, requestAllTokens]);
 
   if (tokens.length === 0) {
     return (
       <Card>
         <CardContent className="py-8">
           <div className="text-center text-feather-white/60">
-            <p>No tokens available</p>
-            <p className="text-sm mt-2">Pools need to be created first</p>
+            <p>No faucet tokens available on this network</p>
+            <p className="text-sm mt-2">Switch to Ethereum Sepolia to access faucet tokens</p>
           </div>
         </CardContent>
       </Card>
@@ -129,23 +166,58 @@ export function FaucetTokenList() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Ecosystem Tokens</CardTitle>
-        <p className="text-sm text-feather-white/60">
-          Request 1,000 of each token from the faucet
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Testnet Tokens</CardTitle>
+            <p className="text-sm text-feather-white/60">
+              Request 100 of each token from the faucet
+            </p>
+          </div>
+          <Button
+            onClick={handleRequestAll}
+            loading={isRequestingAll}
+            disabled={isRequesting || isRequestingAll}
+            data-testid="faucet-request-all"
+          >
+            Get All Tokens
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {tokens.map(token => (
-            <TokenRow
-              key={token.address}
-              token={token}
-              onRequestTokens={requestTokens}
-              onAddToWallet={addTokenToWallet}
-              isRequesting={isRequesting}
-              requestingToken={requestingToken}
-            />
-          ))}
+          {/* ERC20 Tokens Section */}
+          <div className="mb-4">
+            <h4 className="text-sm font-medium text-feather-white/70 mb-2">Standard ERC20</h4>
+            <div className="space-y-3">
+              {tokens.filter(t => t.type === 'erc20').map(token => (
+                <TokenRow
+                  key={token.address}
+                  token={token}
+                  onRequestTokens={requestTokens}
+                  onAddToWallet={addTokenToWallet}
+                  isRequesting={isRequesting}
+                  requestingToken={requestingToken}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* FHE Tokens Section */}
+          <div>
+            <h4 className="text-sm font-medium text-feather-white/70 mb-2">FHE-Enabled (Encrypted)</h4>
+            <div className="space-y-3">
+              {tokens.filter(t => t.type === 'fheerc20').map(token => (
+                <TokenRow
+                  key={token.address}
+                  token={token}
+                  onRequestTokens={requestTokens}
+                  onAddToWallet={addTokenToWallet}
+                  isRequesting={isRequesting}
+                  requestingToken={requestingToken}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>

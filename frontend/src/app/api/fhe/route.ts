@@ -83,10 +83,10 @@ export async function POST(request: NextRequest) {
           success: true,
           sessionId,
           permit: {
-            issuer: result.data.issuer,
-            chainId: result.data._signedDomain?.chainId,
-            verifyingContract: result.data._signedDomain?.verifyingContract,
-            publicKey: result.data.sealingPair?.publicKey,
+            issuer: result.data?.issuer,
+            chainId: result.data?._signedDomain?.chainId,
+            verifyingContract: result.data?._signedDomain?.verifyingContract,
+            publicKey: result.data?.sealingPair?.publicKey,
           },
           expiresAt: Date.now() + SESSION_DURATION,
         });

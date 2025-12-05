@@ -79,9 +79,9 @@ export async function POST(request: NextRequest) {
         wallet: wallet.address,
         data: {
           // Don't expose private keys, just confirmation it worked
-          issuer: result.data.issuer,
-          chainId: result.data._signedDomain?.chainId,
-          verifyingContract: result.data._signedDomain?.verifyingContract,
+          issuer: result.data?.issuer,
+          chainId: result.data?._signedDomain?.chainId,
+          verifyingContract: result.data?._signedDomain?.verifyingContract,
         },
       });
     } else {

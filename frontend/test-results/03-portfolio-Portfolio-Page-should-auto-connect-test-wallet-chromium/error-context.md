@@ -1,0 +1,93 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e6]:
+        - link "PheatherX" [ref=e7] [cursor=pointer]:
+          - /url: /
+          - img [ref=e8]
+          - generic [ref=e11]: PheatherX
+        - navigation [ref=e12]:
+          - link "Swap" [ref=e13] [cursor=pointer]:
+            - /url: /swap
+          - link "Liquidity" [ref=e14] [cursor=pointer]:
+            - /url: /liquidity
+          - link "Orders" [ref=e15] [cursor=pointer]:
+            - /url: /orders/new
+          - link "Portfolio" [ref=e16] [cursor=pointer]:
+            - /url: /portfolio
+          - link "Auctions Soon" [ref=e17] [cursor=pointer]:
+            - /url: /auctions
+            - text: Auctions
+            - generic [ref=e18]: Soon
+          - link "Launchpad Soon" [ref=e19] [cursor=pointer]:
+            - /url: /launchpad
+            - text: Launchpad
+            - generic [ref=e20]: Soon
+          - link "Faucet" [ref=e21] [cursor=pointer]:
+            - /url: /faucet
+        - button "Connect Wallet" [ref=e24] [cursor=pointer]
+    - main [ref=e25]:
+      - generic [ref=e27]:
+        - generic [ref=e28]: 🔗
+        - heading "Wallet Required" [level=2] [ref=e29]
+        - paragraph [ref=e30]: Connect your wallet to view your portfolio
+        - button "Connect Wallet" [ref=e32] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=e38] [cursor=pointer]:
+    - img [ref=e39]
+  - alert [ref=e42]
+  - dialog "Connect a Wallet" [ref=e43]:
+    - document [active] [ref=e44]:
+      - generic [ref=e48]:
+        - generic [ref=e49]:
+          - heading "Connect a Wallet" [level=1] [ref=e52]
+          - generic [ref=e53]:
+            - generic [ref=e55]: Popular
+            - generic [ref=e56]:
+              - button "Rainbow" [ref=e58] [cursor=pointer]:
+                - generic [ref=e60]:
+                  - img [ref=e61]:
+                    - img [ref=e62]
+                  - generic [ref=e65]: Rainbow
+              - button "Base Account" [ref=e67] [cursor=pointer]:
+                - generic [ref=e69]:
+                  - img [ref=e70]:
+                    - img [ref=e71]
+                  - generic [ref=e74]: Base Account
+              - button "MetaMask" [ref=e76] [cursor=pointer]:
+                - generic [ref=e78]:
+                  - img [ref=e79]:
+                    - img [ref=e80]
+                  - generic [ref=e83]: MetaMask
+              - button "WalletConnect" [ref=e85] [cursor=pointer]:
+                - generic [ref=e87]:
+                  - img [ref=e88]:
+                    - img [ref=e89]
+                  - generic [ref=e92]: WalletConnect
+        - generic [ref=e94]:
+          - button "Close" [ref=e96] [cursor=pointer]:
+            - img [ref=e97]
+          - generic [ref=e101]:
+            - generic [ref=e103]: What is a Wallet?
+            - generic [ref=e104]:
+              - generic [ref=e105]:
+                - img [ref=e107]:
+                  - img [ref=e108]
+                - generic [ref=e109]:
+                  - generic [ref=e110]: A Home for your Digital Assets
+                  - generic [ref=e111]: Wallets are used to send, receive, store, and display digital assets like Ethereum and NFTs.
+              - generic [ref=e112]:
+                - img [ref=e114]:
+                  - img [ref=e115]
+                - generic [ref=e116]:
+                  - generic [ref=e117]: A New Way to Log In
+                  - generic [ref=e118]: Instead of creating new accounts and passwords on every website, just connect your wallet.
+            - generic [ref=e119]:
+              - button "Get a Wallet" [ref=e120] [cursor=pointer]:
+                - generic [ref=e121]: Get a Wallet
+              - link "Learn More" [ref=e122] [cursor=pointer]:
+                - /url: https://learn.rainbow.me/understanding-web3?utm_source=rainbowkit&utm_campaign=learnmore
+                - generic [ref=e123]: Learn More
+```

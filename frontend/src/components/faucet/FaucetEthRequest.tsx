@@ -5,6 +5,19 @@ import { formatEther } from 'viem';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/stores/uiStore';
+import { getFaucetConfig } from '@/lib/faucetTokens';
+
+// External faucet links by chain ID
+const ETH_FAUCET_LINKS: Record<number, { name: string; url: string }[]> = {
+  11155111: [
+    { name: 'Alchemy Faucet', url: 'https://sepoliafaucet.com/' },
+    { name: 'Infura Faucet', url: 'https://www.infura.io/faucet/sepolia' },
+    { name: 'QuickNode Faucet', url: 'https://faucet.quicknode.com/ethereum/sepolia' },
+  ],
+  421614: [
+    { name: 'Arbitrum Faucet', url: 'https://www.alchemy.com/faucets/arbitrum-sepolia' },
+  ],
+};
 
 export function FaucetEthRequest() {
   const { address } = useAccount();
@@ -12,17 +25,25 @@ export function FaucetEthRequest() {
   const { data: balance, isLoading } = useBalance({ address, chainId });
   const { success: successToast, error: errorToast } = useToast();
 
-  // For local Anvil, users get ETH automatically when they connect
-  // For testnets, we'd link to a faucet
+  const faucetConfig = getFaucetConfig(chainId);
+  const faucetLinks = ETH_FAUCET_LINKS[chainId] || [];
+
+  // For local Anvil, users get ETH automatically
   const handleRequestEth = () => {
     if (chainId === 31337) {
       successToast(
         'Local Development',
         'On Anvil, you already have test ETH. If you need more, restart Anvil.'
       );
+    } else if (faucetLinks.length > 0) {
+      // Open first faucet link
+      window.open(faucetLinks[0].url, '_blank');
+      successToast(
+        'Opening Faucet',
+        `Opening ${faucetLinks[0].name}. Request ${faucetConfig?.ethFaucetAmount || '0.01'} ETH for testing.`
+      );
     } else {
-      // Would link to external faucet for testnets
-      errorToast('External Faucet', 'Please use an external faucet for this testnet');
+      errorToast('No Faucet Available', 'No ETH faucet available for this network');
     }
   };
 
@@ -33,7 +54,7 @@ export function FaucetEthRequest() {
         <p className="text-sm text-feather-white/60">
           {chainId === 31337
             ? 'Local Anvil provides test ETH automatically'
-            : 'Request ETH from a testnet faucet'}
+            : `Request ~${faucetConfig?.ethFaucetAmount || '0.01'} ETH from a testnet faucet`}
         </p>
       </CardHeader>
       <CardContent>
@@ -73,17 +94,43 @@ export function FaucetEthRequest() {
                 Auto-funded
               </div>
             ) : (
-              <Button size="sm" onClick={handleRequestEth}>
+              <Button size="sm" onClick={handleRequestEth} data-testid="faucet-request-eth">
                 Get ETH
               </Button>
             )}
           </div>
         </div>
 
-        {chainId === 31337 && (
+        {chainId === 31337 ? (
           <p className="mt-3 text-xs text-feather-white/40 text-center">
             Anvil provides 10,000 ETH to each test account. Restart Anvil to reset balances.
           </p>
+        ) : faucetLinks.length > 1 ? (
+          <div className="mt-3">
+            <p className="text-xs text-feather-white/60 mb-2">Other faucets:</p>
+            <div className="flex flex-wrap gap-2">
+              {faucetLinks.slice(1).map(({ name, url }) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-electric-teal hover:text-electric-teal/80 underline"
+                >
+                  {name}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {chainId !== 31337 && (
+          <div className="mt-4 p-3 bg-phoenix-ember/10 border border-phoenix-ember/30 rounded-lg">
+            <p className="text-xs text-phoenix-ember/90">
+              <strong>Tip:</strong> You only need ~{faucetConfig?.ethFaucetAmount || '0.002'} ETH for gas fees.
+              Most testnet faucets provide 0.01-0.5 ETH per request.
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>

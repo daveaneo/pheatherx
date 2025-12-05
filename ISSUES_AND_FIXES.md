@@ -244,3 +244,67 @@ source .env && forge script script/DeployEthSepolia.s.sol:DeployEthSepolia --rpc
 4. **Validate API parameters based on action type**
    - Not all actions need all parameters
    - Session-based operations can use cached context
+
+---
+
+## Date: December 5, 2025
+
+---
+
+## Issue #5: Balance Reveal Fails with SEAL_OUTPUT_RETURNED_NULL Error
+
+### Symptoms
+- Error: `SEAL_OUTPUT_RETURNED_NULL` when trying to reveal balance
+- Occurs for users who have never deposited (zero balance)
+- FHE unseal operation fails because ciphertext is 0x0
+
+### Root Cause
+When a user has never deposited, their encrypted balance stored on-chain is `0n` (the zero value). This zero ciphertext was never actually created by the FHE system - it's just the default storage value. When the frontend tried to call `unseal(0x0)`, the CoFHE coprocessor correctly returned an error because you can't decrypt a ciphertext that was never encrypted.
+
+### Analysis
+```typescript
+// In useBalanceReveal.ts line 114-117:
+const encryptedHex = typeof encrypted === 'bigint'
+  ? `0x${encrypted.toString(16)}`
+  : String(encrypted);
+const decrypted = await unseal(encryptedHex, FHE_RETRY_ATTEMPTS);
+// ^ This fails with SEAL_OUTPUT_RETURNED_NULL when encrypted is 0n
+```
+
+The FHE unseal API cannot decrypt:
+- Ciphertext hash `0x0` - no encryption ever happened
+- Any value that wasn't actually encrypted with `FHE.asEuint128()`
+
+### Fix Applied
+Modified `frontend/src/hooks/useBalanceReveal.ts` to detect zero ciphertext and return `0n` directly without attempting unseal:
+
+```typescript
+// Handle case where encrypted balance is 0 (user has never deposited)
+// A ciphertext hash of 0 means no encrypted value exists
+if (encrypted === undefined || encrypted === null) {
+  throw new Error('Failed to fetch encrypted balance');
+}
+
+// Check if balance is zero (no deposit made yet)
+const encryptedBigInt = typeof encrypted === 'bigint' ? encrypted : BigInt(String(encrypted));
+if (encryptedBigInt === 0n) {
+  // No encrypted balance exists - user has 0 balance
+  setValue(0n);
+  cacheBalance(cacheKey, 0n);
+  setStatus('revealed');
+  setProgress(100);
+  return 0n;
+}
+
+// Step 2: Start decryption with retry (only for non-zero ciphertexts)
+setStatus('decrypting');
+// ... rest of unseal logic
+```
+
+### Files Modified
+- `frontend/src/hooks/useBalanceReveal.ts`
+
+### Verification
+- Users with no deposits now see "0" balance correctly
+- Users with deposits can still reveal their actual encrypted balance
+- No more SEAL_OUTPUT_RETURNED_NULL errors for new users

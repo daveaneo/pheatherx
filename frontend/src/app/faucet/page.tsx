@@ -80,7 +80,7 @@ export default function FaucetPage() {
             <ol className="space-y-2 text-sm text-feather-white/70">
               <li className="flex gap-2">
                 <span className="text-phoenix-ember font-medium">1.</span>
-                Click "Request" to get 1,000 tokens from each faucet
+                Click "Get All Tokens" to receive 100 of each token, or request individually
               </li>
               <li className="flex gap-2">
                 <span className="text-phoenix-ember font-medium">2.</span>
@@ -88,9 +88,18 @@ export default function FaucetPage() {
               </li>
               <li className="flex gap-2">
                 <span className="text-phoenix-ember font-medium">3.</span>
+                Use standard ERC20 tokens for regular swaps, FHE tokens for privacy-preserving trades
+              </li>
+              <li className="flex gap-2">
+                <span className="text-phoenix-ember font-medium">4.</span>
                 Head to Swap or Liquidity to start trading!
               </li>
             </ol>
+            <div className="mt-4 p-3 bg-ash-gray/50 rounded-lg">
+              <p className="text-xs text-feather-white/60">
+                <strong>Note:</strong> Faucet has a 1-hour cooldown per token. If a request fails, you may need to wait.
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>

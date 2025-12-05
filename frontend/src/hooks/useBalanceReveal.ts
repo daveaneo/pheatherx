@@ -97,8 +97,21 @@ export function useBalanceReveal(isToken0: boolean): UseBalanceRevealResult {
       const { data: encrypted } = await refetchBalance();
       setProgress(30);
 
-      if (!encrypted) {
+      // Handle case where encrypted balance is 0 (user has never deposited)
+      // A ciphertext hash of 0 means no encrypted value exists
+      if (encrypted === undefined || encrypted === null) {
         throw new Error('Failed to fetch encrypted balance');
+      }
+
+      // Check if balance is zero (no deposit made yet)
+      const encryptedBigInt = typeof encrypted === 'bigint' ? encrypted : BigInt(String(encrypted));
+      if (encryptedBigInt === 0n) {
+        // No encrypted balance exists - user has 0 balance
+        setValue(0n);
+        cacheBalance(cacheKey, 0n);
+        setStatus('revealed');
+        setProgress(100);
+        return 0n;
       }
 
       // Step 2: Start decryption with retry
