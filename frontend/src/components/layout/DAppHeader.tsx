@@ -14,9 +14,8 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: '/swap', label: 'Swap' },
+  { href: '/trade', label: 'Trade' },
   { href: '/liquidity', label: 'Liquidity' },
-  { href: '/orders/new', label: 'Orders' },
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/auctions', label: 'Auctions', comingSoon: true },
   { href: '/launchpad', label: 'Launchpad', comingSoon: true },

@@ -74,6 +74,36 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: false,
   },
 
+  // Redirects for deprecated routes
+  async redirects() {
+    return [
+      // /swap → /trade (unified trading)
+      {
+        source: '/swap',
+        destination: '/trade',
+        permanent: true,
+      },
+      // /orders/* → /trade
+      {
+        source: '/orders/:path*',
+        destination: '/trade',
+        permanent: true,
+      },
+      // /faucet → /portfolio (faucet moved to portfolio)
+      {
+        source: '/faucet',
+        destination: '/portfolio',
+        permanent: true,
+      },
+      // /analytics → / (analytics on homepage)
+      {
+        source: '/analytics',
+        destination: '/',
+        permanent: true,
+      },
+    ];
+  },
+
   // Transpile packages that have ESM issues
   transpilePackages: ['@walletconnect/ethereum-provider'],
 

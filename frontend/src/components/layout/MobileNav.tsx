@@ -6,8 +6,8 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { href: '/swap', label: 'Swap', icon: '&#x21C4;' },
-  { href: '/orders/new', label: 'Orders', icon: '&#x1F4CB;' },
+  { href: '/trade', label: 'Trade', icon: '&#x21C4;' },
+  { href: '/liquidity', label: 'Liquidity', icon: '&#x1F4CA;' },
   { href: '/portfolio', label: 'Portfolio', icon: '&#x1F4BC;' },
 ];
 
