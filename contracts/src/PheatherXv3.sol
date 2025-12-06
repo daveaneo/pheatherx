@@ -12,8 +12,27 @@ import {TickBitmap} from "./lib/TickBitmap.sol";
 
 /// @title PheatherX v3 - Private Bucketed Limit Order DEX
 /// @author PheatherX Team
-/// @notice Encrypted limit orders with O(1) gas per bucket using FHE
-/// @dev Uses "proceeds per share" accumulator model for pro-rata distribution
+/// @notice A decentralized exchange implementing encrypted limit orders using Fully Homomorphic Encryption (FHE)
+/// @dev This contract implements a bucketed limit order system where:
+///      - Orders are grouped by price ticks (buckets) for O(1) gas per bucket during swaps
+///      - All user amounts are encrypted using FHE, providing complete trade privacy
+///      - The "proceeds per share" accumulator model ensures fair pro-rata distribution of fills
+///      - Separate BUY and SELL buckets at each tick prevent order crossing issues
+///
+///      Key invariants:
+///      - totalShares always equals sum of all user shares in a bucket
+///      - proceedsPerShare is monotonically increasing (never decreases)
+///      - liquidity + sum(proceeds distributed) = total deposited in bucket
+///
+///      Token flow:
+///      - SELL bucket: Users deposit token0, receive token1 when filled
+///      - BUY bucket: Users deposit token1, receive token0 when filled
+///
+///      Security features:
+///      - ReentrancyGuard on all external state-changing functions
+///      - Pausable for emergency stops
+///      - 2-day timelock on fee changes
+///      - Encrypted amounts prevent front-running and sandwich attacks
 contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     using SafeERC20 for IERC20;
 
@@ -40,20 +59,43 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     //                               TYPES
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Indicates whether a bucket contains buy or sell orders
+    /// @dev BUY = users want to buy token0 (deposit token1), SELL = users want to sell token0 (deposit token0)
     enum BucketSide { BUY, SELL }
 
+    /// @notice Represents a price bucket containing aggregated liquidity at a specific tick
+    /// @dev Each bucket tracks total shares, remaining liquidity, and accumulator values for pro-rata distribution.
+    ///      The accumulators (proceedsPerShare, filledPerShare) are scaled by PRECISION (1e18) for fixed-point math.
     struct Bucket {
-        euint128 totalShares;       // Sum of all user shares
-        euint128 liquidity;         // Current unfilled liquidity
-        euint128 proceedsPerShare;  // Accumulated proceeds per share (scaled)
-        euint128 filledPerShare;    // Accumulated fills per share (scaled)
+        /// @notice Sum of all user shares in this bucket (encrypted)
+        euint128 totalShares;
+        /// @notice Current unfilled liquidity remaining in the bucket (encrypted)
+        euint128 liquidity;
+        /// @notice Accumulated proceeds per share, scaled by PRECISION (encrypted)
+        /// @dev Increases when swaps fill orders. Users calculate their proceeds as:
+        ///      proceeds = shares * (current proceedsPerShare - snapshot) / PRECISION
+        euint128 proceedsPerShare;
+        /// @notice Accumulated fills per share, scaled by PRECISION (encrypted)
+        /// @dev Used to calculate how much of a user's deposit has been filled
+        euint128 filledPerShare;
+        /// @notice Whether this bucket has been initialized with encrypted zero values
         bool initialized;
     }
 
+    /// @notice Represents a user's position in a specific bucket
+    /// @dev Stores shares, snapshots of accumulators at deposit time, and realized (unclaimed) proceeds.
+    ///      Snapshots enable calculating pro-rata share of fills since the user's deposit.
     struct UserPosition {
+        /// @notice User's share of the bucket (1:1 with deposit amount)
         euint128 shares;
+        /// @notice Snapshot of bucket.proceedsPerShare at time of last deposit/claim
+        /// @dev Used to calculate proceeds earned since snapshot
         euint128 proceedsPerShareSnapshot;
+        /// @notice Snapshot of bucket.filledPerShare at time of last deposit/claim
+        /// @dev Used to calculate how much of user's position has been filled
         euint128 filledPerShareSnapshot;
+        /// @notice Accumulated proceeds from previous deposits (not yet claimed)
+        /// @dev When user deposits again, existing proceeds are stored here via auto-claim
         euint128 realizedProceeds;
     }
 
@@ -61,60 +103,143 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     //                               STATE
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Token pair
+    /// @notice The first token in the pair (must have lower address than token1)
+    /// @dev FHERC20 token that supports encrypted transfers
     IFHERC20 public immutable token0;
+
+    /// @notice The second token in the pair (must have higher address than token0)
+    /// @dev FHERC20 token that supports encrypted transfers
     IFHERC20 public immutable token1;
 
-    /// @notice Encrypted constants
+    /// @notice Pre-computed encrypted zero value for gas optimization
+    /// @dev Initialized once in constructor, used throughout contract
     euint128 internal immutable ENC_ZERO;
+
+    /// @notice Pre-computed encrypted PRECISION value (1e18) for fixed-point math
+    /// @dev Used in accumulator calculations to maintain precision
     euint128 internal immutable ENC_PRECISION;
+
+    /// @notice Pre-computed encrypted one value for division safety
+    /// @dev Used as fallback denominator to prevent division by zero
     euint128 internal immutable ENC_ONE;
 
-    /// @notice Buckets: tick => side => bucket
+    /// @notice All buckets indexed by tick and side
+    /// @dev tick => side => Bucket. Each tick can have both BUY and SELL buckets.
     mapping(int24 => mapping(BucketSide => Bucket)) public buckets;
 
-    /// @notice Positions: user => tick => side => position
+    /// @notice All user positions indexed by user, tick, and side
+    /// @dev user => tick => side => UserPosition
     mapping(address => mapping(int24 => mapping(BucketSide => UserPosition))) public positions;
 
-    /// @notice Tick bitmaps (mapping from word index to bitmap)
+    /// @notice Bitmap tracking which ticks have active BUY orders
+    /// @dev word index => 256-bit bitmap. Used for efficient tick traversal during swaps.
     mapping(int16 => uint256) internal buyBitmap;
+
+    /// @notice Bitmap tracking which ticks have active SELL orders
+    /// @dev word index => 256-bit bitmap. Used for efficient tick traversal during swaps.
     mapping(int16 => uint256) internal sellBitmap;
 
-    /// @notice Tick prices: tick => price (scaled by PRECISION)
+    /// @notice Pre-computed prices for each tick, scaled by PRECISION
+    /// @dev tick => price. Formula: price = 1.0001^tick * PRECISION
     mapping(int24 => uint256) public tickPrices;
 
-    /// @notice Configuration
+    /// @notice Maximum number of buckets that can be processed in a single swap
+    /// @dev Limits gas usage per swap. Can be adjusted by owner (1-20 range).
     uint256 public maxBucketsPerSwap = 5;
-    uint256 public protocolFeeBps = 5;  // 0.05%
+
+    /// @notice Protocol fee in basis points (1 bps = 0.01%)
+    /// @dev Applied to swap outputs. Max 100 bps (1%). Default 5 bps (0.05%).
+    uint256 public protocolFeeBps = 5;
+
+    /// @notice Address that receives protocol fees
+    /// @dev Set by owner. If zero address, fees are not collected.
     address public feeCollector;
 
-    /// @notice Fee change timelock
+    /// @notice Pending protocol fee awaiting timelock expiry
+    /// @dev Set by queueProtocolFee(), applied by applyProtocolFee()
     uint256 public pendingFeeBps;
+
+    /// @notice Timestamp when pending fee can be applied
+    /// @dev Must wait FEE_CHANGE_DELAY (2 days) after queueing
     uint256 public feeChangeTimestamp;
 
-    /// @notice Public reserves for price estimation
+    /// @notice Plaintext reserve of token0 for price estimation
+    /// @dev Updated after each swap. Used to calculate current tick and estimate outputs.
     uint256 public reserve0;
+
+    /// @notice Plaintext reserve of token1 for price estimation
+    /// @dev Updated after each swap. Used to calculate current tick and estimate outputs.
     uint256 public reserve1;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                               EVENTS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Emitted when a user deposits tokens into a bucket
+    /// @param user The depositor's address
+    /// @param tick The price tick of the bucket
+    /// @param side Whether this is a BUY or SELL bucket
+    /// @param amountHash Hash of the encrypted amount (for privacy-preserving logging)
     event Deposit(address indexed user, int24 indexed tick, BucketSide indexed side, bytes32 amountHash);
+
+    /// @notice Emitted when a user withdraws unfilled liquidity from a bucket
+    /// @param user The withdrawer's address
+    /// @param tick The price tick of the bucket
+    /// @param side Whether this is a BUY or SELL bucket
+    /// @param amountHash Hash of the encrypted amount withdrawn
     event Withdraw(address indexed user, int24 indexed tick, BucketSide indexed side, bytes32 amountHash);
+
+    /// @notice Emitted when a user claims proceeds from filled orders
+    /// @param user The claimer's address
+    /// @param tick The price tick of the bucket
+    /// @param side Whether this is a BUY or SELL bucket
+    /// @param amountHash Hash of the encrypted proceeds claimed
     event Claim(address indexed user, int24 indexed tick, BucketSide indexed side, bytes32 amountHash);
+
+    /// @notice Emitted when a swap is executed
+    /// @param user The swapper's address
+    /// @param zeroForOne True if selling token0 for token1
+    /// @param amountIn The input amount (plaintext)
+    /// @param amountOut The output amount after fees (plaintext)
     event Swap(address indexed user, bool indexed zeroForOne, uint256 amountIn, uint256 amountOut);
+
+    /// @notice Emitted when a bucket receives a fill from a swap
+    /// @param tick The price tick of the filled bucket
+    /// @param side Whether this is a BUY or SELL bucket
     event BucketFilled(int24 indexed tick, BucketSide indexed side);
+
+    /// @notice Emitted when a bucket is initialized (seeded)
+    /// @param tick The price tick of the new bucket
+    /// @param side Whether this is a BUY or SELL bucket
     event BucketSeeded(int24 indexed tick, BucketSide indexed side);
+
+    /// @notice Emitted when the maximum buckets per swap is updated
+    /// @param newMax The new maximum value
     event MaxBucketsPerSwapUpdated(uint256 newMax);
+
+    /// @notice Emitted when a protocol fee change is queued
+    /// @param newFeeBps The new fee in basis points
+    /// @param effectiveTimestamp When the fee can be applied
     event ProtocolFeeQueued(uint256 newFeeBps, uint256 effectiveTimestamp);
+
+    /// @notice Emitted when a queued protocol fee is applied
+    /// @param newFeeBps The new active fee in basis points
     event ProtocolFeeApplied(uint256 newFeeBps);
+
+    /// @notice Emitted when the fee collector address is updated
+    /// @param newCollector The new fee collector address
     event FeeCollectorUpdated(address newCollector);
 
     // ═══════════════════════════════════════════════════════════════════════
     //                            CONSTRUCTOR
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Initializes the PheatherX v3 contract with token pair and owner
+    /// @dev Sets up encrypted constants and initializes the tick price table.
+    ///      Token addresses must be in ascending order (token0 < token1).
+    /// @param _token0 Address of the first token (must be lower than _token1)
+    /// @param _token1 Address of the second token (must be higher than _token0)
+    /// @param _owner Address of the contract owner (can pause, set fees, etc.)
     constructor(
         address _token0,
         address _token1,
@@ -400,7 +525,14 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         emit Withdraw(msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(withdrawn))));
     }
 
-    /// @notice Exit entire position
+    /// @notice Exit entire position - withdraws all unfilled liquidity and claims all proceeds in one transaction
+    /// @dev Combines withdraw and claim operations. Emits both Withdraw and Claim events.
+    ///      For SELL buckets: returns token0 (unfilled) and token1 (proceeds)
+    ///      For BUY buckets: returns token1 (unfilled) and token0 (proceeds)
+    /// @param tick The price tick of the bucket to exit from
+    /// @param side Whether this is a BUY or SELL bucket
+    /// @return unfilled The encrypted amount of unfilled liquidity returned
+    /// @return proceeds The encrypted amount of proceeds claimed
     function exit(int24 tick, BucketSide side) external nonReentrant returns (euint128 unfilled, euint128 proceeds) {
         require(tick % TICK_SPACING == 0, "Invalid tick");
 
@@ -449,12 +581,20 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     //                          ADMIN FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Set the maximum number of buckets that can be processed in a single swap
+    /// @dev Higher values allow larger swaps but increase gas costs. Must be between 1-20.
+    ///      Owner should consider block gas limits when adjusting this value.
+    /// @param _max The new maximum (1-20 inclusive)
     function setMaxBucketsPerSwap(uint256 _max) external onlyOwner {
         require(_max >= 1 && _max <= 20, "Invalid range");
         maxBucketsPerSwap = _max;
         emit MaxBucketsPerSwapUpdated(_max);
     }
 
+    /// @notice Queue a protocol fee change with timelock
+    /// @dev Fee changes require a 2-day waiting period to protect users.
+    ///      Call applyProtocolFee() after the timelock expires.
+    /// @param _feeBps The new fee in basis points (max 100 = 1%)
     function queueProtocolFee(uint256 _feeBps) external onlyOwner {
         require(_feeBps <= 100, "Fee too high");
         pendingFeeBps = _feeBps;
@@ -462,6 +602,9 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         emit ProtocolFeeQueued(_feeBps, feeChangeTimestamp);
     }
 
+    /// @notice Apply a previously queued protocol fee change
+    /// @dev Can only be called after the 2-day timelock has expired.
+    ///      Anyone can call this once the timelock passes.
     function applyProtocolFee() external {
         require(feeChangeTimestamp > 0 && block.timestamp >= feeChangeTimestamp, "Too early");
         protocolFeeBps = pendingFeeBps;
@@ -469,14 +612,26 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         emit ProtocolFeeApplied(pendingFeeBps);
     }
 
+    /// @notice Set the address that receives protocol fees
+    /// @dev Set to zero address to disable fee collection (fees stay in contract)
+    /// @param _collector The new fee collector address
     function setFeeCollector(address _collector) external onlyOwner {
         feeCollector = _collector;
         emit FeeCollectorUpdated(_collector);
     }
 
+    /// @notice Pause all user operations (deposits, swaps, withdrawals, claims)
+    /// @dev Emergency function. Only affects user-facing functions, not admin functions.
     function pause() external onlyOwner { _pause(); }
+
+    /// @notice Resume normal operations after pause
+    /// @dev Restores all user-facing functionality
     function unpause() external onlyOwner { _unpause(); }
 
+    /// @notice Pre-initialize buckets at specific ticks to save gas for first depositors
+    /// @dev Initializes both BUY and SELL buckets at each tick. First depositors normally
+    ///      pay extra gas for bucket initialization; seeding shifts this cost to the owner.
+    /// @param ticks Array of ticks to initialize (must be multiples of TICK_SPACING, within MIN_TICK to MAX_TICK)
     function seedBuckets(int24[] calldata ticks) external onlyOwner {
         for (uint256 i = 0; i < ticks.length; i++) {
             int24 tick = ticks[i];
@@ -509,6 +664,13 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     //                          VIEW FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Get the total claimable proceeds for a user's position
+    /// @dev Calculates current unrealized proceeds plus any stored realized proceeds.
+    ///      Note: This is not a pure view function as FHE operations may modify state.
+    /// @param user The user's address
+    /// @param tick The price tick of the bucket
+    /// @param side Whether this is a BUY or SELL bucket
+    /// @return The total encrypted claimable amount
     function getClaimable(address user, int24 tick, BucketSide side) external returns (euint128) {
         UserPosition storage pos = positions[user][tick][side];
         Bucket storage bucket = buckets[tick][side];
@@ -519,10 +681,26 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         return current;
     }
 
+    /// @notice Get the withdrawable (unfilled) amount for a user's position
+    /// @dev Calculates how much of the user's deposit has not been filled yet.
+    ///      Note: This is not a pure view function as FHE operations may modify state.
+    /// @param user The user's address
+    /// @param tick The price tick of the bucket
+    /// @param side Whether this is a BUY or SELL bucket
+    /// @return The encrypted unfilled amount that can be withdrawn
     function getWithdrawable(address user, int24 tick, BucketSide side) external returns (euint128) {
         return _calculateUnfilled(positions[user][tick][side], buckets[tick][side]);
     }
 
+    /// @notice Get raw position data for a user (encrypted values)
+    /// @dev Returns raw encrypted values; use getClaimable/getWithdrawable for calculated amounts
+    /// @param user The user's address
+    /// @param tick The price tick of the bucket
+    /// @param side Whether this is a BUY or SELL bucket
+    /// @return shares User's share count in the bucket
+    /// @return proceedsSnapshot Snapshot of proceedsPerShare at deposit time
+    /// @return filledSnapshot Snapshot of filledPerShare at deposit time
+    /// @return realized Accumulated proceeds from previous deposits (not yet claimed)
     function getPosition(address user, int24 tick, BucketSide side) external view returns (
         euint128 shares, euint128 proceedsSnapshot, euint128 filledSnapshot, euint128 realized
     ) {
@@ -530,6 +708,15 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         return (pos.shares, pos.proceedsPerShareSnapshot, pos.filledPerShareSnapshot, pos.realizedProceeds);
     }
 
+    /// @notice Get bucket state at a specific tick (encrypted values)
+    /// @dev Returns raw encrypted bucket values for frontend display
+    /// @param tick The price tick
+    /// @param side Whether this is a BUY or SELL bucket
+    /// @return totalShares Sum of all user shares in the bucket
+    /// @return liquidity Current unfilled liquidity
+    /// @return proceedsPerShare Accumulated proceeds per share (scaled by PRECISION)
+    /// @return filledPerShare Accumulated fills per share (scaled by PRECISION)
+    /// @return initialized Whether the bucket has been initialized
     function getBucket(int24 tick, BucketSide side) external view returns (
         euint128 totalShares, euint128 liquidity, euint128 proceedsPerShare, euint128 filledPerShare, bool initialized
     ) {
@@ -537,6 +724,10 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         return (b.totalShares, b.liquidity, b.proceedsPerShare, b.filledPerShare, b.initialized);
     }
 
+    /// @notice Get prices for multiple ticks in a single call
+    /// @dev Useful for frontends to batch price lookups
+    /// @param ticks Array of ticks to get prices for
+    /// @return prices Array of prices (scaled by PRECISION), in same order as input ticks
     function getTickPrices(int24[] calldata ticks) external view returns (uint256[] memory prices) {
         prices = new uint256[](ticks.length);
         for (uint256 i = 0; i < ticks.length; i++) {
@@ -548,6 +739,10 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     //                        INTERNAL FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @dev Updates bucket accumulators when a fill occurs during a swap
+    /// @param bucket The bucket being filled
+    /// @param fillAmount Amount of liquidity consumed from the bucket (in native token)
+    /// @param proceedsAmount Amount of proceeds to distribute (in opposite token)
     function _updateBucketOnFill(Bucket storage bucket, euint128 fillAmount, euint128 proceedsAmount) internal {
         ebool hasShares = FHE.gt(bucket.totalShares, ENC_ZERO);
         euint128 safeDenom = FHE.select(hasShares, bucket.totalShares, ENC_ONE);
@@ -570,6 +765,10 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         FHE.allowThis(bucket.liquidity);
     }
 
+    /// @dev Calculates a user's claimable proceeds based on accumulator difference
+    /// @param pos The user's position
+    /// @param bucket The bucket to calculate proceeds from
+    /// @return The encrypted proceeds amount (does not include realized proceeds)
     function _calculateProceeds(UserPosition storage pos, Bucket storage bucket) internal returns (euint128) {
         if (!Common.isInitialized(pos.shares)) {
             return ENC_ZERO;
@@ -578,6 +777,10 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         return FHE.div(FHE.mul(pos.shares, delta), ENC_PRECISION);
     }
 
+    /// @dev Calculates how much of a user's position remains unfilled
+    /// @param pos The user's position
+    /// @param bucket The bucket to calculate unfilled from
+    /// @return The encrypted unfilled amount that can be withdrawn
     function _calculateUnfilled(UserPosition storage pos, Bucket storage bucket) internal returns (euint128) {
         if (!Common.isInitialized(pos.shares)) {
             return ENC_ZERO;
@@ -588,6 +791,9 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         return FHE.select(hasUnfilled, FHE.sub(pos.shares, filled), ENC_ZERO);
     }
 
+    /// @dev Initializes a bucket if it doesn't already exist in the bitmap
+    /// @param tick The price tick
+    /// @param side The bucket side (BUY or SELL)
     function _ensureBucketInitialized(int24 tick, BucketSide side) internal {
         mapping(int16 => uint256) storage bitmap = (side == BucketSide.SELL) ? sellBitmap : buyBitmap;
         if (!TickBitmap.hasOrdersAtTick(bitmap, tick)) {
@@ -595,6 +801,9 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         }
     }
 
+    /// @dev Creates a new bucket with zero-initialized encrypted values
+    /// @param tick The price tick
+    /// @param side The bucket side (BUY or SELL)
     function _initializeBucket(int24 tick, BucketSide side) internal {
         mapping(int16 => uint256) storage bitmap = (side == BucketSide.SELL) ? sellBitmap : buyBitmap;
         TickBitmap.setTick(bitmap, tick);
@@ -614,6 +823,12 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         emit BucketSeeded(tick, side);
     }
 
+    /// @dev Finds the next tick with liquidity in the specified direction
+    /// @param bitmap The tick bitmap to search
+    /// @param currentTick Starting tick (exclusive)
+    /// @param searchUp True to search towards higher ticks, false for lower
+    /// @return nextTick The next tick with orders
+    /// @return found True if a tick was found within the search range
     function _findNextTick(
         mapping(int16 => uint256) storage bitmap,
         int24 currentTick,
@@ -641,12 +856,17 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         return (0, false);
     }
 
+    /// @dev Calculates the current price tick from reserves
+    /// @return The current tick based on reserve0/reserve1 ratio
     function _getCurrentTick() internal view returns (int24) {
         if (reserve0 == 0 || reserve1 == 0) return 0;
         uint256 priceScaled = reserve1 * PRECISION / reserve0;
         return _priceToTick(priceScaled);
     }
 
+    /// @dev Converts a scaled price to the nearest tick
+    /// @param priceScaled Price scaled by PRECISION
+    /// @return The nearest tick at or below the price
     function _priceToTick(uint256 priceScaled) internal view returns (int24) {
         // Binary search through positive ticks
         if (priceScaled >= PRECISION) {
@@ -662,6 +882,11 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         return MIN_TICK;
     }
 
+    /// @dev Estimates output amount based on current reserves and price
+    /// @param zeroForOne True if selling token0 for token1
+    /// @param amountIn Input amount
+    /// @param bucketsProcessed Number of buckets that were filled (0 = no swap occurred)
+    /// @return Estimated output amount (before fees)
     function _estimateOutput(bool zeroForOne, uint256 amountIn, uint256 bucketsProcessed) internal view returns (uint256) {
         if (bucketsProcessed == 0 || reserve0 == 0 || reserve1 == 0) return 0;
         int24 currentTick = _getCurrentTick();
@@ -675,30 +900,47 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         }
     }
 
+    /// @dev Multiplies an encrypted amount by a price, then divides by PRECISION
+    /// @param amount The encrypted amount
+    /// @param price The plaintext price (scaled by PRECISION)
+    /// @return result = amount * price / PRECISION
     function _mulPrecision(euint128 amount, uint256 price) internal returns (euint128) {
         euint128 encPrice = FHE.asEuint128(uint128(price));
         FHE.allowThis(encPrice);
         return FHE.div(FHE.mul(amount, encPrice), ENC_PRECISION);
     }
 
+    /// @dev Multiplies an encrypted amount by PRECISION, then divides by price
+    /// @param amount The encrypted amount
+    /// @param price The plaintext price (scaled by PRECISION)
+    /// @return result = amount * PRECISION / price
     function _divPrecision(euint128 amount, uint256 price) internal returns (euint128) {
         euint128 encPrice = FHE.asEuint128(uint128(price));
         FHE.allowThis(encPrice);
         return FHE.div(FHE.mul(amount, ENC_PRECISION), encPrice);
     }
 
+    /// @dev Returns the absolute value of a signed integer
     function _abs(int24 x) internal pure returns (int24) { return x >= 0 ? x : -x; }
 
+    /// @dev Rounds a tick up to the next 256-boundary (word boundary)
+    /// @param x The tick to round
+    /// @return The ceiling 256-aligned tick
     function _ceilDiv256(int24 x) internal pure returns (int24) {
         if (x >= 0) return int24(((int256(x) + 255) / 256) * 256);
         return int24((int256(x) / 256) * 256);
     }
 
+    /// @dev Rounds a tick down to the previous 256-boundary (word boundary)
+    /// @param x The tick to round
+    /// @return The floor 256-aligned tick
     function _floorDiv256(int24 x) internal pure returns (int24) {
         if (x >= 0) return int24((int256(x) / 256) * 256);
         return int24(((int256(x) - 255) / 256) * 256);
     }
 
+    /// @dev Initializes the hardcoded tick price lookup table
+    /// @notice Prices are computed as 1.0001^tick * 1e18, covering ticks from -6000 to +6000
     function _initializeTickPrices() internal {
         // Complete table: all ticks from -6000 to +6000 at spacing 60
         // Values are 1.0001^tick * 1e18
