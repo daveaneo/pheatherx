@@ -4,12 +4,39 @@ import { useState } from 'react';
 import { useChainId } from 'wagmi';
 import { AdaptiveModal } from '@/components/ui/AdaptiveModal';
 import { Input } from '@/components/ui/Input';
-import { TOKEN_LIST, Token as LegacyToken } from '@/lib/tokens';
+import { TOKEN_LIST, Token as LegacyToken, TokenType } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import type { Token } from '@/types/pool';
 
 // Support both the new Token type and legacy Token type
 type AnyToken = Token | LegacyToken;
+
+// Token type badge component - exported for use in other components
+export function TokenTypeBadge({ type }: { type?: TokenType | 'erc20' | 'fherc20' | 'fheerc20' }) {
+  // Normalize type (fheerc20 and fherc20 are the same)
+  const normalizedType = type === 'fheerc20' ? 'fherc20' : type;
+
+  if (normalizedType === 'fherc20') {
+    return (
+      <span
+        className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-phoenix-ember/20 text-phoenix-ember border border-phoenix-ember/30"
+        title="FHE-encrypted token - supports private limit orders"
+      >
+        FHE
+      </span>
+    );
+  }
+
+  // Default to ERC20
+  return (
+    <span
+      className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-feather-white/10 text-feather-white/60 border border-feather-white/20"
+      title="Standard ERC20 token"
+    >
+      ERC20
+    </span>
+  );
+}
 
 interface TokenSelectorProps {
   selected?: AnyToken;
@@ -45,6 +72,18 @@ export function TokenSelector({
     return 'isNative' in token && token.isNative === true;
   };
 
+  const getTokenType = (token: AnyToken): TokenType | 'erc20' | 'fherc20' | 'fheerc20' | undefined => {
+    // Check if type is defined on the token
+    if ('type' in token && token.type) {
+      return token.type as TokenType | 'erc20' | 'fherc20' | 'fheerc20';
+    }
+    // Infer from symbol
+    if (token.symbol.toLowerCase().startsWith('fhe')) {
+      return 'fherc20';
+    }
+    return 'erc20';
+  };
+
   return (
     <>
       <button
@@ -59,6 +98,7 @@ export function TokenSelector({
           <>
             <span className="text-lg">{isNativeToken(selected) ? '\u039E' : '\uD83D\uDCB0'}</span>
             <span className="font-medium">{selected.symbol}</span>
+            <TokenTypeBadge type={getTokenType(selected)} />
           </>
         ) : (
           <span className="text-feather-white/60">Select token</span>
@@ -100,8 +140,11 @@ export function TokenSelector({
                 )}
               >
                 <span className="text-xl">{isNativeToken(token) ? '\u039E' : '\uD83D\uDCB0'}</span>
-                <div className="text-left">
-                  <p className="font-medium">{token.symbol}</p>
+                <div className="text-left flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{token.symbol}</p>
+                    <TokenTypeBadge type={getTokenType(token)} />
+                  </div>
                   <p className="text-sm text-feather-white/60">{token.name}</p>
                 </div>
               </button>

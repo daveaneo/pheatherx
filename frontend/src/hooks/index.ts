@@ -1,18 +1,21 @@
 /**
- * FheatherX v3 Hooks
+ * FheatherX v4 Hooks
  *
  * These hooks provide React-friendly wrappers for interacting with the
- * FheatherXv3 contract. They handle FHE encryption, transaction state,
- * and store updates.
+ * FheatherXv4 Uniswap v4 Hook contract. They handle FHE encryption,
+ * transaction state, and store updates.
  */
 
 // Core transaction hooks
-export { useV3Deposit, type DepositStep, type DepositParams } from './useV3Deposit';
-export { useV3Swap, type SwapStep, type SwapParams, type SwapResult } from './useV3Swap';
-export { useV3Claim, type ClaimStep, type ClaimParams } from './useV3Claim';
-export { useV3Withdraw, type WithdrawStep, type WithdrawParams } from './useV3Withdraw';
-export { useV3Exit, type ExitStep, type ExitParams } from './useV3Exit';
+export { useSwap } from './useSwap';
+export { useDeposit } from './useDeposit';
+export { usePlaceOrder } from './usePlaceOrder';
+export { useCancelOrder } from './useCancelOrder';
 
 // Read hooks
-export { useV3Position } from './useV3Position';
 export { useCurrentPrice, useTickPrices } from './useCurrentPrice';
+export { useActiveOrders } from './useActiveOrders';
+
+// Balance hooks
+export { useBalanceReveal } from './useBalanceReveal';
+export { useAggregatedBalanceReveal } from './useAggregatedBalanceReveal';

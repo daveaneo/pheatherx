@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { usePublicClient, useAccount } from 'wagmi';
-import { FHEATHERX_V3_ABI } from '@/lib/contracts/fheatherXv3Abi';
-import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { useBucketStore } from '@/stores/bucketStore';
+import { useSelectedPool } from '@/stores/poolStore';
 import { tickToPrice, formatPrice, PRECISION, TICK_SPACING } from '@/lib/constants';
 import type { CurrentPrice } from '@/types/bucket';
 
@@ -58,6 +58,9 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
   const { chainId } = useAccount();
   const publicClient = usePublicClient();
 
+  // Get hook address from selected pool (multi-pool support)
+  const { hookAddress } = useSelectedPool();
+
   const { setReserves, setCurrentTick, reserve0: storedReserve0, reserve1: storedReserve1, currentTick: storedTick } = useBucketStore();
 
   const [currentPrice, setCurrentPrice] = useState<CurrentPrice | null>(null);
@@ -68,12 +71,7 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
    * Fetch current reserves and calculate price
    */
   const refresh = useCallback(async () => {
-    if (!chainId || !publicClient) return;
-
-    const contractAddress = FHEATHERX_ADDRESSES[chainId];
-    if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
-      return;
-    }
+    if (!chainId || !publicClient || !hookAddress) return;
 
     setIsLoading(true);
     setError(null);
@@ -82,13 +80,13 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
       // Fetch reserves from contract
       const [reserve0, reserve1] = await Promise.all([
         publicClient.readContract({
-          address: contractAddress,
-          abi: FHEATHERX_V3_ABI,
+          address: hookAddress,
+          abi: FHEATHERX_ABI,
           functionName: 'reserve0',
         }) as Promise<bigint>,
         publicClient.readContract({
-          address: contractAddress,
-          abi: FHEATHERX_V3_ABI,
+          address: hookAddress,
+          abi: FHEATHERX_ABI,
           functionName: 'reserve1',
         }) as Promise<bigint>,
       ]);
@@ -119,7 +117,7 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [chainId, publicClient, setReserves, setCurrentTick]);
+  }, [chainId, publicClient, hookAddress, setReserves, setCurrentTick]);
 
   // Auto-refresh on mount and chain change
   useEffect(() => {
@@ -144,56 +142,25 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
 
 /**
  * Hook to get prices for specific ticks
+ * Uses local calculation since V4 hooks may not have getTickPrices
  */
 export function useTickPrices(ticks: number[]): { prices: Record<number, bigint>; isLoading: boolean } {
-  const { chainId } = useAccount();
-  const publicClient = usePublicClient();
-
   const [prices, setPrices] = useState<Record<number, bigint>>({});
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!chainId || !publicClient || ticks.length === 0) return;
-
-    const contractAddress = FHEATHERX_ADDRESSES[chainId];
-    if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
-      // Use local calculation as fallback
-      const localPrices: Record<number, bigint> = {};
-      ticks.forEach(tick => {
-        localPrices[tick] = tickToPrice(tick);
-      });
-      setPrices(localPrices);
-      return;
-    }
+    if (ticks.length === 0) return;
 
     setIsLoading(true);
 
-    publicClient
-      .readContract({
-        address: contractAddress,
-        abi: FHEATHERX_V3_ABI,
-        functionName: 'getTickPrices',
-        args: [ticks],
-      })
-      .then((result) => {
-        const priceArray = result as bigint[];
-        const priceMap: Record<number, bigint> = {};
-        ticks.forEach((tick, i) => {
-          priceMap[tick] = priceArray[i] ?? tickToPrice(tick);
-        });
-        setPrices(priceMap);
-      })
-      .catch((err) => {
-        console.error('[TickPrices] Error:', err);
-        // Fallback to local calculation
-        const localPrices: Record<number, bigint> = {};
-        ticks.forEach(tick => {
-          localPrices[tick] = tickToPrice(tick);
-        });
-        setPrices(localPrices);
-      })
-      .finally(() => setIsLoading(false));
-  }, [chainId, publicClient, ticks.join(',')]);
+    // Use local calculation for tick prices
+    const localPrices: Record<number, bigint> = {};
+    ticks.forEach(tick => {
+      localPrices[tick] = tickToPrice(tick);
+    });
+    setPrices(localPrices);
+    setIsLoading(false);
+  }, [ticks.join(',')]);
 
   return { prices, isLoading };
 }

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 interface FAQItem {
   question: string;
   answer: string;
-  category: 'privacy' | 'security' | 'technical' | 'usage';
+  category: 'privacy' | 'security' | 'technical' | 'usage' | 'tokens';
 }
 
 const faqItems: FAQItem[] = [
@@ -115,11 +115,100 @@ Typical gas costs:
     question: 'How do I see my orders?',
     answer: `Go to the Portfolio page and click "Initialize FHE Session" if you haven't already. This establishes a secure connection that allows you to decrypt and view your order sizes. The decryption happens client-side - your order amounts are never revealed to the network.`,
   },
+  // Token Types
+  {
+    category: 'tokens',
+    question: 'What is the difference between ERC20 and FHERC20 tokens?',
+    answer: `FheatherX supports two types of tokens:
+
+ERC20 (Standard Tokens):
+- Balances are public and visible on-chain
+- Examples: WETH, USDC
+- Used by standard Uniswap v4 pools
+
+FHERC20 (FHE-Enabled Tokens):
+- Have two balances: public (plaintext) and private (encrypted)
+- Examples: fheWETH, fheUSDC
+- Required for private limit orders
+
+You can convert between them using wrap (ERC20 → FHERC20) and unwrap (FHERC20 → ERC20).`,
+  },
+  {
+    category: 'tokens',
+    question: 'Why do limit orders require FHERC20 tokens?',
+    answer: `The core privacy feature of FheatherX is hiding your order size. When placing a limit order:
+
+- The price level (tick) is always visible
+- Whether you're buying or selling is visible
+- Your order SIZE can only be hidden if you use FHERC20
+
+If you used regular ERC20 tokens, anyone could see exactly how much you're selling, making you vulnerable to MEV attacks like front-running and sandwiching.
+
+Rule: The INPUT token (what you're selling) must be FHERC20 to place a limit order.`,
+  },
+  {
+    category: 'tokens',
+    question: 'Which pool types support which operations?',
+    answer: `Different token pair combinations support different features:
+
+FHERC20:FHERC20 Pools (e.g., fheWETH:fheUSDC):
+- All 4 limit order types (limit buy, limit sell, stop-loss, take-profit)
+- Full privacy for order amounts
+
+ERC20:FHERC20 Pools (e.g., WETH:fheUSDC):
+- Only orders with FHERC20 as input are allowed
+- Partial privacy (one side visible)
+
+ERC20:ERC20 Pools (e.g., WETH:USDC):
+- Standard Uniswap v4 (no hook)
+- No limit orders (use Uniswap natively)
+
+For maximum privacy, use FHERC20:FHERC20 pools.`,
+  },
+  {
+    category: 'tokens',
+    question: 'What are the 4 limit order types?',
+    answer: `FheatherX supports 4 types of limit orders:
+
+1. Limit Buy: Buy an asset when price drops to your target
+   - Example: Buy fheWETH at $2,800 when it's currently $3,000
+
+2. Limit Sell: Sell an asset when price rises to your target
+   - Example: Sell fheWETH at $3,500 when it's currently $3,000
+
+3. Stop-Loss: Sell an asset when price drops below a level
+   - Example: Sell fheWETH if it falls to $2,500 to limit losses
+
+4. Take-Profit: Sell an asset when price rises above a level
+   - Example: Sell fheWETH at $4,000 to lock in gains
+
+All orders execute automatically when market swaps move the price through your level.`,
+  },
+  {
+    category: 'tokens',
+    question: 'How do I wrap and unwrap tokens?',
+    answer: `To convert between ERC20 and FHERC20:
+
+Wrapping (ERC20 → FHERC20):
+1. Go to the Faucet or Portfolio page
+2. Select the token you want to wrap
+3. Enter the amount and click "Wrap"
+4. Your plaintext balance becomes encrypted
+
+Unwrapping (FHERC20 → ERC20):
+1. Go to the Portfolio page
+2. Initialize your FHE session
+3. Select the token and click "Unwrap"
+4. Your encrypted balance becomes plaintext
+
+Wrapping is required before placing limit orders. You can unwrap after claiming filled orders.`,
+  },
 ];
 
 const categories = [
   { id: 'all', label: 'All' },
   { id: 'privacy', label: 'Privacy' },
+  { id: 'tokens', label: 'Token Types' },
   { id: 'security', label: 'Security' },
   { id: 'technical', label: 'Technical' },
   { id: 'usage', label: 'Usage' },

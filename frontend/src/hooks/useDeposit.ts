@@ -4,10 +4,10 @@ import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient, useWalletClient } from 'wagmi';
 import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
-import { FHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
 import { isNativeEth } from '@/lib/tokens';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
+import { useSelectedPool } from '@/stores/poolStore';
 
 type DepositStep = 'idle' | 'checking' | 'approving' | 'depositing' | 'complete' | 'error';
 
@@ -43,9 +43,10 @@ export function useDeposit(): UseDepositResult {
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
 
-  const hookAddress = FHEATHERX_ADDRESSES[chainId];
-  const token0Address = TOKEN_ADDRESSES[chainId]?.token0;
-  const token1Address = TOKEN_ADDRESSES[chainId]?.token1;
+  // Get addresses from selected pool (multi-pool support)
+  const { hookAddress, token0, token1 } = useSelectedPool();
+  const token0Address = token0?.address;
+  const token1Address = token1?.address;
 
   // Log connection state on mount
   debugLog('Hook initialized', {
@@ -72,7 +73,7 @@ export function useDeposit(): UseDepositResult {
     setError(null);
   }, []);
 
-  const getTokenAddress = useCallback((isToken0: boolean): `0x${string}` => {
+  const getTokenAddress = useCallback((isToken0: boolean): `0x${string}` | undefined => {
     return isToken0 ? token0Address : token1Address;
   }, [token0Address, token1Address]);
 
@@ -85,12 +86,12 @@ export function useDeposit(): UseDepositResult {
   ): Promise<boolean> => {
     debugLog('checkNeedsApproval called', { isToken0, amount: amount.toString() });
 
-    if (!address || !hookAddress || !publicClient) {
-      debugLog('checkNeedsApproval: missing deps', { address, hookAddress, hasPublicClient: !!publicClient });
+    const tokenAddress = getTokenAddress(isToken0);
+    if (!address || !hookAddress || !publicClient || !tokenAddress) {
+      debugLog('checkNeedsApproval: missing deps', { address, hookAddress, hasPublicClient: !!publicClient, tokenAddress });
       return false;
     }
 
-    const tokenAddress = getTokenAddress(isToken0);
     debugLog('checkNeedsApproval: token address', { tokenAddress, isToken0 });
 
     // Native ETH doesn't need approval
@@ -131,12 +132,12 @@ export function useDeposit(): UseDepositResult {
   ): Promise<`0x${string}`> => {
     debugLog('approve called', { isToken0, amount: amount.toString() });
 
-    if (!address || !hookAddress) {
-      debugLog('approve: wallet not connected', { address, hookAddress });
-      throw new Error('Wallet not connected');
+    const tokenAddress = getTokenAddress(isToken0);
+    if (!address || !hookAddress || !tokenAddress) {
+      debugLog('approve: missing deps', { address, hookAddress, tokenAddress });
+      throw new Error('Wallet not connected or no pool selected');
     }
 
-    const tokenAddress = getTokenAddress(isToken0);
     debugLog('approve: token address', { tokenAddress });
 
     if (isNativeEth(tokenAddress)) {
@@ -204,12 +205,12 @@ export function useDeposit(): UseDepositResult {
   ): Promise<`0x${string}`> => {
     debugLog('deposit called', { isToken0, amount: amount.toString() });
 
-    if (!address || !hookAddress) {
-      debugLog('deposit: wallet not connected', { address, hookAddress });
-      throw new Error('Wallet not connected');
+    const tokenAddress = getTokenAddress(isToken0);
+    if (!address || !hookAddress || !tokenAddress) {
+      debugLog('deposit: missing deps', { address, hookAddress, tokenAddress });
+      throw new Error('Wallet not connected or no pool selected');
     }
 
-    const tokenAddress = getTokenAddress(isToken0);
     const isNative = isNativeEth(tokenAddress);
     debugLog('deposit: token info', { tokenAddress, isNative });
 

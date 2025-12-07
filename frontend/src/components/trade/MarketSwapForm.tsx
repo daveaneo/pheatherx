@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { Button, Input } from '@/components/ui';
 import { ArrowDownUp, Loader2 } from 'lucide-react';
-import { useV3Swap } from '@/hooks/useV3Swap';
+import { useSwap } from '@/hooks/useSwap';
+import { useSelectedPool } from '@/stores/poolStore';
 import { parseUnits } from 'viem';
 import type { CurrentPrice } from '@/types/bucket';
 
@@ -16,10 +17,14 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   const [zeroForOne, setZeroForOne] = useState(true); // true = sell token0
   const [slippage, setSlippage] = useState('0.5');
 
-  const { swap, step, isSwapping, error, reset } = useV3Swap();
+  const { swap, step, isSwapping, error, reset } = useSwap();
+  const { token0, token1 } = useSelectedPool();
 
-  const sellToken = zeroForOne ? 'fheWETH' : 'fheUSDC';
-  const buyToken = zeroForOne ? 'fheUSDC' : 'fheWETH';
+  // Get token symbols from selected pool
+  const sellToken = zeroForOne ? (token0?.symbol ?? 'Token0') : (token1?.symbol ?? 'Token1');
+  const buyToken = zeroForOne ? (token1?.symbol ?? 'Token1') : (token0?.symbol ?? 'Token0');
+  const sellDecimals = zeroForOne ? (token0?.decimals ?? 18) : (token1?.decimals ?? 18);
+  const buyDecimals = zeroForOne ? (token1?.decimals ?? 18) : (token0?.decimals ?? 18);
 
   // Calculate estimated output
   const estimatedOutput = (() => {
@@ -40,19 +45,21 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   const handleSwap = async () => {
     if (!sellAmount || parseFloat(sellAmount) === 0) return;
 
-    const amountIn = parseUnits(sellAmount, 18);
-    const slippagePercent = parseFloat(slippage) / 100;
-    const estimatedOut = parseUnits(estimatedOutput, 18);
-    const minAmountOut = estimatedOut - (estimatedOut * BigInt(Math.floor(slippagePercent * 10000)) / 10000n);
+    try {
+      const amountIn = parseUnits(sellAmount, sellDecimals);
+      const slippagePercent = parseFloat(slippage) / 100;
+      const estimatedOut = parseUnits(estimatedOutput, buyDecimals);
+      const minAmountOut = estimatedOut - (estimatedOut * BigInt(Math.floor(slippagePercent * 10000)) / 10000n);
 
-    const result = await swap({
-      zeroForOne,
-      amountIn,
-      minAmountOut,
-    });
+      // V4 swap signature: swap(zeroForOne, amountIn, minAmountOut, hookAddress?)
+      const hash = await swap(zeroForOne, amountIn, minAmountOut);
 
-    if (result) {
-      setSellAmount('');
+      if (hash) {
+        setSellAmount('');
+      }
+    } catch (err) {
+      // Error is already handled by the hook
+      console.error('Swap failed:', err);
     }
   };
 
@@ -139,7 +146,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
       {/* Error */}
       {error && (
         <div className="p-3 bg-deep-magenta/10 border border-deep-magenta/20 rounded-lg text-sm text-deep-magenta">
-          {error.message}
+          {error}
         </div>
       )}
 
@@ -153,7 +160,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
         {isSwapping ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {step === 'approving' ? 'Approving...' : step === 'swapping' ? 'Swapping...' : 'Processing...'}
+            {step === 'simulating' ? 'Simulating...' : step === 'swapping' ? 'Swapping...' : 'Processing...'}
           </>
         ) : (
           `Swap ${sellToken} for ${buyToken}`

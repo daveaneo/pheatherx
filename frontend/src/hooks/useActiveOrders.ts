@@ -1,8 +1,8 @@
 'use client';
 
-import { useAccount, useChainId, useReadContract } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
 import { FHEATHERX_ABI } from '@/lib/contracts/abi';
-import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { useSelectedPool } from '@/stores/poolStore';
 import { deriveOrderType, deriveOrderStatus, ORDER_TYPE_INFO } from '@/lib/orders';
 
 export interface Order {
@@ -22,8 +22,8 @@ export interface Order {
 
 export function useActiveOrders() {
   const { address } = useAccount();
-  const chainId = useChainId();
-  const hookAddress = FHEATHERX_ADDRESSES[chainId];
+  // Get hook address from selected pool (multi-pool support)
+  const { hookAddress } = useSelectedPool();
 
   const { data: orderIds, isLoading: isLoadingIds, refetch } = useReadContract({
     address: hookAddress,

@@ -51,8 +51,36 @@ npm run test:integration
 | `npm run test:unit` | Same as above, explicitly exclude integration |
 | `npm run test:integration` | Run integration tests (real FHE on Arb Sepolia) |
 | `npm run test:integration:eth` | Run integration tests (real FHE on Eth Sepolia) |
+| `npm run test:integration:v4` | Run FheatherXv4 integration tests (Eth Sepolia) |
 | `npm run deploy:arb-sepolia` | Deploy contracts to Arb Sepolia |
 | `npm run deploy:eth-sepolia` | Deploy contracts to Eth Sepolia |
+
+## FheatherXv4 Integration Tests
+
+The latest integration tests are for FheatherXv4 (Uniswap v4 Hook):
+
+```bash
+# 1. Deploy FheatherXv4 to Eth Sepolia (if not already deployed)
+npm run deploy:fheatherxv4
+
+# 2. Run FheatherXv4 integration tests
+npm run test:integration:v4
+
+# Or manually with forge:
+source .env
+forge test --match-path test/integration/FheatherXv4Integration.t.sol \
+  --fork-url $ETH_SEPOLIA_RPC -vvv
+```
+
+### Test Coverage
+
+| Test | Description |
+|------|-------------|
+| `test_PoolInitialized` | Verify pool state after deployment |
+| `test_DepositWithRealFHE` | Deposit with encrypted amount (limit order) |
+| `test_WithdrawWithRealFHE` | Withdraw encrypted amount |
+| `test_FullE2EFlow` | Complete deposit → swap → claim flow |
+| `test_FeeSystemIntegration` | Verify fee configuration |
 
 ## How It Works
 

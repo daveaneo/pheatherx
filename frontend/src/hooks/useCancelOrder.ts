@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
+import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
 import { FHEATHERX_ABI } from '@/lib/contracts/abi';
-import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
+import { useSelectedPool } from '@/stores/poolStore';
 
 type CancelOrderStep = 'idle' | 'cancelling' | 'complete' | 'error';
 
@@ -20,14 +20,14 @@ interface UseCancelOrderResult {
 
 export function useCancelOrder(): UseCancelOrderResult {
   const { address } = useAccount();
-  const chainId = useChainId();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
 
-  const hookAddress = FHEATHERX_ADDRESSES[chainId];
+  // Get hook address from selected pool (multi-pool support)
+  const { hookAddress } = useSelectedPool();
 
   const [step, setStep] = useState<CancelOrderStep>('idle');
   const [cancelHash, setCancelHash] = useState<`0x${string}` | null>(null);

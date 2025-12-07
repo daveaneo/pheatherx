@@ -3,11 +3,11 @@
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
 import { FHEATHERX_ABI } from '@/lib/contracts/abi';
-import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { PROTOCOL_FEE_WEI } from '@/lib/constants';
 import { orderTypeToFlags, type OrderType } from '@/lib/orders';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
+import { useSelectedPool } from '@/stores/poolStore';
 import { useFheSession } from './useFheSession';
 
 type PlaceOrderStep = 'idle' | 'encrypting' | 'submitting' | 'complete' | 'error';
@@ -36,7 +36,8 @@ export function usePlaceOrder(): UsePlaceOrderResult {
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
   const { encrypt, encryptBool, isReady, isMock } = useFheSession();
 
-  const hookAddress = FHEATHERX_ADDRESSES[chainId];
+  // Get hook address from selected pool (multi-pool support)
+  const { hookAddress } = useSelectedPool();
 
   const [step, setStep] = useState<PlaceOrderStep>('idle');
   const [orderHash, setOrderHash] = useState<`0x${string}` | null>(null);

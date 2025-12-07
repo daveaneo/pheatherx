@@ -6,8 +6,20 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { TransactionLink } from '@/components/common/TransactionLink';
 import { formatDistanceToNow } from 'date-fns';
 
+type ActivityType =
+  | 'swap'
+  | 'limit_order'
+  | 'withdraw'
+  | 'claim'
+  | 'exit'
+  | 'order_filled'
+  | 'faucet'
+  | 'approve'
+  | 'deposit'
+  | 'order_placed';
+
 interface Activity {
-  type: 'swap' | 'deposit' | 'withdraw' | 'order_placed' | 'order_filled';
+  type: ActivityType;
   amount: string;
   timestamp: Date;
   txHash: `0x${string}`;
@@ -18,12 +30,18 @@ interface RecentActivityProps {
   isLoading?: boolean;
 }
 
-const activityConfig = {
-  swap: { label: 'Swap', variant: 'info' as const, icon: '&#x21C4;' },
-  deposit: { label: 'Order Placed', variant: 'success' as const, icon: '&#x1F4CB;' },
-  withdraw: { label: 'Cancelled', variant: 'warning' as const, icon: '&#x2B06;' },
-  order_placed: { label: 'Order Placed', variant: 'info' as const, icon: '&#x1F4CB;' },
-  order_filled: { label: 'Order Filled', variant: 'success' as const, icon: '&#x2705;' },
+const activityConfig: Record<ActivityType, { label: string; variant: 'info' | 'success' | 'warning' | 'error'; icon: string }> = {
+  swap: { label: 'Market Swap', variant: 'info', icon: '&#x21C4;' },
+  limit_order: { label: 'Limit Order', variant: 'success', icon: '&#x1F4CB;' },
+  withdraw: { label: 'Withdrawn', variant: 'warning', icon: '&#x2B06;' },
+  claim: { label: 'Claimed', variant: 'success', icon: '&#x2705;' },
+  exit: { label: 'Position Exited', variant: 'warning', icon: '&#x1F6AA;' },
+  order_filled: { label: 'Order Filled', variant: 'success', icon: '&#x2705;' },
+  faucet: { label: 'Faucet', variant: 'info', icon: '&#x1F6B0;' },
+  approve: { label: 'Approved', variant: 'info', icon: '&#x2714;' },
+  // Legacy types for backwards compatibility
+  deposit: { label: 'Limit Order', variant: 'success', icon: '&#x1F4CB;' },
+  order_placed: { label: 'Limit Order', variant: 'success', icon: '&#x1F4CB;' },
 };
 
 export function RecentActivity({ activities, isLoading }: RecentActivityProps) {

@@ -18,8 +18,8 @@ const features = [
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
       </svg>
     ),
-    title: 'Encrypted Swaps',
-    description: 'Your trades are encrypted using FHE technology. No one can see your order sizes or strategies.',
+    title: 'Hidden Order Sizes',
+    description: 'Limit order amounts are encrypted with FHE. No one can see how much you\'re trading.',
   },
   {
     icon: (
@@ -32,7 +32,7 @@ const features = [
       </svg>
     ),
     title: 'Private Limit Orders',
-    description: 'Place encrypted limit orders, stop-losses, and take-profits with complete privacy.',
+    description: 'Place encrypted limit orders, stop-losses, and take-profits with hidden amounts.',
   },
   {
     icon: (
@@ -90,15 +90,18 @@ export default function HomePage() {
       .filter(tx => tx.status === 'confirmed')
       .slice(0, 5)
       .map(tx => {
-        // Map transaction types to activity types
-        const typeMap: Record<string, 'swap' | 'deposit' | 'withdraw' | 'order_placed' | 'order_filled'> = {
+        // Map transaction types to activity types with accurate labels
+        type ActivityType = 'swap' | 'limit_order' | 'withdraw' | 'claim' | 'exit' | 'order_filled' | 'faucet' | 'approve';
+        const typeMap: Record<string, ActivityType> = {
           swap: 'swap',
-          deposit: 'order_placed', // Deposits are limit orders
+          deposit: 'limit_order',      // Deposits create limit orders
           withdraw: 'withdraw',
-          placeOrder: 'order_placed',
-          cancelOrder: 'withdraw', // Show as withdraw since funds return
-          approve: 'order_placed', // Approvals precede order placement
-          faucet: 'swap', // Show faucet as swap (getting tokens)
+          claim: 'claim',
+          exit: 'exit',                // Combined withdraw + claim
+          placeOrder: 'limit_order',
+          cancelOrder: 'withdraw',
+          approve: 'approve',
+          faucet: 'faucet',
         };
 
         return {
@@ -126,8 +129,8 @@ export default function HomePage() {
             <span className="text-phoenix-ember">Trade in Silence</span>
           </h1>
           <p className="text-xl text-feather-white/70 mb-8 max-w-2xl mx-auto">
-            Private execution powered by FHE. Your trades, your secret.
-            FheatherX keeps your orders hidden from everyone - including validators.
+            Private limit orders powered by FHE. Your order sizes stay hidden from everyone - including validators.
+            Market swaps trigger fills while your strategy remains secret.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/portfolio">
@@ -189,9 +192,9 @@ export default function HomePage() {
             How It Works
           </h2>
           <p className="text-center text-feather-white/60 mb-12 max-w-2xl mx-auto">
-            FheatherX is an encrypted limit order book. Place orders at specific
-            price levels with hidden amounts - when market swaps cross your price,
-            your order fills automatically while keeping your strategy private.
+            FheatherX is an encrypted limit order book built on Uniswap v4. Place orders at specific
+            price levels with hidden amounts - when market swaps (which are plaintext for price discovery)
+            cross your price, your order fills automatically while keeping your order size private.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {howItWorks.map((item) => (
