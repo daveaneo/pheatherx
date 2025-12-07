@@ -103,6 +103,7 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     struct PoolReserves {
         euint128 encReserve0;       // Encrypted reserve of token0
         euint128 encReserve1;       // Encrypted reserve of token1
+        euint128 encTotalLpSupply;  // Encrypted total LP supply (source of truth)
         uint256 reserve0;            // Public cache for display/estimation
         uint256 reserve1;            // Public cache for display/estimation
         uint256 lastSyncBlock;       // Last block when sync was requested
@@ -135,8 +136,9 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     mapping(PoolId => PoolReserves) public poolReserves;
 
     // ─────────────────── LP Tracking (NEW from V2) ───────────────────
-    mapping(PoolId => mapping(address => uint256)) public lpBalances;
-    mapping(PoolId => uint256) public totalLpSupply;
+    mapping(PoolId => mapping(address => uint256)) public lpBalances;      // Plaintext cache
+    mapping(PoolId => uint256) public totalLpSupply;                       // Plaintext cache
+    mapping(PoolId => mapping(address => euint128)) public encLpBalances;  // Encrypted source of truth
 
     // ─────────────────── Limit Order Buckets (from V4) ───────────────────
     mapping(PoolId => mapping(int24 => mapping(BucketSide => Bucket))) public buckets;
@@ -267,6 +269,7 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         PoolReserves storage reserves = poolReserves[poolId];
         reserves.encReserve0 = ENC_ZERO;
         reserves.encReserve1 = ENC_ZERO;
+        reserves.encTotalLpSupply = ENC_ZERO;
         reserves.reserve0 = 0;
         reserves.reserve1 = 0;
         reserves.lastSyncBlock = 0;
@@ -275,6 +278,7 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
 
         FHE.allowThis(reserves.encReserve0);
         FHE.allowThis(reserves.encReserve1);
+        FHE.allowThis(reserves.encTotalLpSupply);
         FHE.allowThis(reserves.pendingReserve0);
         FHE.allowThis(reserves.pendingReserve1);
 
@@ -727,6 +731,7 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @notice Add liquidity to encrypted AMM (plaintext path)
+    /// @dev Updates both plaintext cache and encrypted source of truth
     function addLiquidity(
         PoolId poolId,
         uint256 amount0,
@@ -752,24 +757,42 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
             lpAmount = lpAmount0 < lpAmount1 ? lpAmount0 : lpAmount1;
         }
 
-        // Update state
+        // Update plaintext cache
         lpBalances[poolId][msg.sender] += lpAmount;
         totalLpSupply[poolId] += lpAmount;
         reserves.reserve0 += amount0;
         reserves.reserve1 += amount1;
 
-        // Update encrypted reserves
+        // Update encrypted reserves (source of truth)
         euint128 encAmount0 = FHE.asEuint128(uint128(amount0));
         euint128 encAmount1 = FHE.asEuint128(uint128(amount1));
+        euint128 encLpAmount = FHE.asEuint128(uint128(lpAmount));
+        FHE.allowThis(encAmount0);
+        FHE.allowThis(encAmount1);
+        FHE.allowThis(encLpAmount);
+
         reserves.encReserve0 = FHE.add(reserves.encReserve0, encAmount0);
         reserves.encReserve1 = FHE.add(reserves.encReserve1, encAmount1);
+        reserves.encTotalLpSupply = FHE.add(reserves.encTotalLpSupply, encLpAmount);
         FHE.allowThis(reserves.encReserve0);
         FHE.allowThis(reserves.encReserve1);
+        FHE.allowThis(reserves.encTotalLpSupply);
+
+        // Update user's encrypted LP balance
+        euint128 currentBalance = encLpBalances[poolId][msg.sender];
+        if (Common.isInitialized(currentBalance)) {
+            encLpBalances[poolId][msg.sender] = FHE.add(currentBalance, encLpAmount);
+        } else {
+            encLpBalances[poolId][msg.sender] = encLpAmount;
+        }
+        FHE.allowThis(encLpBalances[poolId][msg.sender]);
+        FHE.allow(encLpBalances[poolId][msg.sender], msg.sender);
 
         emit LiquidityAdded(poolId, msg.sender, amount0, amount1, lpAmount);
     }
 
     /// @notice Remove liquidity from encrypted AMM
+    /// @dev Updates both plaintext cache and encrypted source of truth
     function removeLiquidity(
         PoolId poolId,
         uint256 lpAmount
@@ -786,19 +809,32 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         amount0 = (lpAmount * reserves.reserve0) / _totalLpSupply;
         amount1 = (lpAmount * reserves.reserve1) / _totalLpSupply;
 
-        // Update state
+        // Update plaintext cache
         lpBalances[poolId][msg.sender] -= lpAmount;
         totalLpSupply[poolId] -= lpAmount;
         reserves.reserve0 -= amount0;
         reserves.reserve1 -= amount1;
 
-        // Update encrypted reserves
+        // Update encrypted reserves (source of truth)
         euint128 encAmount0 = FHE.asEuint128(uint128(amount0));
         euint128 encAmount1 = FHE.asEuint128(uint128(amount1));
+        euint128 encLpAmount = FHE.asEuint128(uint128(lpAmount));
+        FHE.allowThis(encAmount0);
+        FHE.allowThis(encAmount1);
+        FHE.allowThis(encLpAmount);
+
         reserves.encReserve0 = FHE.sub(reserves.encReserve0, encAmount0);
         reserves.encReserve1 = FHE.sub(reserves.encReserve1, encAmount1);
+        reserves.encTotalLpSupply = FHE.sub(reserves.encTotalLpSupply, encLpAmount);
         FHE.allowThis(reserves.encReserve0);
         FHE.allowThis(reserves.encReserve1);
+        FHE.allowThis(reserves.encTotalLpSupply);
+
+        // Update user's encrypted LP balance
+        euint128 currentBalance = encLpBalances[poolId][msg.sender];
+        encLpBalances[poolId][msg.sender] = FHE.sub(currentBalance, encLpAmount);
+        FHE.allowThis(encLpBalances[poolId][msg.sender]);
+        FHE.allow(encLpBalances[poolId][msg.sender], msg.sender);
 
         // Transfer tokens
         IERC20(address(state.token0)).safeTransfer(msg.sender, amount0);
@@ -808,38 +844,8 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     }
 
     /// @notice Add liquidity with encrypted amounts
-    /// @dev LIMITATION: LP token calculation uses simplified sum instead of geometric mean.
-    ///
-    ///      CURRENT IMPLEMENTATION:
-    ///        lpAmount = amt0 + amt1
-    ///
-    ///      IDEAL IMPLEMENTATION (Uniswap-style):
-    ///        lpAmount = sqrt(amt0 * amt1)                    // First deposit
-    ///        lpAmount = min(amt0 * totalLP / reserve0,       // Subsequent deposits
-    ///                       amt1 * totalLP / reserve1)
-    ///
-    ///      WHY THIS LIMITATION EXISTS:
-    ///        1. FHE does not natively support sqrt() operations
-    ///        2. Implementing encrypted sqrt requires iterative Newton-Raphson approximation,
-    ///           which would cost 10-20x more gas due to multiple FHE multiplications/divisions
-    ///        3. The ratio-based calculation for subsequent deposits requires accessing
-    ///           encrypted totalLpSupply, which we don't track in encrypted form
-    ///
-    ///      CONSEQUENCES:
-    ///        - LP tokens don't accurately reflect proportional pool ownership
-    ///        - Unbalanced deposits (e.g., 100 token0 + 1 token1) get same LP as balanced
-    ///        - Could be exploited by depositing unbalanced amounts
-    ///
-    ///      FUTURE IMPROVEMENT:
-    ///        1. Implement encrypted Newton-Raphson sqrt: ~6 iterations of
-    ///           x_{n+1} = (x_n + value/x_n) / 2
-    ///        2. Track totalLpSupply as euint128 for proper ratio calculation
-    ///        3. Add minimum liquidity lock (like Uniswap's MINIMUM_LIQUIDITY = 1000)
-    ///
-    ///      For MVP, we accept this limitation because:
-    ///        - Most users will deposit balanced amounts anyway
-    ///        - The plaintext addLiquidity() uses proper sqrt calculation
-    ///        - Privacy of deposit amounts is preserved (the primary goal)
+    /// @dev First deposit: LP = min(amt0, amt1) * 2 (approximates sqrt, prevents manipulation)
+    ///      Subsequent: LP = min(amt0 * totalLP / reserve0, amt1 * totalLP / reserve1)
     function addLiquidityEncrypted(
         PoolId poolId,
         InEuint128 calldata amount0,
@@ -851,6 +857,8 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
 
         euint128 amt0 = FHE.asEuint128(amount0);
         euint128 amt1 = FHE.asEuint128(amount1);
+        FHE.allowThis(amt0);
+        FHE.allowThis(amt1);
 
         // Transfer encrypted tokens
         FHE.allow(amt0, address(state.token0));
@@ -858,15 +866,57 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         state.token0.transferFromEncryptedDirect(msg.sender, address(this), amt0);
         state.token1.transferFromEncryptedDirect(msg.sender, address(this), amt1);
 
+        // Calculate LP amount
+        ebool isFirstDeposit = FHE.eq(reserves.encTotalLpSupply, ENC_ZERO);
+
+        // First deposit: LP = min(amt0, amt1) * 2
+        // This approximates sqrt and prevents manipulation (excess stays in pool)
+        ebool amt0Smaller = FHE.lt(amt0, amt1);
+        euint128 minAmt = FHE.select(amt0Smaller, amt0, amt1);
+        euint128 encTwo = FHE.asEuint128(2);
+        euint128 firstDepositLp = FHE.mul(minAmt, encTwo);
+        FHE.allowThis(firstDepositLp);
+
+        // Subsequent deposits: LP = min(amt0 * totalLP / reserve0, amt1 * totalLP / reserve1)
+        // Safe denominators (reserves > 0 for non-first deposit)
+        euint128 safeRes0 = FHE.select(FHE.gt(reserves.encReserve0, ENC_ZERO), reserves.encReserve0, ENC_ONE);
+        euint128 safeRes1 = FHE.select(FHE.gt(reserves.encReserve1, ENC_ZERO), reserves.encReserve1, ENC_ONE);
+        FHE.allowThis(safeRes0);
+        FHE.allowThis(safeRes1);
+
+        euint128 lpFromAmt0 = FHE.div(FHE.mul(amt0, reserves.encTotalLpSupply), safeRes0);
+        euint128 lpFromAmt1 = FHE.div(FHE.mul(amt1, reserves.encTotalLpSupply), safeRes1);
+        FHE.allowThis(lpFromAmt0);
+        FHE.allowThis(lpFromAmt1);
+
+        ebool use0 = FHE.lt(lpFromAmt0, lpFromAmt1);
+        euint128 subsequentLp = FHE.select(use0, lpFromAmt0, lpFromAmt1);
+        FHE.allowThis(subsequentLp);
+
+        // Select based on first deposit or not
+        lpAmount = FHE.select(isFirstDeposit, firstDepositLp, subsequentLp);
+        FHE.allowThis(lpAmount);
+        FHE.allow(lpAmount, msg.sender);
+
         // Update encrypted reserves
         reserves.encReserve0 = FHE.add(reserves.encReserve0, amt0);
         reserves.encReserve1 = FHE.add(reserves.encReserve1, amt1);
         FHE.allowThis(reserves.encReserve0);
         FHE.allowThis(reserves.encReserve1);
 
-        // SIMPLIFIED: Sum instead of geometric mean (see @dev note above)
-        lpAmount = FHE.add(amt0, amt1);
-        FHE.allow(lpAmount, msg.sender);
+        // Update encrypted LP tracking
+        reserves.encTotalLpSupply = FHE.add(reserves.encTotalLpSupply, lpAmount);
+        FHE.allowThis(reserves.encTotalLpSupply);
+
+        // Update user's encrypted LP balance
+        euint128 currentBalance = encLpBalances[poolId][msg.sender];
+        if (Common.isInitialized(currentBalance)) {
+            encLpBalances[poolId][msg.sender] = FHE.add(currentBalance, lpAmount);
+        } else {
+            encLpBalances[poolId][msg.sender] = lpAmount;
+        }
+        FHE.allowThis(encLpBalances[poolId][msg.sender]);
+        FHE.allow(encLpBalances[poolId][msg.sender], msg.sender);
 
         _requestReserveSync(poolId);
 
@@ -874,40 +924,8 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     }
 
     /// @notice Remove liquidity with encrypted LP amount
-    /// @dev LIMITATION: Returns equal split of LP instead of proportional pool share.
-    ///
-    ///      CURRENT IMPLEMENTATION:
-    ///        amount0 = lpAmount / 2
-    ///        amount1 = lpAmount / 2
-    ///
-    ///      IDEAL IMPLEMENTATION (Uniswap-style):
-    ///        amount0 = lpAmount * reserve0 / totalLpSupply
-    ///        amount1 = lpAmount * reserve1 / totalLpSupply
-    ///
-    ///      WHY THIS LIMITATION EXISTS:
-    ///        1. Proper calculation requires: (lpAmount * encReserve) / encTotalLpSupply
-    ///        2. We don't track totalLpSupply in encrypted form (only plaintext)
-    ///        3. Mixing encrypted lpAmount with plaintext totalLpSupply would leak information
-    ///        4. Even with encrypted totalLpSupply, the division would need careful handling
-    ///           to avoid division-by-zero in encrypted space
-    ///
-    ///      CONSEQUENCES:
-    ///        - Users don't receive proportional share of actual pool reserves
-    ///        - If pool is imbalanced (e.g., 80% token0, 20% token1), user still gets 50/50
-    ///        - This is UNFAIR to users when pool ratio differs from 1:1
-    ///        - Potential for value extraction by sophisticated users
-    ///
-    ///      FUTURE IMPROVEMENT:
-    ///        1. Track encTotalLpSupply as euint128
-    ///        2. Calculate: amount0 = FHE.div(FHE.mul(lp, encReserve0), encTotalLpSupply)
-    ///        3. Add encrypted comparison to ensure sufficient reserves
-    ///        4. Consider using the public reserve ratio as a hint (privacy trade-off)
-    ///
-    ///      For MVP, we accept this limitation because:
-    ///        - The primary goal is privacy of withdrawal amounts
-    ///        - Users can use plaintext removeLiquidity() for accurate proportional withdrawal
-    ///        - Pool should generally stay near 1:1 if arbitraged properly
-    ///        - This is clearly documented as a known limitation
+    /// @dev Proportional withdrawal: amount = lp * reserve / totalLpSupply
+    ///      Clamped to user's actual balance to prevent over-withdrawal
     function removeLiquidityEncrypted(
         PoolId poolId,
         InEuint128 calldata lpAmount
@@ -915,12 +933,43 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         PoolState storage state = poolStates[poolId];
         PoolReserves storage reserves = poolReserves[poolId];
 
-        euint128 lp = FHE.asEuint128(lpAmount);
+        euint128 requestedLp = FHE.asEuint128(lpAmount);
+        FHE.allowThis(requestedLp);
 
-        // SIMPLIFIED: Equal split instead of proportional (see @dev note above)
-        euint128 two = FHE.asEuint128(2);
-        amount0 = FHE.div(lp, two);
-        amount1 = FHE.div(lp, two);
+        // Get user's actual balance and clamp requested amount
+        euint128 userBalance = encLpBalances[poolId][msg.sender];
+        if (!Common.isInitialized(userBalance)) {
+            // No balance - return zeros
+            amount0 = ENC_ZERO;
+            amount1 = ENC_ZERO;
+            return (amount0, amount1);
+        }
+
+        // Clamp to user's balance
+        ebool exceedsBalance = FHE.gt(requestedLp, userBalance);
+        euint128 lp = FHE.select(exceedsBalance, userBalance, requestedLp);
+        FHE.allowThis(lp);
+
+        // Safe denominator for division
+        euint128 safeTotalLp = FHE.select(
+            FHE.gt(reserves.encTotalLpSupply, ENC_ZERO),
+            reserves.encTotalLpSupply,
+            ENC_ONE
+        );
+        FHE.allowThis(safeTotalLp);
+
+        // Proportional calculation: amount = lp * reserve / totalLpSupply
+        amount0 = FHE.div(FHE.mul(lp, reserves.encReserve0), safeTotalLp);
+        amount1 = FHE.div(FHE.mul(lp, reserves.encReserve1), safeTotalLp);
+        FHE.allowThis(amount0);
+        FHE.allowThis(amount1);
+
+        // Update encrypted LP tracking
+        reserves.encTotalLpSupply = FHE.sub(reserves.encTotalLpSupply, lp);
+        encLpBalances[poolId][msg.sender] = FHE.sub(userBalance, lp);
+        FHE.allowThis(reserves.encTotalLpSupply);
+        FHE.allowThis(encLpBalances[poolId][msg.sender]);
+        FHE.allow(encLpBalances[poolId][msg.sender], msg.sender);
 
         // Update encrypted reserves
         reserves.encReserve0 = FHE.sub(reserves.encReserve0, amount0);
