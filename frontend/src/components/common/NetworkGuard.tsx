@@ -28,7 +28,7 @@ export function NetworkGuard({ children }: NetworkGuardProps) {
           <div className="text-4xl mb-4">&#x26A0;</div>
           <h2 className="text-xl font-semibold mb-2">Unsupported Network</h2>
           <p className="text-feather-white/60 mb-6">
-            Please switch to a supported network to use PheatherX.
+            Please switch to a supported network to use FheatherX.
           </p>
           <div className="flex flex-col gap-2">
             {supportedChains.map(chain => (

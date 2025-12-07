@@ -1,45 +1,78 @@
-# PheatherX
+# FheatherX - Private DEX with FHE
 
-A private execution layer built on FHE (Fully Homomorphic Encryption) and engineered within the Fhenix ecosystem.
+**Trade in Silence. Your orders, encrypted on-chain.**
 
-## Overview
+FheatherX is a private decentralized exchange built as a **Uniswap v4 Hook** using **Fhenix's Fully Homomorphic Encryption (FHE)**. All order amounts and balances are encrypted - no one can see your trading strategies, not even validators.
 
-PheatherX implements a custom Uniswap v4 hook that replaces public swap paths with encrypted balance accounting, ensuring that trade direction, size, and intent remain hidden from all observers.
+## Problem
 
-## Project Structure
+Current DEXs expose all trading activity publicly on-chain:
+- **Front-running**: Bots see your pending orders and trade ahead of you
+- **Sandwich attacks**: MEV extractors profit by manipulating prices around your trades
+- **Information leakage**: Competitors can analyze your trading patterns
+- **Market manipulation**: Large orders reveal intent, moving prices against you
 
+## Solution
+
+FheatherX encrypts everything using FHE:
+- **Encrypted Limit Orders**: Place buy/sell orders with hidden amounts
+- **Private Balances**: Your deposited tokens are encrypted on-chain
+- **MEV Protection**: Validators can't see order sizes to front-run
+- **Fair Execution**: Proceeds-per-share model ensures equal fills
+
+## Technical Architecture
+
+### Uniswap v4 Hook Integration
+
+FheatherXv4 is a proper Uniswap v4 Hook that extends the PoolManager:
+
+```solidity
+contract FheatherXv4 is BaseHook, ReentrancyGuard, Pausable, Ownable {
+    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
+        return Hooks.Permissions({
+            beforeInitialize: false,
+            afterInitialize: true,      // Set up encrypted pool state
+            beforeSwap: false,
+            afterSwap: true,            // Match limit orders
+            // ...
+        });
+    }
+}
 ```
-pheatherx/
-├── contracts/          # Solidity smart contracts
-│   ├── src/           # Main contract source files
-│   ├── test/          # Contract tests
-│   ├── script/        # Deployment scripts
-│   ├── foundry.toml   # Foundry configuration
-│   └── remappings.txt # Solidity import remappings
-├── frontend/          # Web application
-│   ├── src/           # Frontend source code
-│   └── public/        # Static assets
-└── README.md          # This file
-```
+
+### Fhenix FHE Integration
+
+We use Fhenix's CoFHE (Coprocessor FHE) for encryption:
+
+- **euint128**: 128-bit encrypted unsigned integers for balances/amounts
+- **FHE.allowThis()**: ACL permissions for contract operations on encrypted values
+- **FHERC20**: ERC20 tokens with fully encrypted balances
+- **Client-side encryption**: Amounts encrypted before submission
+
+### Bucketed Limit Order System
+
+Orders are placed at specific tick price levels (buckets):
+- **SELL buckets**: Filled when price rises through the tick
+- **BUY buckets**: Filled when price falls through the tick
+- **Proceeds-per-share**: Fair distribution of fills across all LPs in a bucket
+
+## Features
+
+- **Encrypted Swaps**: Trade token pairs with hidden amounts
+- **Private Limit Orders**: Place hidden buy/sell orders at specific prices
+- **Portfolio Dashboard**: View encrypted balances with FHE decryption
+- **Testnet Faucet**: Get test tokens (tWETH, tUSDC, fheWETH, fheUSDC)
+- **Multi-network**: Supports Ethereum Sepolia, Arbitrum Sepolia, Local Anvil
 
 ## Getting Started
 
 ### Prerequisites
 
-- [Foundry](https://book.getfoundry.sh/getting-started/installation)
-- [Node.js](https://nodejs.org/) (v18+)
-- [pnpm](https://pnpm.io/) or npm
+- Node.js 18+
+- Foundry (for contracts)
+- A wallet with testnet ETH
 
-### Contracts
-
-```bash
-cd contracts
-npm install
-forge build
-forge test --via-ir
-```
-
-### Frontend
+### Frontend Setup
 
 ```bash
 cd frontend
@@ -47,10 +80,80 @@ npm install
 npm run dev
 ```
 
-## Deployment
+Open http://localhost:3000
 
-Target network: Fhenix Testnet
+### Contract Deployment
 
-## License
+```bash
+cd contracts
+forge build
+forge script script/DeployEthSepolia.s.sol --rpc-url $ETH_SEPOLIA_RPC --broadcast
+```
 
-MIT
+## Project Structure
+
+```
+fheatherx/
+├── contracts/
+│   ├── src/
+│   │   ├── FheatherXv4.sol      # Uniswap v4 Hook
+│   │   ├── PheatherXv3.sol      # Standalone private DEX
+│   │   └── tokens/              # FHERC20 implementations
+│   └── test/
+├── frontend/
+│   ├── src/
+│   │   ├── app/                 # Next.js pages
+│   │   ├── components/          # React components
+│   │   └── hooks/               # Contract interaction hooks
+│   └── e2e/                     # Playwright E2E tests
+└── docs/
+```
+
+## Demo
+
+[Demo Video Link - TBD]
+
+### Screenshots
+
+**Homepage**
+- Trade in Silence hero with stats bar
+
+**Portfolio Dashboard**
+- Encrypted balance cards with FHE decryption
+- Testnet faucet for obtaining tokens
+
+**Trade Interface**
+- Swap and limit order placement
+- Bucket visualization
+
+## Partner Integrations
+
+### Fhenix (Primary Integration)
+
+FheatherX is built on **Fhenix's CoFHE** infrastructure:
+- All balances stored as `euint128` encrypted values
+- FHERC20 tokens for encrypted token transfers
+- FHE session management for client-side encryption
+- ACL-based permission system for secure multi-party computation
+
+### Uniswap v4
+
+FheatherXv4 extends Uniswap v4's hook system:
+- Implements `BaseHook` interface
+- Uses `afterSwap` callback to process limit orders
+- Integrates with `PoolManager` for liquidity
+
+## Team
+
+Solo developer hackathon project
+
+## Links
+
+- **Live Demo**: [TBD]
+- **GitHub**: https://github.com/[username]/fheatherx
+- **Fhenix Docs**: https://docs.fhenix.zone
+- **Uniswap v4**: https://docs.uniswap.org/contracts/v4/overview
+
+---
+
+Built for Hookathon 2024. Private trading, powered by FHE.

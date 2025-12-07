@@ -28,7 +28,7 @@ export default function FaucetPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-feather-white mb-2">Testnet Faucet</h1>
           <p className="text-feather-white/60">
-            Get test tokens for the PheatherX ecosystem
+            Get test tokens for the FheatherX ecosystem
           </p>
         </div>
 
@@ -54,7 +54,7 @@ export default function FaucetPage() {
           <div>
             <h1 className="text-3xl font-bold text-feather-white mb-2">Testnet Faucet</h1>
             <p className="text-feather-white/60">
-              Get test tokens for the PheatherX ecosystem
+              Get test tokens for the FheatherX ecosystem
             </p>
           </div>
           <div

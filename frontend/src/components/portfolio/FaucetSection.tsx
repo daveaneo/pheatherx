@@ -95,8 +95,8 @@ export function FaucetSection() {
           )}
         </div>
 
-        {/* Token List (Compact) */}
-        <div className="space-y-2">
+        {/* Token Grid (styled like ETH section) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {tokens.slice(0, 4).map((token) => (
             <TokenRowCompact
               key={token.address}
@@ -149,30 +149,37 @@ function TokenRowCompact({
     token: token.address,
   });
 
+  // Gradient colors based on token type
+  const gradientClass = token.type === 'fheerc20'
+    ? 'from-amber-500 to-orange-600'
+    : 'from-emerald-500 to-teal-600';
+
   return (
-    <div className="flex items-center justify-between p-2 hover:bg-ash-gray/20 rounded">
-      <div className="flex items-center gap-2">
-        <div className="w-6 h-6 rounded-full bg-carbon-gray flex items-center justify-center text-xs">
+    <div className="flex items-center justify-between p-3 bg-ash-gray/30 rounded-lg">
+      <div className="flex items-center gap-3">
+        <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center text-sm`}>
           {token.type === 'fheerc20' ? '🔐' : '💰'}
         </div>
-        <span className="text-sm font-medium">{token.symbol}</span>
-        <Badge variant={token.type === 'fheerc20' ? 'warning' : 'info'} className="text-xs">
-          {token.type === 'fheerc20' ? 'FHE' : 'ERC20'}
-        </Badge>
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-feather-white">{token.symbol}</span>
+            <Badge variant={token.type === 'fheerc20' ? 'warning' : 'info'} className="text-xs">
+              {token.type === 'fheerc20' ? 'FHE' : 'ERC20'}
+            </Badge>
+          </div>
+          <p className="text-xs text-feather-white/50">
+            {balance ? Number(formatUnits(balance.value, balance.decimals)).toFixed(2) : '0'} {token.symbol}
+          </p>
+        </div>
       </div>
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-feather-white/60">
-          {balance ? Number(formatUnits(balance.value, balance.decimals)).toFixed(2) : '0'}
-        </span>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => onRequest(token)}
-          disabled={disabled}
-        >
-          {isRequesting ? <Loader2 className="w-3 h-3 animate-spin" /> : '+100'}
-        </Button>
-      </div>
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={() => onRequest(token)}
+        disabled={disabled}
+      >
+        {isRequesting ? <Loader2 className="w-3 h-3 animate-spin" /> : '+100'}
+      </Button>
     </div>
   );
 }

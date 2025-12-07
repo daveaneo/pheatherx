@@ -24,7 +24,7 @@ export function BalanceCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
-            <span className="text-2xl">{isNative ? '&#x039E;' : '&#x1F4B0;'}</span>
+            <span className="text-2xl">{isNative ? 'Ξ' : '💰'}</span>
             {tokenSymbol}
           </CardTitle>
           {isNative && <Badge variant="info">Native</Badge>}

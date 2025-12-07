@@ -59,7 +59,7 @@ const howItWorks = [
   {
     step: 1,
     title: 'Deposit',
-    description: 'Deposit tokens into your PheatherX balance to enable encrypted accounting.',
+    description: 'Deposit tokens into your FheatherX balance to enable encrypted accounting.',
   },
   {
     step: 2,
@@ -127,7 +127,7 @@ export default function HomePage() {
           </h1>
           <p className="text-xl text-feather-white/70 mb-8 max-w-2xl mx-auto">
             Private execution powered by FHE. Your trades, your secret.
-            PheatherX keeps your orders hidden from everyone - including validators.
+            FheatherX keeps your orders hidden from everyone - including validators.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/portfolio">
@@ -164,7 +164,7 @@ export default function HomePage() {
       <section className="py-16 px-4">
         <div className="max-w-6xl mx-auto">
           <h2 className="text-heading-2 text-center mb-12">
-            Why PheatherX?
+            Why FheatherX?
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {features.map((feature, index) => (
@@ -190,7 +190,7 @@ export default function HomePage() {
           </h2>
           <p className="text-center text-feather-white/60 mb-12 max-w-2xl mx-auto">
             Unlike traditional DEXs where you swap directly from your wallet,
-            PheatherX requires depositing tokens first. This enables encrypted
+            FheatherX requires depositing tokens first. This enables encrypted
             accounting - your balance and trades remain private on-chain.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -214,7 +214,7 @@ export default function HomePage() {
             Protocol Analytics
           </h2>
           <p className="text-center text-feather-white/60 mb-12">
-            Real-time statistics from the PheatherX protocol
+            Real-time statistics from the FheatherX protocol
           </p>
 
           {/* Stats Grid */}

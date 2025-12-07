@@ -1,9 +1,9 @@
 /**
- * Service Worker for PheatherX
+ * Service Worker for FheatherX
  * Caches WASM files and other static assets for faster subsequent loads
  */
 
-const CACHE_NAME = 'pheatherx-v1';
+const CACHE_NAME = 'fheatherx-v1';
 
 // Files to cache on install
 const PRECACHE_ASSETS = [
@@ -83,8 +83,18 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        // Fall back to cache
-        return caches.match(event.request);
+        // Fall back to cache, or return a proper error response if not cached
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // Return a proper error response instead of undefined
+          return new Response('Network error and no cache available', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: { 'Content-Type': 'text/plain' }
+          });
+        });
       })
   );
 });

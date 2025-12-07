@@ -30,7 +30,7 @@ const transports = {
 
 // Normal RainbowKit config (used when TEST_MODE is false)
 export const config = getDefaultConfig({
-  appName: 'PheatherX',
+  appName: 'FheatherX',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo',
   chains: supportedChains,
   transports,

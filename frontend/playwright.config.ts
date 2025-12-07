@@ -45,6 +45,9 @@ export default defineConfig({
 
     // Clear storage state before each test to prevent pool store caching across chains
     storageState: undefined,
+
+    // Disable service worker to avoid caching issues during tests
+    serviceWorkers: 'block',
   },
 
   // Only test on Chromium for now
@@ -59,7 +62,9 @@ export default defineConfig({
   webServer: {
     command: 'NEXT_PUBLIC_TEST_MODE=true npm run dev',
     url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
+    // Never reuse existing server - always start fresh with TEST_MODE
+    // This prevents issues where a stale dev server without TEST_MODE is running
+    reuseExistingServer: false,
     timeout: 120000,
     env: {
       NEXT_PUBLIC_TEST_MODE: 'true',

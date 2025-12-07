@@ -11,7 +11,7 @@ import '@/styles/globals.css';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter-tight' });
 
 export const metadata: Metadata = {
-  title: 'PheatherX - Private DEX',
+  title: 'FheatherX - Private DEX',
   description: 'Private execution layer for DeFi with FHE encryption',
   icons: {
     icon: '/favicon.ico',
@@ -19,10 +19,27 @@ export const metadata: Metadata = {
 };
 
 // Service worker registration script (runs client-side)
+// Unregisters old service workers first to clear broken cache, then registers fresh
 const swScript = `
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
-    navigator.serviceWorker.register('/sw.js').catch(function() {});
+    // First unregister any existing service workers to clear bad cache
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      registrations.forEach(function(registration) {
+        registration.unregister();
+      });
+    }).then(function() {
+      // Clear caches
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          names.forEach(function(name) {
+            caches.delete(name);
+          });
+        });
+      }
+      // Re-register fresh service worker
+      navigator.serviceWorker.register('/sw.js').catch(function() {});
+    });
   });
 }
 `;

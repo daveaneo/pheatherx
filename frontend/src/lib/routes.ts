@@ -4,14 +4,15 @@
 
 // Routes that are part of the dApp experience (require full navbar with wallet connect)
 export const DAPP_ROUTES = [
-  '/swap',
+  '/trade',      // Unified trading page (swaps + orders)
+  '/swap',       // Legacy - redirects to /trade
   '/liquidity',
-  '/orders',
+  '/orders',     // Legacy - redirects to /trade
   '/portfolio',
   '/auctions',
   '/launchpad',
-  '/faucet',
-  '/analytics',
+  '/faucet',     // Legacy - redirects to /portfolio
+  '/analytics',  // Legacy - redirects to /
 ];
 
 /**

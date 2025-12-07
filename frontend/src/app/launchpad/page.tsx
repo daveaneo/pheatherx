@@ -21,7 +21,7 @@ export default function LaunchpadPage() {
           <span className="text-6xl mb-6 block">&#x1F680;</span>
           <h2 className="text-xl font-semibold mb-4">Under Construction</h2>
           <p className="text-feather-white/60 max-w-md mx-auto">
-            The PheatherX Launchpad will enable fair token launches where
+            The FheatherX Launchpad will enable fair token launches where
             contribution amounts are encrypted, preventing whales from gaming
             allocation systems.
           </p>

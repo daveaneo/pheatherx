@@ -20,7 +20,7 @@ export function AppLoader({ children }: AppLoaderProps) {
           <div className="relative">
             <div className="w-16 h-16 rounded-full border-4 border-carbon-gray border-t-phoenix-ember animate-spin" />
           </div>
-          <span className="text-feather-white/60 text-sm">Loading PheatherX...</span>
+          <span className="text-feather-white/60 text-sm">Loading FheatherX...</span>
         </div>
       </div>
     );

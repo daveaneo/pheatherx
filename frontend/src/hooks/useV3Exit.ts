@@ -82,7 +82,7 @@ export function useV3Exit(): UseV3ExitReturn {
 
         const contractAddress = PHEATHERX_ADDRESSES[chainId];
         if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
-          throw new Error(`PheatherX contract not deployed on chain ${chainId}`);
+          throw new Error(`FheatherX contract not deployed on chain ${chainId}`);
         }
 
         // Execute exit

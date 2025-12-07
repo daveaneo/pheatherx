@@ -42,13 +42,13 @@ export const TOKEN_LIST: Record<number, Token[]> = {
     {
       address: TOKEN_ADDRESSES[11155111]?.token0 || '0x0000000000000000000000000000000000000000',
       symbol: 'tWETH',
-      name: 'PheatherX Test WETH',
+      name: 'FheatherX Test WETH',
       decimals: 18,
     },
     {
       address: TOKEN_ADDRESSES[11155111]?.token1 || '0x0000000000000000000000000000000000000000',
       symbol: 'tUSDC',
-      name: 'PheatherX Test USDC',
+      name: 'FheatherX Test USDC',
       decimals: 6,
     },
   ],

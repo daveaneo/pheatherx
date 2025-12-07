@@ -56,7 +56,7 @@ export function Header() {
               <line x1="17.5" y1="15" x2="9" y2="15" />
             </svg>
             <span className="font-display text-xl font-bold text-feather-white group-hover:text-phoenix-ember transition-all">
-              PheatherX
+              FheatherX
             </span>
           </Link>
 
