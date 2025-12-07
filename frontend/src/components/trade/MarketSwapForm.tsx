@@ -18,8 +18,8 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
 
   const { swap, step, isSwapping, error, reset } = useV3Swap();
 
-  const sellToken = zeroForOne ? 'tWETH' : 'tUSDC';
-  const buyToken = zeroForOne ? 'tUSDC' : 'tWETH';
+  const sellToken = zeroForOne ? 'fheWETH' : 'fheUSDC';
+  const buyToken = zeroForOne ? 'fheUSDC' : 'fheWETH';
 
   // Calculate estimated output
   const estimatedOutput = (() => {

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { cn } from '@/lib/utils';
+import { FheSessionIndicator } from '@/components/common/FheSessionIndicator';
 
 interface NavItem {
   href: string;
@@ -87,8 +88,9 @@ export function DAppHeader() {
             })}
           </nav>
 
-          {/* Connect Button */}
-          <div className="flex items-center gap-4" data-testid="wallet-connection">
+          {/* FHE Session + Connect Button */}
+          <div className="flex items-center gap-3" data-testid="wallet-connection">
+            <FheSessionIndicator />
             <ConnectButton
               chainStatus="icon"
               accountStatus={{

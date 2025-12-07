@@ -61,8 +61,8 @@ contract DeployFheatherXv2 is Script {
         // ============ Deploy FHERC20 Tokens ============
         console.log("--- Deploying FHERC20 Tokens ---");
 
-        FHERC20FaucetToken tokenA = new FHERC20FaucetToken("FheatherX Test USDC", "tUSDC", 6);
-        FHERC20FaucetToken tokenB = new FHERC20FaucetToken("FheatherX Test WETH", "tWETH", 18);
+        FHERC20FaucetToken tokenA = new FHERC20FaucetToken("FHE USDC", "fheUSDC", 6);
+        FHERC20FaucetToken tokenB = new FHERC20FaucetToken("FHE WETH", "fheWETH", 18);
 
         // Sort tokens (Uniswap requirement: token0 < token1)
         (address token0Addr, address token1Addr) = address(tokenA) < address(tokenB)

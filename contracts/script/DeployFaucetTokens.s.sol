@@ -32,23 +32,23 @@ contract DeployFaucetTokens is Script {
         console.log("--- Deploying Standard ERC20 Tokens ---");
 
         // USDC-like stablecoin (6 decimals)
-        FaucetToken usdc = new FaucetToken("Test USDC", "tUSDC", 6);
-        console.log("tUSDC deployed at:", address(usdc));
+        FaucetToken usdc = new FaucetToken("USDC", "USDC", 6);
+        console.log("USDC deployed at:", address(usdc));
 
         // ETH-like token (18 decimals)
-        FaucetToken weth = new FaucetToken("Test WETH", "tWETH", 18);
-        console.log("tWETH deployed at:", address(weth));
+        FaucetToken weth = new FaucetToken("WETH", "WETH", 18);
+        console.log("WETH deployed at:", address(weth));
 
         // ============ Deploy FHE-Enabled Tokens ============
         console.log("");
         console.log("--- Deploying FHE-Enabled Tokens ---");
 
         // FHE USDC (6 decimals)
-        FheFaucetToken fheUsdc = new FheFaucetToken("FHE Test USDC", "fheUSDC", 6);
+        FheFaucetToken fheUsdc = new FheFaucetToken("FHE USDC", "fheUSDC", 6);
         console.log("fheUSDC deployed at:", address(fheUsdc));
 
-        // FHE ETH (18 decimals)
-        FheFaucetToken fheWeth = new FheFaucetToken("FHE Test WETH", "fheWETH", 18);
+        // FHE WETH (18 decimals)
+        FheFaucetToken fheWeth = new FheFaucetToken("FHE WETH", "fheWETH", 18);
         console.log("fheWETH deployed at:", address(fheWeth));
 
         // ============ Mint initial supply to deployer ============
@@ -63,8 +63,8 @@ contract DeployFaucetTokens is Script {
         fheUsdc.mint(deployer, usdcMint);
         fheWeth.mint(deployer, wethMint);
 
-        console.log("Minted 1,000,000 tUSDC to deployer");
-        console.log("Minted 1,000 tWETH to deployer");
+        console.log("Minted 1,000,000 USDC to deployer");
+        console.log("Minted 1,000 WETH to deployer");
         console.log("Minted 1,000,000 fheUSDC to deployer");
         console.log("Minted 1,000 fheWETH to deployer");
 
@@ -80,8 +80,8 @@ contract DeployFaucetTokens is Script {
         console.log("===========================================");
         console.log("");
         console.log("Standard ERC20 Tokens:");
-        console.log("  tUSDC:", address(usdc));
-        console.log("  tWETH:", address(weth));
+        console.log("  USDC:", address(usdc));
+        console.log("  WETH:", address(weth));
         console.log("");
         console.log("FHE-Enabled Tokens:");
         console.log("  fheUSDC:", address(fheUsdc));
@@ -107,17 +107,17 @@ contract DeployFaucetTokens is Script {
             '  "deployedAt": "', vm.toString(block.timestamp), '",\n',
             '  "tokens": {\n',
             '    "erc20": {\n',
-            '      "tUSDC": {\n',
+            '      "USDC": {\n',
             '        "address": "', vm.toString(usdc), '",\n',
-            '        "symbol": "tUSDC",\n',
-            '        "name": "Test USDC",\n',
+            '        "symbol": "USDC",\n',
+            '        "name": "USDC",\n',
             '        "decimals": 6,\n',
             '        "type": "erc20"\n',
             '      },\n',
-            '      "tWETH": {\n',
+            '      "WETH": {\n',
             '        "address": "', vm.toString(weth), '",\n',
-            '        "symbol": "tWETH",\n',
-            '        "name": "Test WETH",\n',
+            '        "symbol": "WETH",\n',
+            '        "name": "WETH",\n',
             '        "decimals": 18,\n',
             '        "type": "erc20"\n',
             '      }\n',
@@ -126,14 +126,14 @@ contract DeployFaucetTokens is Script {
             '      "fheUSDC": {\n',
             '        "address": "', vm.toString(fheUsdc), '",\n',
             '        "symbol": "fheUSDC",\n',
-            '        "name": "FHE Test USDC",\n',
+            '        "name": "FHE USDC",\n',
             '        "decimals": 6,\n',
             '        "type": "fheerc20"\n',
             '      },\n',
             '      "fheWETH": {\n',
             '        "address": "', vm.toString(fheWeth), '",\n',
             '        "symbol": "fheWETH",\n',
-            '        "name": "FHE Test WETH",\n',
+            '        "name": "FHE WETH",\n',
             '        "decimals": 18,\n',
             '        "type": "fheerc20"\n',
             '      }\n',

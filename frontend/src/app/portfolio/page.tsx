@@ -1,19 +1,15 @@
 'use client';
 
-import { useAccount, useChainId } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { ConnectPrompt } from '@/components/common/ConnectPrompt';
 import { FheSessionGuard } from '@/components/common/FheSessionGuard';
-import { BalanceCard } from '@/components/portfolio/BalanceCard';
-import { FaucetSection } from '@/components/portfolio/FaucetSection';
+import { TokenBalanceTable } from '@/components/portfolio/TokenBalanceTable';
 import { BucketPositionsTable } from '@/components/portfolio/BucketPositionsTable';
 import { ClaimsSection } from '@/components/portfolio/ClaimsSection';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui';
-import { TOKEN_LIST } from '@/lib/tokens';
 
 export default function PortfolioPage() {
   const { isConnected } = useAccount();
-  const chainId = useChainId();
-  const tokens = TOKEN_LIST[chainId] || [];
 
   if (!isConnected) {
     return <ConnectPrompt message="Connect your wallet to view your portfolio" />;
@@ -21,36 +17,17 @@ export default function PortfolioPage() {
 
   return (
     <FheSessionGuard requireSession>
-      <div className="max-w-5xl mx-auto space-y-8">
+      <div className="max-w-4xl mx-auto space-y-6 px-4 sm:px-0">
         {/* Header */}
         <div>
-          <h1 className="text-heading-2 mb-2">Portfolio</h1>
-          <p className="text-feather-white/60">
+          <h1 className="text-2xl sm:text-heading-2 font-bold mb-1">Portfolio</h1>
+          <p className="text-sm sm:text-base text-feather-white/60">
             Manage your balances, positions, and claims
           </p>
         </div>
 
-        {/* Top Row: Balances + Faucet */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Balance Cards */}
-          <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {tokens.slice(0, 2).map((token, index) => (
-              <BalanceCard
-                key={token.symbol}
-                tokenSymbol={token.symbol}
-                tokenName={token.name}
-                decimals={token.decimals}
-                isToken0={index === 0}
-                isNative={token.isNative}
-              />
-            ))}
-          </div>
-
-          {/* Faucet Section */}
-          <div className="lg:col-span-1">
-            <FaucetSection />
-          </div>
-        </div>
+        {/* Unified Token Balance Table */}
+        <TokenBalanceTable />
 
         {/* Tabs for Positions, Claims, History */}
         <Tabs defaultValue="positions">

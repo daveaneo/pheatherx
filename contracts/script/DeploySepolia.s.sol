@@ -44,16 +44,16 @@ contract DeploySepolia is Script {
         // ============ Deploy Tokens ============
         console.log("--- Deploying Tokens ---");
 
-        TestToken tokenA = new TestToken("FheatherX Test USDC", "tUSDC", 6);
-        TestToken tokenB = new TestToken("FheatherX Test WETH", "tWETH", 18);
+        TestToken tokenA = new TestToken("USDC", "USDC", 6);
+        TestToken tokenB = new TestToken("WETH", "WETH", 18);
 
         // Sort tokens (Uniswap requirement: token0 < token1)
         (address token0Addr, address token1Addr) = address(tokenA) < address(tokenB)
             ? (address(tokenA), address(tokenB))
             : (address(tokenB), address(tokenA));
 
-        console.log("Token A (tUSDC):", address(tokenA));
-        console.log("Token B (tWETH):", address(tokenB));
+        console.log("Token A (USDC):", address(tokenA));
+        console.log("Token B (WETH):", address(tokenB));
         console.log("");
         console.log("Sorted:");
         console.log("Token0:", token0Addr);

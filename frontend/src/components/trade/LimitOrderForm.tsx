@@ -89,8 +89,8 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
     }
   };
 
-  const depositToken = config.depositToken === 'token0' ? 'tWETH' : 'tUSDC';
-  const receiveToken = config.receiveToken === 'token0' ? 'tWETH' : 'tUSDC';
+  const depositToken = config.depositToken === 'token0' ? 'fheWETH' : 'fheUSDC';
+  const receiveToken = config.receiveToken === 'token0' ? 'fheWETH' : 'fheUSDC';
   const selectedTick = parseInt(targetTick) || currentTick;
 
   return (

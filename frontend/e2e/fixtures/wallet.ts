@@ -4,7 +4,7 @@ import { test as base, expect } from '@playwright/test';
  * Test wallet fixture for FheatherX E2E tests
  *
  * Test wallet address: 0x60B9be2A29a02F49e8D6ba535303caD1Ddcb9659
- * Funded with: 0.1 ETH, 100 tWETH, 100 tUSDC on Ethereum Sepolia
+ * Funded with: 0.1 ETH, 100 WETH, 100 USDC on Ethereum Sepolia
  */
 
 // Critical errors that should fail tests immediately

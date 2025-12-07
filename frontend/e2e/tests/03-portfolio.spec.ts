@@ -46,7 +46,7 @@ test.describe('Portfolio Page', () => {
     await page.waitForTimeout(2000);
 
     // Check for balance cards or privacy session
-    const balanceContent = page.locator('text=/Balance|tWETH|tUSDC|Privacy Session Required/i');
+    const balanceContent = page.locator('text=/Balance|WETH|USDC|fheWETH|fheUSDC|Privacy Session Required/i');
     await expect(balanceContent.first()).toBeVisible({ timeout: 10000 });
   });
 });

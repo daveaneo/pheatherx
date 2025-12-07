@@ -79,8 +79,8 @@ contract DeployArbSepolia is Script {
         // ============ Deploy Tokens ============
         console.log("--- Deploying Tokens ---");
 
-        TestToken tokenA = new TestToken("FheatherX Test USDC", "tUSDC", 6);
-        TestToken tokenB = new TestToken("FheatherX Test WETH", "tWETH", 18);
+        TestToken tokenA = new TestToken("USDC", "USDC", 6);
+        TestToken tokenB = new TestToken("WETH", "WETH", 18);
 
         // Sort tokens (Uniswap requirement: token0 < token1)
         (address token0Addr, address token1Addr) = address(tokenA) < address(tokenB)
@@ -148,8 +148,8 @@ contract DeployArbSepolia is Script {
         console.log("  DEPLOYMENT COMPLETE");
         console.log("===========================================");
         console.log("");
-        console.log("Token0 (tUSDC):", token0Addr);
-        console.log("Token1 (tWETH):", token1Addr);
+        console.log("Token0 (USDC):", token0Addr);
+        console.log("Token1 (WETH):", token1Addr);
         console.log("Hook:", address(hook));
         console.log("Pool Manager:", POOL_MANAGER);
         console.log("");

@@ -9,9 +9,9 @@ import {FheatherXFactory} from "../src/FheatherXFactory.sol";
 /// @dev Run with: source .env && forge script script/DeployFactory.s.sol:DeployFactory --rpc-url $ETH_SEPOLIA_RPC --broadcast
 contract DeployFactory is Script {
     // Existing deployment addresses from DeployEthSepolia.s.sol
-    // Token0 (tWETH - 18 decimals)
+    // Token0 (WETH - 18 decimals)
     address constant TOKEN0 = 0x453bA98F2318c7BA0bBA9C202c2a68d7ec11a659;
-    // Token1 (tUSDC - 6 decimals)
+    // Token1 (USDC - 6 decimals)
     address constant TOKEN1 = 0xF6f6a3162Ca3162E3855d0B201d2264de64a52F6;
     // FheatherX Hook
     address constant FHEATHERX_HOOK = 0x47712BED8Ae60A41B5d092A3Dc04cb19FF508AC8;

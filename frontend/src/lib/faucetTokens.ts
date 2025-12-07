@@ -21,16 +21,16 @@ export interface FaucetConfig {
 export const ETH_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
   {
     address: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56',
-    symbol: 'tUSDC',
-    name: 'Test USDC',
+    symbol: 'USDC',
+    name: 'USDC',
     decimals: 6,
     type: 'erc20',
     faucetAmount: 100,
   },
   {
     address: '0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E',
-    symbol: 'tWETH',
-    name: 'Test WETH',
+    symbol: 'WETH',
+    name: 'WETH',
     decimals: 18,
     type: 'erc20',
     faucetAmount: 100,
@@ -38,7 +38,7 @@ export const ETH_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
   {
     address: '0x1D77eE754b2080B354733299A5aC678539a0D740',
     symbol: 'fheUSDC',
-    name: 'FHE Test USDC',
+    name: 'FHE USDC',
     decimals: 6,
     type: 'fheerc20',
     faucetAmount: 100,
@@ -46,7 +46,7 @@ export const ETH_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
   {
     address: '0xf0F8f49b4065A1B01050Fa358d287106B676a25F',
     symbol: 'fheWETH',
-    name: 'FHE Test WETH',
+    name: 'FHE WETH',
     decimals: 18,
     type: 'fheerc20',
     faucetAmount: 100,

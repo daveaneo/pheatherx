@@ -140,7 +140,7 @@ This allows you to deploy once and run tests multiple times without redeploying.
 ## Troubleshooting
 
 ### "Insufficient token balance"
-Your test wallet needs tUSDC/tWETH tokens. After deployment, tokens are minted to the deployer address.
+Your test wallet needs USDC/WETH tokens. After deployment, tokens are minted to the deployer address.
 
 ### "File not found: deployments/{network}.json"
 Run the deployment script first to deploy contracts and create the deployment file.

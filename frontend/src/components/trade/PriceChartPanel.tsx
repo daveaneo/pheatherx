@@ -26,7 +26,7 @@ export function PriceChartPanel({
       <CardHeader className="pb-2">
         <CardTitle className="text-lg flex items-center justify-between">
           <span>Current Price</span>
-          <span className="text-xs text-muted-foreground">tWETH/tUSDC</span>
+          <span className="text-xs text-muted-foreground">fheWETH/fheUSDC</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
