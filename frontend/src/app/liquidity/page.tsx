@@ -8,9 +8,9 @@ export default function LiquidityPage() {
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Liquidity</h1>
+          <h1 className="text-3xl font-bold mb-2">Orders</h1>
           <p className="text-feather-white/60">
-            Provide liquidity to earn trading fees
+            Place encrypted limit orders at specific price levels
           </p>
         </div>
 
@@ -21,8 +21,8 @@ export default function LiquidityPage() {
 
         <Tabs defaultValue="add" className="w-full">
           <TabsList className="w-full grid grid-cols-2">
-            <TabsTrigger value="add">Add Liquidity</TabsTrigger>
-            <TabsTrigger value="remove">Remove Liquidity</TabsTrigger>
+            <TabsTrigger value="add">Place Orders</TabsTrigger>
+            <TabsTrigger value="remove">Cancel Orders</TabsTrigger>
           </TabsList>
 
           <TabsContent value="add" className="mt-4">

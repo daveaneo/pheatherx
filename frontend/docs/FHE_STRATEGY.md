@@ -46,7 +46,7 @@ The **encryption side works** (contract can encrypt values). The problem is **de
 
 ### Steps Once Funded
 1. Deploy test tokens (tWETH, tUSDC) to Arbitrum Sepolia
-2. Deploy PheatherXFactory and PheatherX hook
+2. Deploy FheatherXFactory and FheatherX hook
 3. Update `src/lib/chains.ts` with Arbitrum Sepolia contract addresses
 4. Test cofhejs initialization on Arbitrum Sepolia
 5. If works → full real FHE demo
@@ -137,7 +137,7 @@ class ClientBalanceTracker {
   }
 
   persist() {
-    localStorage.setItem('pheatherx:balanceEvents', JSON.stringify(this.events));
+    localStorage.setItem('fheatherx:balanceEvents', JSON.stringify(this.events));
   }
 }
 ```
@@ -195,7 +195,7 @@ Use The Graph or similar to index Deposit/Withdraw events, compute balances from
 #### Step 1: Create Balance Tracker (`src/lib/fhe/balanceTracker.ts`)
 ```typescript
 export class BalanceTracker {
-  private storageKey = 'pheatherx:balanceTracker';
+  private storageKey = 'fheatherx:balanceTracker';
 
   trackDeposit(user: string, chainId: number, pool: string, isToken0: boolean, amount: bigint, txHash: string);
   trackWithdraw(user: string, chainId: number, pool: string, isToken0: boolean, amount: bigint, txHash: string);
@@ -271,7 +271,7 @@ async function revealBalance() {
 
 With Strategy 2 working:
 
-1. "PheatherX uses FHE to encrypt all user balances on-chain"
+1. "FheatherX uses FHE to encrypt all user balances on-chain"
 2. Show deposit → transaction on Etherscan → encrypted balance stored
 3. "The contract stores encrypted ciphertexts - no one can see actual values"
 4. Show balance in UI → "We decrypt using our privacy session"

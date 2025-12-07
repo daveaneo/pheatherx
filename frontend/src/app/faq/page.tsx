@@ -16,18 +16,17 @@ const faqItems: FAQItem[] = [
   {
     category: 'privacy',
     question: 'What exactly is encrypted?',
-    answer: `All user balances and order amounts are encrypted using FHE (Fully Homomorphic Encryption). This includes:
-- Your deposited token balances
-- Order sizes when placing limit orders
+    answer: `All order amounts are encrypted using FHE (Fully Homomorphic Encryption). This includes:
+- Your limit order sizes at each price level
 - Filled proceeds from matched orders
-- Liquidity positions in buckets
+- Your position sizes in each bucket
 
 The only public information is the existence of activity at a price level, not the amounts involved.`,
   },
   {
     category: 'privacy',
     question: 'Can validators see my orders?',
-    answer: `No. Validators process encrypted data without being able to decrypt it. They can verify that operations are valid (e.g., you have sufficient encrypted balance) but cannot see the actual amounts. This eliminates the possibility of front-running or MEV extraction based on your order size.`,
+    answer: `No. Validators process encrypted data without being able to decrypt it. They can verify that operations are valid but cannot see the actual order amounts. This eliminates the possibility of front-running or MEV extraction based on your order size.`,
   },
   {
     category: 'privacy',
@@ -35,12 +34,11 @@ The only public information is the existence of activity at a price level, not t
     answer: `Others can see:
 - That you interacted with the FheatherX contract
 - The transaction hash and gas costs
-- Which price buckets have activity (but not amounts)
+- Which price levels have orders (but not amounts)
 
 Others cannot see:
 - Your order sizes
-- Your token balances
-- How much was filled
+- How much of your order has been filled
 - Your trading strategy or patterns`,
   },
   // Security
@@ -62,7 +60,7 @@ Others cannot see:
 - OpenZeppelin's security primitives (Ownable, Pausable, ReentrancyGuard)
 - Fhenix's FHE library (audited by multiple firms)
 
-The hook-specific logic follows established patterns from PheatherXv3 which has been reviewed and tested.`,
+The hook-specific logic follows established patterns from FheatherXv3 which has been reviewed and tested.`,
   },
   // Technical
   {
@@ -87,12 +85,12 @@ Sessions are tied to your wallet address and the connected chain.`,
   {
     category: 'technical',
     question: 'Why is gas higher than regular DEXs?',
-    answer: `FHE operations are computationally intensive. Each encrypted addition, comparison, or transfer requires cryptographic operations that cost more gas than plaintext alternatives. However, this is the cost of privacy - you're paying for the assurance that no one can see your trading activity.
+    answer: `FHE operations are computationally intensive. Each encrypted addition, comparison, or transfer requires cryptographic operations that cost more gas than plaintext alternatives. However, this is the cost of privacy - you're paying for the assurance that no one can see your order sizes.
 
 Typical gas costs:
-- Deposit: ~500k-800k gas
-- Swap: ~200k-400k gas
-- Withdraw: ~400k-600k gas`,
+- Place Order: ~500k-800k gas
+- Market Swap: ~200k-400k gas
+- Cancel/Claim: ~400k-600k gas`,
   },
   // Usage
   {
@@ -101,21 +99,21 @@ Typical gas costs:
     answer: `1. Connect your wallet to a supported network (Ethereum Sepolia, Arbitrum Sepolia)
 2. Get test tokens from the Faucet page
 3. Click "Initialize FHE Session" to set up encryption
-4. Deposit tokens to your encrypted balance
-5. Place orders or swap tokens privately`,
+4. Go to the Trade page and place a limit order at your target price
+5. Your order will fill automatically when the market price crosses your level`,
   },
   {
     category: 'usage',
-    question: 'Why do I need to deposit before trading?',
-    answer: `Unlike traditional DEXs where you swap directly from your wallet, FheatherX uses an encrypted balance system. Depositing moves tokens from your wallet into the encrypted accounting layer. This enables:
-- Hidden order sizes (you can't hide an amount that's visible in your wallet)
-- Efficient order matching without revealing individual positions
-- Fair distribution of fills across all participants`,
+    question: 'How do limit orders work?',
+    answer: `When you place a limit order, you choose a price level and the amount you want to trade. Your tokens are locked in a "bucket" at that price level with an encrypted amount. When market swaps move the price through your level, your order fills automatically and you receive the counter-token. This enables:
+- Hidden order sizes (no one sees how much you're trading)
+- Fair pro-rata fills when multiple orders exist at the same price
+- Automatic execution without monitoring`,
   },
   {
     category: 'usage',
-    question: 'How do I see my encrypted balance?',
-    answer: `Go to the Portfolio page and click "Initialize FHE Session" if you haven't already. This establishes a secure connection that allows you to decrypt and view your balances. The decryption happens client-side - your balances are never revealed to the network.`,
+    question: 'How do I see my orders?',
+    answer: `Go to the Portfolio page and click "Initialize FHE Session" if you haven't already. This establishes a secure connection that allows you to decrypt and view your order sizes. The decryption happens client-side - your order amounts are never revealed to the network.`,
   },
 ];
 

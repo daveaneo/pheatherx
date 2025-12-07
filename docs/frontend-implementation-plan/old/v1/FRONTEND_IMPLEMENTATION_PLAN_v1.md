@@ -1,4 +1,4 @@
-# PheatherX Frontend Implementation Plan
+# FheatherX Frontend Implementation Plan
 
 **Version:** 1.0
 **Based on:** web-app-specs-v2.md
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document outlines the implementation plan for the PheatherX frontend—a privacy-focused DeFi trading interface built on FHE (Fully Homomorphic Encryption). The plan is organized into phases with clear deliverables, dependencies, and technical requirements.
+This document outlines the implementation plan for the FheatherX frontend—a privacy-focused DeFi trading interface built on FHE (Fully Homomorphic Encryption). The plan is organized into phases with clear deliverables, dependencies, and technical requirements.
 
 ---
 
@@ -88,7 +88,7 @@ Phase 7: Testing & QA
 
 #### 2.1.1 Initialize Next.js Project
 ```bash
-cd /home/david/PycharmProjects/pheatherx/frontend
+cd /home/david/PycharmProjects/fheatherx/frontend
 npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir
 ```
 
@@ -190,9 +190,9 @@ NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 NEXT_PUBLIC_FHENIX_RPC_URL=https://testnet.fhenix.io
 
 # Contract Addresses (per network)
-NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL=0x...
-NEXT_PUBLIC_PHEATHERX_ADDRESS_BASE_SEPOLIA=0x...
-NEXT_PUBLIC_PHEATHERX_ADDRESS_FHENIX=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_BASE_SEPOLIA=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX=0x...
 
 # Pool Manager Address
 NEXT_PUBLIC_POOL_MANAGER_ADDRESS=0x...
@@ -501,7 +501,7 @@ import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { supportedChains } from './chains';
 
 export const wagmiConfig = getDefaultConfig({
-  appName: 'PheatherX',
+  appName: 'FheatherX',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '',
   chains: supportedChains,
   ssr: true,
@@ -550,7 +550,7 @@ export function Providers({ children }: { children: ReactNode }) {
 
 **File:** `src/lib/contracts/abi.ts`
 ```typescript
-export const PHEATHERX_ABI = [
+export const FHEATHERX_ABI = [
   // Deposit/Withdraw
   {
     name: 'deposit',
@@ -690,10 +690,10 @@ export const PHEATHERX_ABI = [
 
 **File:** `src/lib/contracts/addresses.ts`
 ```typescript
-export const PHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
-  31337: process.env.NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL as `0x${string}`,
-  84532: process.env.NEXT_PUBLIC_PHEATHERX_ADDRESS_BASE_SEPOLIA as `0x${string}`,
-  8008135: process.env.NEXT_PUBLIC_PHEATHERX_ADDRESS_FHENIX as `0x${string}`,
+export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL as `0x${string}`,
+  84532: process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_BASE_SEPOLIA as `0x${string}`,
+  8008135: process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX as `0x${string}`,
 };
 
 export const PROTOCOL_FEE = 0.001; // ETH
@@ -705,31 +705,31 @@ export const EXECUTOR_REWARD_BPS = 100; // 1%
 **File:** `src/hooks/useContract.ts`
 ```typescript
 import { useAccount, useChainId, useReadContract, useWriteContract } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 
-export function usePheatherXAddress() {
+export function useFheatherXAddress() {
   const chainId = useChainId();
-  return PHEATHERX_ADDRESSES[chainId];
+  return FHEATHERX_ADDRESSES[chainId];
 }
 
 export function useReserves() {
-  const address = usePheatherXAddress();
+  const address = useFheatherXAddress();
 
   return useReadContract({
     address,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getReserves',
   });
 }
 
 export function useActiveOrders() {
-  const address = usePheatherXAddress();
+  const address = useFheatherXAddress();
   const { address: userAddress } = useAccount();
 
   return useReadContract({
     address,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getActiveOrders',
     args: userAddress ? [userAddress] : undefined,
     query: {
@@ -739,12 +739,12 @@ export function useActiveOrders() {
 }
 
 export function useOrderCount() {
-  const address = usePheatherXAddress();
+  const address = useFheatherXAddress();
   const { address: userAddress } = useAccount();
 
   return useReadContract({
     address,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getOrderCount',
     args: userAddress ? [userAddress] : undefined,
     query: {
@@ -755,13 +755,13 @@ export function useOrderCount() {
 
 // Write hooks
 export function useDeposit() {
-  const address = usePheatherXAddress();
+  const address = useFheatherXAddress();
   const { writeContractAsync } = useWriteContract();
 
   return async (isToken0: boolean, amount: bigint) => {
     return writeContractAsync({
       address,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'deposit',
       args: [isToken0, amount],
     });
@@ -769,13 +769,13 @@ export function useDeposit() {
 }
 
 export function useWithdraw() {
-  const address = usePheatherXAddress();
+  const address = useFheatherXAddress();
   const { writeContractAsync } = useWriteContract();
 
   return async (isToken0: boolean, amount: bigint) => {
     return writeContractAsync({
       address,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'withdraw',
       args: [isToken0, amount],
     });
@@ -783,13 +783,13 @@ export function useWithdraw() {
 }
 
 export function useCancelOrder() {
-  const address = usePheatherXAddress();
+  const address = useFheatherXAddress();
   const { writeContractAsync } = useWriteContract();
 
   return async (orderId: bigint) => {
     return writeContractAsync({
       address,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'cancelOrder',
       args: [orderId],
     });
@@ -832,7 +832,7 @@ export function Header() {
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2">
           <span className="text-2xl font-display font-bold bg-flame-gradient bg-clip-text text-transparent">
-            PheatherX
+            FheatherX
           </span>
         </Link>
 
@@ -870,7 +870,7 @@ export function Header() {
 ### 3.5 Deliverables
 
 - [ ] Tailwind configuration with custom theme
-- [ ] Global styles with PheatherX design tokens
+- [ ] Global styles with FheatherX design tokens
 - [ ] Base UI components (Button, Card, Input, Modal, etc.)
 - [ ] RainbowKit + wagmi integration
 - [ ] Network switcher working for all supported chains
@@ -1263,7 +1263,7 @@ export function DepositModal({ isOpen, onClose, token, isToken0 }: DepositModalP
                 <span className="text-iridescent-violet">ℹ</span> About Deposits
               </h4>
               <p className="text-sm text-feather-white/70">
-                Deposited funds are held in the PheatherX hook contract.
+                Deposited funds are held in the FheatherX hook contract.
                 You can withdraw anytime. This enables encrypted balance
                 accounting for private trading.
               </p>
@@ -1292,7 +1292,7 @@ export function DepositModal({ isOpen, onClose, token, isToken0 }: DepositModalP
             </div>
             <p className="font-medium">Deposit Successful!</p>
             <p className="text-sm text-feather-white/60 mt-2">
-              {amount} {token.symbol} added to your PheatherX balance
+              {amount} {token.symbol} added to your FheatherX balance
             </p>
             <Button onClick={onClose} variant="secondary" className="mt-6">
               Close
@@ -1815,7 +1815,7 @@ import { useAccount } from 'wagmi';
 import { TokenSelector } from '@/components/swap/TokenSelector';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { useReserves, usePheatherXAddress } from '@/hooks/useContract';
+import { useReserves, useFheatherXAddress } from '@/hooks/useContract';
 import { useEncrypt } from '@/lib/fhe';
 import { OrderType, ORDER_TYPES, getOrderDirection, validateTriggerPrice } from '@/lib/orders';
 import { priceToTick, priceFromReserves } from '@/lib/ticks';
@@ -1835,7 +1835,7 @@ export function OrderForm({ orderType }: OrderFormProps) {
   const [formState, setFormState] = useState<'idle' | 'confirming' | 'pending' | 'success' | 'error'>('idle');
 
   const { address } = useAccount();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const { data: reserves } = useReserves();
   const { encryptBool, encryptUint128, allow } = useEncrypt();
 
@@ -2273,7 +2273,7 @@ export default function LandingPage() {
       <section className="py-20 px-4 bg-ash-gray/50">
         <div className="max-w-6xl mx-auto">
           <h2 className="text-3xl font-heading font-bold text-center mb-12">
-            Why PheatherX?
+            Why FheatherX?
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <FeatureCard
@@ -2309,7 +2309,7 @@ export default function LandingPage() {
           <div className="space-y-8">
             <Step
               number={1}
-              title="Deposit tokens into your PheatherX balance"
+              title="Deposit tokens into your FheatherX balance"
               description="Unlike traditional DEXs, you deposit first to enable encrypted accounting. Your funds remain under your control."
             />
             <Step
@@ -2517,7 +2517,7 @@ npm install -D playwright
 
 ### 10.2 Contract Dependencies
 
-- PheatherX hook contract deployed on target networks
+- FheatherX hook contract deployed on target networks
 - Pool Manager contract address
 - Token contract addresses (token0, token1)
 

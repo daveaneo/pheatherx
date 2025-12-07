@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient, useWriteContract } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSelectedPool } from '@/stores/poolStore';
@@ -59,7 +59,7 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
     try {
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'withdraw',
         args: [isToken0, amount],
       });

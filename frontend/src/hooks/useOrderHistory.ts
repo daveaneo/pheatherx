@@ -2,8 +2,8 @@
 
 import { useAccount, useChainId, usePublicClient } from 'wagmi';
 import { useQuery } from '@tanstack/react-query';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { orderHistoryKey } from '@/lib/queryKeys';
 import type { OrderPlacedEvent, OrderFilledEvent, OrderCancelledEvent } from '@/types/events';
 
@@ -22,7 +22,7 @@ export function useOrderHistory(fromBlock?: bigint) {
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   return useQuery({
     queryKey: orderHistoryKey(chainId, address),

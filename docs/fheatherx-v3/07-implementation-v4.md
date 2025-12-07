@@ -1,4 +1,4 @@
-# PheatherX v3 Implementation Plan - Version 4
+# FheatherX v3 Implementation Plan - Version 4
 
 > **Status:** NOT IMPLEMENTED - Design Document
 > **Revision:** v4 - Addresses all issues from Audit v3
@@ -137,10 +137,10 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {TickBitmap} from "./lib/TickBitmap.sol";
 
-/// @title PheatherX v3 - Private Bucketed Limit Order DEX
+/// @title FheatherX v3 - Private Bucketed Limit Order DEX
 /// @notice Encrypted limit orders with O(1) gas per bucket using FHE
 /// @dev Uses "proceeds per share" accumulator model for pro-rata distribution
-contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
+contract FheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     using TickBitmap for TickBitmap.State;
     using SafeERC20 for IERC20;
 
@@ -735,10 +735,10 @@ event FeeCollectorUpdated(address newCollector);
 |------|-------------|
 | `src/tokens/IFHERC6909.sol` | Interface |
 | `src/tokens/FHERC6909.sol` | Implementation |
-| `src/PheatherXv3.sol` | Main contract |
-| `src/interface/IPheatherXv3.sol` | Interface |
+| `src/FheatherXv3.sol` | Main contract |
+| `src/interface/IFheatherXv3.sol` | Interface |
 | `src/lib/TickBitmap.sol` | Reuse from v2 |
 | `test/FHERC6909.t.sol` | Token tests |
-| `test/PheatherXv3.t.sol` | Hook tests |
-| `test/PheatherXv3Invariants.t.sol` | Invariant tests |
-| `script/DeployPheatherXv3.s.sol` | Deployment |
+| `test/FheatherXv3.t.sol` | Hook tests |
+| `test/FheatherXv3Invariants.t.sol` | Invariant tests |
+| `script/DeployFheatherXv3.s.sol` | Deployment |

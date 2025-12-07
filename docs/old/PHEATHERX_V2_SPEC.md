@@ -1,8 +1,8 @@
-# Plan: PheatherXv2 - Private AMM with FHE
+# Plan: FheatherXv2 - Private AMM with FHE
 
 ## Vision
 
-**PheatherX is a fully homomorphic encrypted (FHE) AMM that provides MEV protection and complete trade privacy while remaining compatible with the existing DeFi ecosystem.**
+**FheatherX is a fully homomorphic encrypted (FHE) AMM that provides MEV protection and complete trade privacy while remaining compatible with the existing DeFi ecosystem.**
 
 ### The Problem We Solve
 
@@ -18,7 +18,7 @@ This information leakage enables:
 - **Order book sniping**: Traders target your visible limit orders
 - **Probe attacks**: Adversaries probe the system to extract information
 
-### How PheatherX Solves This
+### How FheatherX Solves This
 
 **All operations are encrypted on-chain using FHE:**
 
@@ -47,7 +47,7 @@ This information leakage enables:
 
 ---
 
-## What PheatherX Offers
+## What FheatherX Offers
 
 ### 1. Private Swaps (Two Entry Paths)
 
@@ -157,7 +157,7 @@ Path B - Encrypted FHERC20 (full privacy):
 
 ---
 
-## Preserved Engineering (From Original PheatherX)
+## Preserved Engineering (From Original FheatherX)
 
 These existing solutions will be kept and reused:
 
@@ -355,7 +355,7 @@ function _fillOrder(Order storage order, ebool shouldFill) internal {
 
 ## New Contract Functions
 
-### PheatherXv2.sol
+### FheatherXv2.sol
 
 ```solidity
 // ============ Swap Functions ============
@@ -445,27 +445,27 @@ function removeLiquidityEncrypted(InEuint128 calldata) external returns (euint12
 
 | File | Action | Notes |
 |------|--------|-------|
-| `src/PheatherXv2.sol` | **CREATE** | New contract with target architecture |
-| `src/interface/IPheatherXv2.sol` | **CREATE** | New interface |
+| `src/FheatherXv2.sol` | **CREATE** | New contract with target architecture |
+| `src/interface/IFheatherXv2.sol` | **CREATE** | New interface |
 | `src/lib/TickBitmap.sol` | KEEP | Already correct |
 | `src/lib/DirectionLock.sol` | KEEP | Already correct |
 | `src/tokens/FHERC20FaucetToken.sol` | KEEP | Already has dual overloads |
-| `test/PheatherXv2.t.sol` | **CREATE** | New test suite |
-| `script/DeployPheatherXv2.s.sol` | **CREATE** | New deployment script |
+| `test/FheatherXv2.t.sol` | **CREATE** | New test suite |
+| `script/DeployFheatherXv2.s.sol` | **CREATE** | New deployment script |
 
-Keep existing `PheatherX.sol` for reference until v2 is proven.
+Keep existing `FheatherX.sol` for reference until v2 is proven.
 
 ---
 
 ## Implementation Order
 
-1. **Create PheatherXv2.sol**
+1. **Create FheatherXv2.sol**
    - Copy TickBitmap, DirectionLock, encrypted math from v1
    - Add `swap()` and `swapEncrypted()` functions
    - Add liquidity functions
    - Modify `placeOrder()` and `cancelOrder()` for direct FHERC20 transfers
 
-2. **Create IPheatherXv2.sol**
+2. **Create IFheatherXv2.sol**
    - Define new interface
 
 3. **Write Tests**

@@ -48,15 +48,15 @@ The blockchain verifies correctness without learning your secrets.`,
         <polyline points="12 6 12 12 16 14" />
       </svg>
     ),
-    content: `FheatherX operates as a Uniswap v4 Hook with a unique bucketed limit order system:
+    content: `FheatherX is a Uniswap v4 Hook implementing an encrypted limit order book:
 
-1. **Deposit**: Tokens are encrypted and added to your private balance
-2. **Place Orders**: Submit limit orders at specific tick prices (buckets)
-3. **Order Matching**: When swaps move through price levels, orders are filled
-4. **Fair Distribution**: Proceeds-per-share model ensures equal fills for all LPs in a bucket
-5. **Withdraw**: Claim your filled proceeds or withdraw unfilled orders
+1. **Place Order**: Choose a price level and submit your encrypted limit order
+2. **Order Aggregation**: Orders at each price level are pooled in "buckets"
+3. **Auto-Fill**: When market swaps cross your price, orders fill automatically
+4. **Fair Distribution**: Proceeds-per-share model ensures equal fills for all orders in a bucket
+5. **Claim or Cancel**: Collect filled proceeds or cancel unfilled orders anytime
 
-All amounts remain encrypted throughout the entire process.`,
+Your order amounts remain encrypted throughout - no one sees your position sizes.`,
   },
   {
     title: 'The Technology',

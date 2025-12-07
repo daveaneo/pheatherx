@@ -536,8 +536,8 @@ import { useMemo } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { useQuery } from '@tanstack/react-query';
 import { usePublicClient } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { queryKeys } from '@/lib/queryKeys';
 import {
   buildUserOrders,
@@ -564,7 +564,7 @@ export function useOrderHistory(): UseOrderHistoryResult {
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   // Fetch all events
   const { data: events, isLoading, error, refetch } = useQuery({
@@ -576,21 +576,21 @@ export function useOrderHistory(): UseOrderHistoryResult {
       const [placedLogs, filledLogs, cancelledLogs] = await Promise.all([
         publicClient.getContractEvents({
           address: hookAddress,
-          abi: PHEATHERX_ABI,
+          abi: FHEATHERX_ABI,
           eventName: 'OrderPlaced',
           args: { owner: address },
           fromBlock: 'earliest',
         }),
         publicClient.getContractEvents({
           address: hookAddress,
-          abi: PHEATHERX_ABI,
+          abi: FHEATHERX_ABI,
           eventName: 'OrderFilled',
           args: { owner: address },
           fromBlock: 'earliest',
         }),
         publicClient.getContractEvents({
           address: hookAddress,
-          abi: PHEATHERX_ABI,
+          abi: FHEATHERX_ABI,
           eventName: 'OrderCancelled',
           args: { owner: address },
           fromBlock: 'earliest',
@@ -747,7 +747,7 @@ export const useFheStore = create<FheState>()(
         }),
     })),
     {
-      name: 'pheatherx-fhe',
+      name: 'fheatherx-fhe',
       storage: createJSONStorage(() => sessionStorage), // Security: use sessionStorage
       partialize: state => ({
         // Only persist revealed balances, NOT session
@@ -920,7 +920,7 @@ export const useUiStore = create<UiState>()(
         })),
     }),
     {
-      name: 'pheatherx-ui',
+      name: 'fheatherx-ui',
       partialize: state => ({
         slippageTolerance: state.slippageTolerance,
         expertMode: state.expertMode,
@@ -1013,7 +1013,7 @@ export const useTransactionStore = create<TransactionState>()(
         }),
     })),
     {
-      name: 'pheatherx-transactions',
+      name: 'fheatherx-transactions',
     }
   )
 );
@@ -1084,8 +1084,8 @@ export const queryKeys = {
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccount, useWatchContractEvent } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useChainId } from 'wagmi';
 import { queryKeys } from '@/lib/queryKeys';
 import { useFheStore } from '@/stores/fheStore';
@@ -1093,14 +1093,14 @@ import { useFheStore } from '@/stores/fheStore';
 export function useEventInvalidation() {
   const { address } = useAccount();
   const chainId = useChainId();
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const queryClient = useQueryClient();
   const clearBalances = useFheStore(state => state.clearBalances);
 
   // Invalidate on Deposit
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'Deposit',
     onLogs: logs => {
       logs.forEach(log => {
@@ -1118,7 +1118,7 @@ export function useEventInvalidation() {
   // Invalidate on Withdraw
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'Withdraw',
     onLogs: logs => {
       logs.forEach(log => {
@@ -1136,7 +1136,7 @@ export function useEventInvalidation() {
   // Invalidate on OrderPlaced
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'OrderPlaced',
     onLogs: logs => {
       logs.forEach(log => {
@@ -1157,7 +1157,7 @@ export function useEventInvalidation() {
   // Invalidate on OrderFilled
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'OrderFilled',
     onLogs: logs => {
       logs.forEach(log => {
@@ -1178,7 +1178,7 @@ export function useEventInvalidation() {
   // Invalidate on OrderCancelled
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'OrderCancelled',
     onLogs: logs => {
       logs.forEach(log => {

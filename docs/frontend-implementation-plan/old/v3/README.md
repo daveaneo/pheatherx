@@ -1,6 +1,6 @@
 # Frontend Implementation Plan
 
-This folder contains the complete frontend implementation plan for PheatherX.
+This folder contains the complete frontend implementation plan for FheatherX.
 
 ## Documents
 

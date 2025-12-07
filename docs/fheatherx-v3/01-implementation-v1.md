@@ -1,14 +1,14 @@
-# PheatherX v3 Implementation Plan
+# FheatherX v3 Implementation Plan
 
 > **Status:** NOT IMPLEMENTED - Design Document
 >
-> This document describes the planned v3 architecture with bucketed liquidity and FHERC-6909 position tokens. PheatherX v2 (individual orders) is the current implementation.
+> This document describes the planned v3 architecture with bucketed liquidity and FHERC-6909 position tokens. FheatherX v2 (individual orders) is the current implementation.
 
 ---
 
 ## Executive Summary
 
-PheatherX v3 replaces individual limit orders with **bucketed liquidity pools** and **encrypted position tokens (FHERC-6909)**. This architectural change achieves O(1) gas scaling per bucket regardless of user count, solving the fundamental FHE gas bottleneck.
+FheatherX v3 replaces individual limit orders with **bucketed liquidity pools** and **encrypted position tokens (FHERC-6909)**. This architectural change achieves O(1) gas scaling per bucket regardless of user count, solving the fundamental FHE gas bottleneck.
 
 | Version | Architecture | Gas per Tick Cross | Privacy |
 |---------|--------------|-------------------|---------|
@@ -338,7 +338,7 @@ contract FHERC6909 is IFHERC6909 {
 
 ---
 
-## PheatherX v3 Contract Design
+## FheatherX v3 Contract Design
 
 ### Bucket State
 
@@ -784,13 +784,13 @@ contract FHERC6909Test is Test, CoFheTest {
 }
 ```
 
-### PheatherX v3 Tests
+### FheatherX v3 Tests
 
 ```solidity
-// test/PheatherXv3.t.sol
+// test/FheatherXv3.t.sol
 
-contract PheatherXv3Test is Test, CoFheTest {
-    PheatherXv3 hook;
+contract FheatherXv3Test is Test, CoFheTest {
+    FheatherXv3 hook;
     FHERC20FaucetToken token0;
     FHERC20FaucetToken token1;
 
@@ -1205,11 +1205,11 @@ Users must manually:
 |------|-------------|
 | `src/tokens/IFHERC6909.sol` | Interface |
 | `src/tokens/FHERC6909.sol` | Implementation |
-| `src/PheatherXv3.sol` | Main contract |
-| `src/interface/IPheatherXv3.sol` | Interface |
+| `src/FheatherXv3.sol` | Main contract |
+| `src/interface/IFheatherXv3.sol` | Interface |
 | `test/FHERC6909.t.sol` | Token tests |
-| `test/PheatherXv3.t.sol` | Hook tests |
-| `script/DeployPheatherXv3.s.sol` | Deployment |
+| `test/FheatherXv3.t.sol` | Hook tests |
+| `script/DeployFheatherXv3.s.sol` | Deployment |
 
 ---
 

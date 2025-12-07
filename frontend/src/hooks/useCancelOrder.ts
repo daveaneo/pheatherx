@@ -2,8 +2,8 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 
@@ -27,7 +27,7 @@ export function useCancelOrder(): UseCancelOrderResult {
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   const [step, setStep] = useState<CancelOrderStep>('idle');
   const [cancelHash, setCancelHash] = useState<`0x${string}` | null>(null);
@@ -53,7 +53,7 @@ export function useCancelOrder(): UseCancelOrderResult {
     try {
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'cancelOrder',
         args: [orderId],
       });

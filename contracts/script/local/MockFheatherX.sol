@@ -5,11 +5,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/// @title MockPheatherX
-/// @notice A mock version of PheatherX for local testing WITHOUT FHE
-/// @dev This contract simulates the PheatherX interface but stores balances in plain uint256
+/// @title MockFheatherX
+/// @notice A mock version of FheatherX for local testing WITHOUT FHE
+/// @dev This contract simulates the FheatherX interface but stores balances in plain uint256
 ///      instead of encrypted euint128. Use this only for local UI testing.
-contract MockPheatherX is ReentrancyGuard {
+contract MockFheatherX is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ============ Events ============

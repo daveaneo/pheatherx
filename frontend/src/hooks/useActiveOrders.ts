@@ -1,8 +1,8 @@
 'use client';
 
 import { useAccount, useChainId, useReadContract } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { deriveOrderType, deriveOrderStatus, ORDER_TYPE_INFO } from '@/lib/orders';
 
 export interface Order {
@@ -23,11 +23,11 @@ export interface Order {
 export function useActiveOrders() {
   const { address } = useAccount();
   const chainId = useChainId();
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   const { data: orderIds, isLoading: isLoadingIds, refetch } = useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getActiveOrders',
     args: address ? [address] : undefined,
     query: { enabled: !!address && !!hookAddress },

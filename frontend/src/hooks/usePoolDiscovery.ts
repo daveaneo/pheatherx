@@ -2,8 +2,8 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useChainId, usePublicClient, useWatchContractEvent } from 'wagmi';
-import { PHEATHERX_FACTORY_ADDRESSES, PHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
-import { PHEATHERX_FACTORY_ABI } from '@/lib/contracts/factoryAbi';
+import { FHEATHERX_FACTORY_ADDRESSES, FHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_FACTORY_ABI } from '@/lib/contracts/factoryAbi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { usePoolStore } from '@/stores/poolStore';
 import type { Pool, PoolInfo, Token } from '@/types/pool';
@@ -14,7 +14,7 @@ import type { Pool, PoolInfo, Token } from '@/types/pool';
 export function usePoolDiscovery() {
   const chainId = useChainId();
   const publicClient = usePublicClient();
-  const factoryAddress = PHEATHERX_FACTORY_ADDRESSES[chainId];
+  const factoryAddress = FHEATHERX_FACTORY_ADDRESSES[chainId];
 
   const setPools = usePoolStore(state => state.setPools);
   const setCurrentChainId = usePoolStore(state => state.setCurrentChainId);
@@ -87,10 +87,10 @@ export function usePoolDiscovery() {
 
   /**
    * Create a fallback pool from legacy env var addresses when factory is not available
-   * This supports deployments like MockPheatherX that don't use a factory
+   * This supports deployments like MockFheatherX that don't use a factory
    */
   const createFallbackPool = useCallback(async (): Promise<Pool | null> => {
-    const hookAddress = PHEATHERX_ADDRESSES[chainId];
+    const hookAddress = FHEATHERX_ADDRESSES[chainId];
     const tokens = TOKEN_ADDRESSES[chainId];
 
     if (!hookAddress || hookAddress === '0x0000000000000000000000000000000000000000' ||
@@ -157,7 +157,7 @@ export function usePoolDiscovery() {
       // Get all pool info from factory
       const rawPools = (await publicClient.readContract({
         address: factoryAddress,
-        abi: PHEATHERX_FACTORY_ABI,
+        abi: FHEATHERX_FACTORY_ABI,
         functionName: 'getAllPools',
       })) as PoolInfo[];
 
@@ -203,7 +203,7 @@ export function usePoolDiscovery() {
   // Watch for new pool creation events
   useWatchContractEvent({
     address: factoryAddress,
-    abi: PHEATHERX_FACTORY_ABI,
+    abi: FHEATHERX_FACTORY_ABI,
     eventName: 'PoolCreated',
     onLogs: logs => {
       console.log('[usePoolDiscovery] PoolCreated event:', logs);

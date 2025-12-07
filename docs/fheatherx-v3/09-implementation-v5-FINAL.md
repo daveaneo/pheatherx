@@ -1,4 +1,4 @@
-# PheatherX v3 Implementation Plan - Version 5 (FINAL)
+# FheatherX v3 Implementation Plan - Version 5 (FINAL)
 
 > **Status:** READY FOR IMPLEMENTATION
 > **Revision:** v5 - Final clean version
@@ -8,7 +8,7 @@
 
 ## Document Summary
 
-This is the final, complete implementation specification for PheatherX v3. All issues from previous audit rounds have been resolved.
+This is the final, complete implementation specification for FheatherX v3. All issues from previous audit rounds have been resolved.
 
 ### Key Design Decisions
 
@@ -51,11 +51,11 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {TickBitmap} from "./lib/TickBitmap.sol";
 
-/// @title PheatherX v3 - Private Bucketed Limit Order DEX
-/// @author PheatherX Team
+/// @title FheatherX v3 - Private Bucketed Limit Order DEX
+/// @author FheatherX Team
 /// @notice Encrypted limit orders with O(1) gas per bucket using FHE
 /// @dev Uses "proceeds per share" accumulator model for pro-rata distribution
-contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
+contract FheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     using TickBitmap for TickBitmap.State;
     using SafeERC20 for IERC20;
 
@@ -714,13 +714,13 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
 
 | File | Description |
 |------|-------------|
-| `src/PheatherXv3.sol` | Main contract (above) |
-| `src/interface/IPheatherXv3.sol` | Interface |
+| `src/FheatherXv3.sol` | Main contract (above) |
+| `src/interface/IFheatherXv3.sol` | Interface |
 | `src/tokens/FHERC6909.sol` | Multi-token (if needed for extensions) |
 | `src/lib/TickBitmap.sol` | Reuse from v2 |
-| `test/PheatherXv3.t.sol` | Unit tests |
-| `test/PheatherXv3.invariants.t.sol` | Invariant tests |
-| `script/DeployPheatherXv3.s.sol` | Deployment |
+| `test/FheatherXv3.t.sol` | Unit tests |
+| `test/FheatherXv3.invariants.t.sol` | Invariant tests |
+| `script/DeployFheatherXv3.s.sol` | Deployment |
 
 ---
 

@@ -26,7 +26,7 @@ export const DEFAULT_SLIPPAGE = 0.5; // 0.5%
 export const MAX_SLIPPAGE = 50; // 50%
 
 // ============================================================================
-// PheatherX v3 Constants (match contract exactly)
+// FheatherX v3 Constants (match contract exactly)
 // ============================================================================
 
 /** Tick spacing - each tick represents ~0.6% price change */

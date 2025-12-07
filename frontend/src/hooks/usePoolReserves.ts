@@ -1,7 +1,7 @@
 'use client';
 
 import { useReadContract } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { useSelectedPool } from '@/stores/poolStore';
 
 interface PoolReserves {
@@ -18,7 +18,7 @@ export function usePoolReserves(): PoolReserves {
 
   const { data, isLoading, error, refetch } = useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getReserves',
     query: {
       enabled: !!hookAddress,

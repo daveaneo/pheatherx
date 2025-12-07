@@ -1,7 +1,7 @@
 'use client';
 
 import { useAccount, useReadContracts } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { useSelectedPool } from '@/stores/poolStore';
 
 interface LiquidityPosition {
@@ -36,13 +36,13 @@ export function useLiquidityPosition(): LiquidityPosition {
     contracts: [
       {
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'getUserBalanceToken0',
         args: address ? [address] : undefined,
       },
       {
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'getUserBalanceToken1',
         args: address ? [address] : undefined,
       },

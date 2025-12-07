@@ -1,11 +1,11 @@
 /**
- * PheatherX v3 Contract ABI
+ * FheatherX v3 Contract ABI
  *
- * This ABI matches the IPheatherXv3.sol interface exactly.
+ * This ABI matches the IFheatherXv3.sol interface exactly.
  * Generated from contract interface - do not modify manually.
  */
 
-export const PHEATHERX_V3_ABI = [
+export const FHEATHERX_V3_ABI = [
   // ============================================================================
   // Events
   // ============================================================================
@@ -406,4 +406,4 @@ export const PHEATHERX_V3_ABI = [
 ] as const;
 
 // Export type for use with viem
-export type PheatherXV3Abi = typeof PHEATHERX_V3_ABI;
+export type FheatherXV3Abi = typeof FHEATHERX_V3_ABI;

@@ -3,10 +3,10 @@ pragma solidity ^0.8.24;
 
 import {euint128, ebool, InEuint128, InEbool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
-/// @title IPheatherXv2
-/// @notice Interface for PheatherXv2 - Private AMM with FHE
+/// @title IFheatherXv2
+/// @notice Interface for FheatherXv2 - Private AMM with FHE
 /// @dev Single-transaction swaps with two entry paths: plaintext (router-compatible) and encrypted (full privacy)
-interface IPheatherXv2 {
+interface IFheatherXv2 {
     // ============ Events ============
 
     /// @notice Emitted when a plaintext swap is executed

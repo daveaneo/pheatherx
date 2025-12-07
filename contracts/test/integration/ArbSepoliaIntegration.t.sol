@@ -14,8 +14,8 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 // Local Imports
-import {PheatherX} from "../../src/PheatherX.sol";
-import {IPheatherX} from "../../src/interface/IPheatherX.sol";
+import {FheatherX} from "../../src/FheatherX.sol";
+import {IFheatherX} from "../../src/interface/IFheatherX.sol";
 
 // FHE Imports - Real FHE on Arb Sepolia (no mocks!)
 import {FHE, euint128, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
@@ -24,7 +24,7 @@ import {FHE, euint128, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title ArbSepoliaIntegration
-/// @notice Integration tests for PheatherX using REAL FHE on Arbitrum Sepolia
+/// @notice Integration tests for FheatherX using REAL FHE on Arbitrum Sepolia
 /// @dev Run with: source .env && forge test --match-path test/integration/* --fork-url $ARB_SEPOLIA_RPC -vvv
 ///
 /// IMPORTANT: This test requires:
@@ -45,7 +45,7 @@ contract ArbSepoliaIntegration is Test {
     address poolManager;
     address swapRouter;
 
-    PheatherX hook;
+    FheatherX hook;
     PoolKey poolKey;
     PoolId poolId;
 
@@ -69,7 +69,7 @@ contract ArbSepoliaIntegration is Test {
         poolManager = json.readAddress(".contracts.poolManager");
         swapRouter = json.readAddress(".contracts.swapRouter");
 
-        hook = PheatherX(payable(hookAddress));
+        hook = FheatherX(payable(hookAddress));
 
         // Setup pool key
         poolKey = PoolKey({

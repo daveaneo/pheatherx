@@ -2,8 +2,8 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { PROTOCOL_FEE_WEI } from '@/lib/constants';
 import { orderTypeToFlags, type OrderType } from '@/lib/orders';
 import { useToast } from '@/stores/uiStore';
@@ -36,7 +36,7 @@ export function usePlaceOrder(): UsePlaceOrderResult {
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
   const { encrypt, encryptBool, isReady, isMock } = useFheSession();
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   const [step, setStep] = useState<PlaceOrderStep>('idle');
   const [orderHash, setOrderHash] = useState<`0x${string}` | null>(null);
@@ -112,7 +112,7 @@ export function usePlaceOrder(): UsePlaceOrderResult {
 
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'placeOrder',
         args: [triggerTick, toHex(encryptedDirection), toHex(encryptedAmount), toHex(encryptedMinOutput)],
         value: PROTOCOL_FEE_WEI,

@@ -1,14 +1,14 @@
-# PheatherX FHE Testing Issues Report
+# FheatherX FHE Testing Issues Report
 
 **Date:** December 4, 2025 (Updated)
-**Project:** PheatherX E2E Testing with Playwright
+**Project:** FheatherX E2E Testing with Playwright
 **Author:** Claude Code Analysis
 
 ---
 
 ## Executive Summary
 
-During the setup of automated Playwright E2E tests for PheatherX, we encountered multiple blocking issues related to FHE (Fully Homomorphic Encryption) infrastructure. This report documents the issues, root causes, and potential solutions.
+During the setup of automated Playwright E2E tests for FheatherX, we encountered multiple blocking issues related to FHE (Fully Homomorphic Encryption) infrastructure. This report documents the issues, root causes, and potential solutions.
 
 **Latest Update (Dec 4):** We discovered a critical difference between `cofhejs/node` and `cofhejs/web`:
 - **Node.js works perfectly** - `cofhejs/node` initializes successfully on both ETH Sepolia and Arbitrum Sepolia
@@ -56,7 +56,7 @@ Context:
 ### Status: BLOCKING
 
 ### Description
-The PheatherX hook contract deployed on Ethereum Sepolia (at `0x47712BED8Ae60A41B5d092A3Dc04cb19FF508AC8`) reverts with `ACLNotAllowed` when new users attempt to deposit tokens.
+The FheatherX hook contract deployed on Ethereum Sepolia (at `0x47712BED8Ae60A41B5d092A3Dc04cb19FF508AC8`) reverts with `ACLNotAllowed` when new users attempt to deposit tokens.
 
 ### Evidence
 ```bash
@@ -98,7 +98,7 @@ function checkAllowed(uint256 ctHash) internal view {
 2. The contract doesn't have permission in the ACL to use that handle
 3. The `ENC_ZERO` constant or user balance handles may not have proper permissions
 
-### PheatherX Contract ACL Setup (from `src/PheatherX.sol`)
+### FheatherX Contract ACL Setup (from `src/FheatherX.sol`)
 
 ```solidity
 constructor(...) {
@@ -143,7 +143,7 @@ FHE.allowThis(result);    // Persist access for the contract
 FHE.allowSender(result);  // Grant access to the caller (if needed)
 ```
 
-The PheatherX contract may need to call `FHE.allowThis()` on **every** intermediate result, not just user balances.
+The FheatherX contract may need to call `FHE.allowThis()` on **every** intermediate result, not just user balances.
 
 ### References
 - [Understanding Access Control in CoFHE](https://dev.to/fhenix_io/privacy-isnt-private-by-default-understanding-access-control-in-cofhe-38l0)
@@ -181,12 +181,12 @@ The test wallet (`0x60B9be2A29a02F49e8D6ba535303caD1Ddcb9659`) has 0 ETH on Arbi
 
 ## Current Network Status
 
-| Network | Chain ID | Status | PheatherX Deployed? |
+| Network | Chain ID | Status | FheatherX Deployed? |
 |---------|----------|--------|---------------------|
 | Fhenix Helium | 8008135 | **DOWN** (DNS unreachable) | No |
 | Ethereum Sepolia | 11155111 | **UP** (ACL issues) | Yes |
 | Arbitrum Sepolia | 421614 | **UP** (needs funding) | No |
-| Local Anvil | 31337 | **UP** (mock only) | Yes (MockPheatherX) |
+| Local Anvil | 31337 | **UP** (mock only) | Yes (MockFheatherX) |
 
 ---
 
@@ -211,17 +211,17 @@ Steps:
 Steps:
 1. Fund test wallet with Arbitrum Sepolia ETH via faucet
 2. Deploy test tokens (tWETH, tUSDC) to Arbitrum Sepolia
-3. Deploy PheatherX hook to Arbitrum Sepolia
+3. Deploy FheatherX hook to Arbitrum Sepolia
 4. Update frontend config for Arbitrum Sepolia
 
-### Option C: Use Local Anvil with MockPheatherX (Recommended for E2E Testing)
+### Option C: Use Local Anvil with MockFheatherX (Recommended for E2E Testing)
 
 **Pros:** Fast, reliable, no external dependencies
 **Cons:** Doesn't test real FHE operations
 
 Steps:
 1. Start Anvil with deterministic accounts
-2. Deploy MockPheatherX (no FHE, just mock balances)
+2. Deploy MockFheatherX (no FHE, just mock balances)
 3. Fund test wallet locally
 4. Run Playwright tests against local environment
 
@@ -274,7 +274,7 @@ function deposit(bool isToken0, uint256 amount) external {
 
 ## Files Referenced
 
-- `/contracts/src/PheatherX.sol` - Main hook contract
+- `/contracts/src/FheatherX.sol` - Main hook contract
 - `/contracts/node_modules/@fhenixprotocol/cofhe-mock-contracts/MockTaskManager.sol` - ACL error definition
 - `/contracts/node_modules/@fhenixprotocol/cofhe-contracts/FHE.sol` - FHE library
 - `/frontend/src/lib/chains.ts` - Network configuration

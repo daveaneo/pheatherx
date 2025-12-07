@@ -1,7 +1,7 @@
 import { encodeAbiParameters, parseAbiParameters } from 'viem';
 
 /**
- * Encode hook data for PheatherX swap
+ * Encode hook data for FheatherX swap
  * The hook expects the caller address to verify the sender
  */
 export function encodeSwapHookData(caller: `0x${string}`): `0x${string}` {

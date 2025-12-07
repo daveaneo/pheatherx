@@ -4,8 +4,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAccount, useChainId, useReadContract } from 'wagmi';
 import { useFheSession } from './useFheSession';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { FHE_RETRY_ATTEMPTS } from '@/lib/constants';
 
 type RevealStatus = 'idle' | 'fetching' | 'decrypting' | 'revealed' | 'error';
@@ -24,7 +24,7 @@ interface UseBalanceRevealResult {
 export function useBalanceReveal(isToken0: boolean): UseBalanceRevealResult {
   const { address } = useAccount();
   const chainId = useChainId();
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   const { unseal, isReady, isMock } = useFheSession();
   const { cacheBalance, getCachedBalance } = useFheStore();
@@ -38,7 +38,7 @@ export function useBalanceReveal(isToken0: boolean): UseBalanceRevealResult {
 
   const { refetch: refetchBalance } = useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: isToken0 ? 'getUserBalanceToken0' : 'getUserBalanceToken1',
     args: address ? [address] : undefined,
     query: { enabled: false },

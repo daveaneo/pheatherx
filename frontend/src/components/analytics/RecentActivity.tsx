@@ -20,8 +20,8 @@ interface RecentActivityProps {
 
 const activityConfig = {
   swap: { label: 'Swap', variant: 'info' as const, icon: '&#x21C4;' },
-  deposit: { label: 'Deposit', variant: 'success' as const, icon: '&#x2B07;' },
-  withdraw: { label: 'Withdraw', variant: 'warning' as const, icon: '&#x2B06;' },
+  deposit: { label: 'Order Placed', variant: 'success' as const, icon: '&#x1F4CB;' },
+  withdraw: { label: 'Cancelled', variant: 'warning' as const, icon: '&#x2B06;' },
   order_placed: { label: 'Order Placed', variant: 'info' as const, icon: '&#x1F4CB;' },
   order_filled: { label: 'Order Filled', variant: 'success' as const, icon: '&#x2705;' },
 };

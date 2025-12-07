@@ -119,7 +119,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
 
       {/* Amount Input */}
       <div className="space-y-2">
-        <label className="text-sm text-feather-white/60">Amount to Deposit</label>
+        <label className="text-sm text-feather-white/60">Order Amount</label>
         <div className="relative">
           <Input
             type="number"
@@ -138,7 +138,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
       {/* Order Summary */}
       <div className="p-3 bg-ash-gray/30 rounded-lg text-sm space-y-1">
         <div className="flex justify-between">
-          <span className="text-feather-white/60">Deposit</span>
+          <span className="text-feather-white/60">Order Size</span>
           <span>{amount || '0'} {depositToken}</span>
         </div>
         <div className="flex justify-between">
@@ -161,7 +161,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
       <div className="flex items-center gap-2 p-3 bg-iridescent-violet/10 border border-iridescent-violet/20 rounded-lg">
         <Lock className="w-4 h-4 text-iridescent-violet" />
         <span className="text-xs text-iridescent-violet">
-          Amount will be encrypted with FHE before deposit
+          Order amount will be encrypted with FHE - hidden from everyone
         </span>
       </div>
 
@@ -184,7 +184,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             {step === 'encrypting' ? 'Encrypting...' :
              step === 'approving' ? 'Approving...' :
-             step === 'depositing' ? 'Depositing...' : 'Processing...'}
+             step === 'depositing' ? 'Placing Order...' : 'Processing...'}
           </>
         ) : (
           `Place ${config.label} Order`

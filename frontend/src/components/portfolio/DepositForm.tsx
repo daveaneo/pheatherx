@@ -67,9 +67,9 @@ export function DepositForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Deposit</CardTitle>
+        <CardTitle>Place Order</CardTitle>
         <p className="text-sm text-feather-white/60">
-          Add tokens to your private balance
+          Place an encrypted limit order
         </p>
       </CardHeader>
       <CardContent>
@@ -106,7 +106,7 @@ export function DepositForm() {
 
           {step === 'complete' && depositHash && (
             <div className="p-3 bg-electric-teal/10 border border-electric-teal/30 rounded-lg">
-              <p className="text-electric-teal text-sm mb-1">Deposit successful!</p>
+              <p className="text-electric-teal text-sm mb-1">Order placed successfully!</p>
               <TransactionLink hash={depositHash} label="View transaction" />
             </div>
           )}
@@ -120,8 +120,8 @@ export function DepositForm() {
             >
               {step === 'checking' && 'Checking allowance...'}
               {isApproving && 'Approving...'}
-              {isDepositing && 'Depositing...'}
-              {step === 'idle' && 'Deposit'}
+              {isDepositing && 'Placing order...'}
+              {step === 'idle' && 'Place Order'}
               {step === 'complete' && 'Done'}
               {step === 'error' && 'Try Again'}
             </Button>

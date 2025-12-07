@@ -28,7 +28,7 @@ The official [FHERC20.sol](https://github.com/FhenixProtocol/fhenix-contracts/bl
 
 ### Task 0: Update Foundry Tests for Token Combinations
 
-Before implementing new tokens, ensure PheatherX hook works with all 4 token type combinations.
+Before implementing new tokens, ensure FheatherX hook works with all 4 token type combinations.
 
 **Test Matrix:**
 
@@ -41,7 +41,7 @@ Before implementing new tokens, ensure PheatherX hook works with all 4 token typ
 
 **Files to Create/Modify:**
 - `contracts/test/tokens/FHERC20FaucetToken.t.sol` - Unit tests for new token
-- `contracts/test/PheatherX.TokenCombinations.t.sol` - Pool tests with all 4 combos
+- `contracts/test/FheatherX.TokenCombinations.t.sol` - Pool tests with all 4 combos
 
 ---
 
@@ -289,7 +289,7 @@ contract FHERC20FaucetToken is ERC20, Ownable, Permissioned {
 
 ---
 
-### Task 2: PheatherX Hook - NO CHANGES NEEDED
+### Task 2: FheatherX Hook - NO CHANGES NEEDED
 
 **Analysis:** The hook does NOT need any changes for FHERC20 support.
 
@@ -378,7 +378,7 @@ function testTransferEncrypted() public {
 }
 ```
 
-### Integration Tests (`contracts/test/PheatherX.TokenCombinations.t.sol`)
+### Integration Tests (`contracts/test/FheatherX.TokenCombinations.t.sol`)
 
 ```solidity
 // Test all 4 token combinations
@@ -403,7 +403,7 @@ function testPoolWithFHERC20_FHERC20() public { ... }
 ## Success Criteria
 
 - [ ] FHERC20FaucetToken passes all unit tests
-- [ ] PheatherX hook works with all 4 token combinations
+- [ ] FheatherX hook works with all 4 token combinations
 - [ ] Faucet mints directly to encrypted balances
 - [ ] Frontend can query and decrypt FHERC20 balances
 - [ ] No plaintext balance visible for FHERC20 tokens (unless unwrapped)

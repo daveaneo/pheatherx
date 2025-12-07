@@ -31,10 +31,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 // Local Imports
 import {TickBitmap} from "./lib/TickBitmap.sol";
 import {DirectionLock} from "./lib/DirectionLock.sol";
-import {IPheatherXv2} from "./interface/IPheatherXv2.sol";
+import {IFheatherXv2} from "./interface/IFheatherXv2.sol";
 import {IFHERC20} from "./interface/IFHERC20.sol";
 
-/// @title PheatherXv2
+/// @title FheatherXv2
 /// @notice Private AMM with FHE - Single-transaction swaps with MEV protection
 /// @dev Two entry paths: plaintext (router-compatible) and encrypted (full privacy)
 ///
@@ -45,7 +45,7 @@ import {IFHERC20} from "./interface/IFHERC20.sol";
 /// - All order parameters encrypted (direction, amount, trigger conditions)
 /// - Probe attack prevention via constant-time execution
 /// - Ecosystem compatibility with existing DEX routers
-contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
+contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
@@ -164,7 +164,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
 
     // ============ Swap Functions (Public API) ============
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function swap(
         bool zeroForOne,
         uint256 amountIn,
@@ -207,7 +207,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         emit Swap(msg.sender, zeroForOne, amountIn, amountOut);
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function swapEncrypted(
         InEbool calldata direction,
         InEuint128 calldata amountIn,
@@ -257,7 +257,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
 
     // ============ Limit Order Functions ============
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function placeOrder(
         int24 triggerTick,
         InEbool calldata isSell,
@@ -313,7 +313,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         emit OrderPlaced(orderId, msg.sender, triggerTick);
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function cancelOrder(uint256 orderId) external nonReentrant {
         Order storage order = orders[orderId];
 
@@ -346,7 +346,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
 
     // ============ Liquidity Functions ============
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function addLiquidity(
         uint256 amount0,
         uint256 amount1
@@ -385,7 +385,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         emit LiquidityAdded(msg.sender, amount0, amount1, lpAmount);
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function removeLiquidity(
         uint256 lpAmount
     ) external nonReentrant returns (uint256 amount0, uint256 amount1) {
@@ -417,7 +417,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         emit LiquidityRemoved(msg.sender, amount0, amount1, lpAmount);
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function addLiquidityEncrypted(
         InEuint128 calldata amount0,
         InEuint128 calldata amount1
@@ -447,7 +447,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         _requestReserveSync();
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function removeLiquidityEncrypted(
         InEuint128 calldata lpAmount
     ) external nonReentrant returns (euint128 amount0, euint128 amount1) {
@@ -520,13 +520,13 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
 
     // ============ View Functions ============
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function getReserves() external returns (uint256, uint256) {
         _trySyncReserves();
         return (reserve0, reserve1);
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function getActiveOrders(address user) external view returns (uint256[] memory) {
         uint256[] storage allOrders = userOrders[user];
 
@@ -548,7 +548,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         return result;
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function getOrderCount(address user) external view returns (uint256) {
         uint256 count = 0;
         uint256[] storage allOrders = userOrders[user];
@@ -560,12 +560,12 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         return count;
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function hasOrdersAtTick(int24 tick) external view returns (bool) {
         return orderBitmap.hasOrdersAtTick(tick);
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function forceSyncReserves() external {
         pendingReserve0 = encReserve0;
         pendingReserve1 = encReserve1;
@@ -576,7 +576,7 @@ contract PheatherXv2 is BaseHook, ReentrancyGuard, IPheatherXv2 {
         emit ReserveSyncRequested(block.number);
     }
 
-    /// @inheritdoc IPheatherXv2
+    /// @inheritdoc IFheatherXv2
     function estimateOutput(
         bool zeroForOne,
         uint256 amountIn

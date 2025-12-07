@@ -1,5 +1,5 @@
 /**
- * Pool types for the multi-pool PheatherX exchange
+ * Pool types for the multi-pool FheatherX exchange
  */
 
 export interface Token {

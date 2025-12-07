@@ -58,18 +58,18 @@ const features = [
 const howItWorks = [
   {
     step: 1,
-    title: 'Deposit',
-    description: 'Deposit tokens into your FheatherX balance to enable encrypted accounting.',
+    title: 'Place Order',
+    description: 'Choose a price level and place an encrypted limit order. Your order size stays hidden.',
   },
   {
     step: 2,
-    title: 'Trade',
-    description: 'Execute encrypted trades - swap or place limit orders privately.',
+    title: 'Auto-Fill',
+    description: 'When market swaps cross your price, your order fills automatically.',
   },
   {
     step: 3,
-    title: 'Manage & Withdraw',
-    description: 'Cancel orders and withdraw tokens back to your wallet anytime.',
+    title: 'Claim or Cancel',
+    description: 'Claim filled proceeds or cancel unfilled orders anytime.',
   },
 ];
 
@@ -93,12 +93,12 @@ export default function HomePage() {
         // Map transaction types to activity types
         const typeMap: Record<string, 'swap' | 'deposit' | 'withdraw' | 'order_placed' | 'order_filled'> = {
           swap: 'swap',
-          deposit: 'deposit',
+          deposit: 'order_placed', // Deposits are limit orders
           withdraw: 'withdraw',
           placeOrder: 'order_placed',
           cancelOrder: 'withdraw', // Show as withdraw since funds return
-          approve: 'deposit', // Show approvals as deposits
-          faucet: 'deposit', // Show faucet as deposits
+          approve: 'order_placed', // Approvals precede order placement
+          faucet: 'swap', // Show faucet as swap (getting tokens)
         };
 
         return {
@@ -189,9 +189,9 @@ export default function HomePage() {
             How It Works
           </h2>
           <p className="text-center text-feather-white/60 mb-12 max-w-2xl mx-auto">
-            Unlike traditional DEXs where you swap directly from your wallet,
-            FheatherX requires depositing tokens first. This enables encrypted
-            accounting - your balance and trades remain private on-chain.
+            FheatherX is an encrypted limit order book. Place orders at specific
+            price levels with hidden amounts - when market swaps cross your price,
+            your order fills automatically while keeping your strategy private.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {howItWorks.map((item) => (

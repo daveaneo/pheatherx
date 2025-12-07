@@ -10,7 +10,7 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {PheatherX} from "../src/PheatherX.sol";
+import {FheatherX} from "../src/FheatherX.sol";
 
 /// @notice Simple mintable ERC20 token for testing
 contract TestToken is ERC20 {
@@ -30,7 +30,7 @@ contract TestToken is ERC20 {
 }
 
 /// @title DeployArbSepolia
-/// @notice Deploy PheatherX and test tokens on Arbitrum Sepolia for real FHE integration testing
+/// @notice Deploy FheatherX and test tokens on Arbitrum Sepolia for real FHE integration testing
 /// @dev Run with: source .env && forge script script/DeployArbSepolia.s.sol:DeployArbSepolia --rpc-url $ARB_SEPOLIA_RPC --broadcast
 contract DeployArbSepolia is Script {
     using stdJson for string;
@@ -57,7 +57,7 @@ contract DeployArbSepolia is Script {
         address deployer = vm.addr(deployerPrivateKey);
 
         console.log("===========================================");
-        console.log("  PheatherX Arbitrum Sepolia Deployment");
+        console.log("  FheatherX Arbitrum Sepolia Deployment");
         console.log("===========================================");
         console.log("");
         console.log("Chain ID:", block.chainid);
@@ -79,8 +79,8 @@ contract DeployArbSepolia is Script {
         // ============ Deploy Tokens ============
         console.log("--- Deploying Tokens ---");
 
-        TestToken tokenA = new TestToken("PheatherX Test USDC", "tUSDC", 6);
-        TestToken tokenB = new TestToken("PheatherX Test WETH", "tWETH", 18);
+        TestToken tokenA = new TestToken("FheatherX Test USDC", "tUSDC", 6);
+        TestToken tokenB = new TestToken("FheatherX Test WETH", "tWETH", 18);
 
         // Sort tokens (Uniswap requirement: token0 < token1)
         (address token0Addr, address token1Addr) = address(tokenA) < address(tokenB)
@@ -97,7 +97,7 @@ contract DeployArbSepolia is Script {
 
         // ============ Deploy Hook ============
         console.log("");
-        console.log("--- Deploying PheatherX Hook ---");
+        console.log("--- Deploying FheatherX Hook ---");
 
         // Calculate hook address with correct flags
         uint160 flags = uint160(
@@ -110,7 +110,7 @@ contract DeployArbSepolia is Script {
 
         // For production, we'd use CREATE2 mining to get the correct address
         // For now, deploy and note the actual address
-        PheatherX hook = new PheatherX(
+        FheatherX hook = new FheatherX(
             IPoolManager(POOL_MANAGER),
             token0Addr,
             token1Addr,

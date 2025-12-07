@@ -20,8 +20,8 @@ import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 
 // Local Imports
-import {PheatherX} from "../src/PheatherX.sol";
-import {IPheatherX} from "../src/interface/IPheatherX.sol";
+import {FheatherX} from "../src/FheatherX.sol";
+import {IFheatherX} from "../src/interface/IFheatherX.sol";
 import {TickBitmap} from "../src/lib/TickBitmap.sol";
 import {DirectionLock} from "../src/lib/DirectionLock.sol";
 
@@ -47,7 +47,7 @@ contract MockToken is ERC20 {
     }
 }
 
-contract PheatherXTest is Test, Fixtures, CoFheTest {
+contract FheatherXTest is Test, Fixtures, CoFheTest {
     using EasyPosm for IPositionManager;
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -56,7 +56,7 @@ contract PheatherXTest is Test, Fixtures, CoFheTest {
     address private user = makeAddr("user");
     address private user2 = makeAddr("user2");
 
-    PheatherX hook;
+    FheatherX hook;
     PoolId poolId;
 
     uint256 tokenId;
@@ -129,8 +129,8 @@ contract PheatherXTest is Test, Fixtures, CoFheTest {
             address(token1),
             30 // 0.3% swap fee
         );
-        deployCodeTo("PheatherX.sol:PheatherX", constructorArgs, flags);
-        hook = PheatherX(payable(flags));
+        deployCodeTo("FheatherX.sol:FheatherX", constructorArgs, flags);
+        hook = FheatherX(payable(flags));
 
         vm.label(address(hook), "hook");
 
@@ -195,7 +195,7 @@ contract PheatherXTest is Test, Fixtures, CoFheTest {
 
     function testDepositZeroAmountReverts() public {
         vm.prank(user);
-        vm.expectRevert(IPheatherX.ZeroAmount.selector);
+        vm.expectRevert(IFheatherX.ZeroAmount.selector);
         hook.deposit(true, 0);
     }
 
@@ -239,7 +239,7 @@ contract PheatherXTest is Test, Fixtures, CoFheTest {
 
     function testWithdrawZeroAmountReverts() public {
         vm.prank(user);
-        vm.expectRevert(IPheatherX.ZeroAmount.selector);
+        vm.expectRevert(IFheatherX.ZeroAmount.selector);
         hook.withdraw(true, 0);
     }
 
@@ -315,7 +315,7 @@ contract PheatherXTest is Test, Fixtures, CoFheTest {
         euint128 amount = FHE.asEuint128(uint128(500 ether));
         euint128 minOutput = FHE.asEuint128(uint128(400 ether));
 
-        vm.expectRevert(IPheatherX.InsufficientFee.selector);
+        vm.expectRevert(IFheatherX.InsufficientFee.selector);
         hook.placeOrder{value: 0.0001 ether}(
             100,
             direction,
@@ -379,13 +379,13 @@ contract PheatherXTest is Test, Fixtures, CoFheTest {
         vm.stopPrank();
 
         vm.prank(user2);
-        vm.expectRevert(IPheatherX.NotOrderOwner.selector);
+        vm.expectRevert(IFheatherX.NotOrderOwner.selector);
         hook.cancelOrder(orderId);
     }
 
     function testCancelOrderNotFoundReverts() public {
         vm.prank(user);
-        vm.expectRevert(IPheatherX.OrderNotFound.selector);
+        vm.expectRevert(IFheatherX.OrderNotFound.selector);
         hook.cancelOrder(999);
     }
 
@@ -760,7 +760,7 @@ contract PheatherXTest is Test, Fixtures, CoFheTest {
         hook.cancelOrder(orderId);
 
         // Second cancel should revert
-        vm.expectRevert(IPheatherX.OrderNotActive.selector);
+        vm.expectRevert(IFheatherX.OrderNotActive.selector);
         hook.cancelOrder(orderId);
         vm.stopPrank();
     }

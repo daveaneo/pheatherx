@@ -33,7 +33,7 @@ export function BalanceCard({
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
-          <p className="text-sm text-feather-white/60">Private Balance</p>
+          <p className="text-sm text-feather-white/60">Order Balance</p>
           <EncryptedBalance
             isToken0={isToken0}
             decimals={decimals}

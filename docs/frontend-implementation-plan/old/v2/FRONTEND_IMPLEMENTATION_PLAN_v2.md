@@ -1,4 +1,4 @@
-# PheatherX Frontend Implementation Plan v2
+# FheatherX Frontend Implementation Plan v2
 
 **Version:** 2.0
 **Based on:** web-app-specs-v2.md + Implementation Plan v1 Critique
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document outlines the implementation plan for the PheatherX frontend. Version 2 incorporates critical feedback regarding FHE integration complexity, Uniswap v4 router patterns, state management, and event indexing.
+This document outlines the implementation plan for the FheatherX frontend. Version 2 incorporates critical feedback regarding FHE integration complexity, Uniswap v4 router patterns, state management, and event indexing.
 
 **Key Changes from v1:**
 - New Phase 1.5 for FHE Infrastructure
@@ -113,7 +113,7 @@ Phase 7: Testing & QA
 ### 2.1 Initialize Next.js Project
 
 ```bash
-cd /home/david/PycharmProjects/pheatherx/frontend
+cd /home/david/PycharmProjects/fheatherx/frontend
 npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir
 ```
 
@@ -223,10 +223,10 @@ NEXT_PUBLIC_LOCAL_RPC_URL=http://localhost:8545
 NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 NEXT_PUBLIC_FHENIX_RPC_URL=https://testnet.fhenix.io
 
-# Contract Addresses - PheatherX Hook
-NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL=0x...
-NEXT_PUBLIC_PHEATHERX_ADDRESS_BASE_SEPOLIA=0x...
-NEXT_PUBLIC_PHEATHERX_ADDRESS_FHENIX=0x...
+# Contract Addresses - FheatherX Hook
+NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_BASE_SEPOLIA=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX=0x...
 
 # Contract Addresses - Uniswap v4 Router
 NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL=0x...
@@ -267,7 +267,7 @@ NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
 
 ### 3.1 Tailwind Configuration
 
-See [Appendix C: Component Specifications](./FRONTEND_IMPL_v2_APPENDIX_C_COMPONENTS.md) for full Tailwind config with PheatherX theme tokens.
+See [Appendix C: Component Specifications](./FRONTEND_IMPL_v2_APPENDIX_C_COMPONENTS.md) for full Tailwind config with FheatherX theme tokens.
 
 Key colors:
 - `phoenix-ember`: #FF6A3D
@@ -335,7 +335,7 @@ import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { supportedChains } from './chains';
 
 export const wagmiConfig = getDefaultConfig({
-  appName: 'PheatherX',
+  appName: 'FheatherX',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID!,
   chains: supportedChains,
   ssr: true,
@@ -387,7 +387,7 @@ export function Header() {
     <header className="fixed top-0 left-0 right-0 z-50 bg-obsidian-black/80 backdrop-blur-lg border-b border-carbon-gray">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/" className="font-display font-bold text-2xl bg-flame-gradient bg-clip-text text-transparent">
-          PheatherX
+          FheatherX
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
@@ -476,7 +476,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
 ### 3.7 Deliverables
 
-- [ ] Tailwind config with PheatherX theme
+- [ ] Tailwind config with FheatherX theme
 - [ ] Global styles with design tokens
 - [ ] All base UI components
 - [ ] Header with navigation
@@ -530,7 +530,7 @@ export interface FheSession {
   expiresAt: number;
 }
 
-export class PheatherXFheClient {
+export class FheatherXFheClient {
   private session: FheSession | null = null;
   private provider: any;
 
@@ -663,7 +663,7 @@ export const useFheStore = create<FheState>()(
         }),
     }),
     {
-      name: 'pheatherx-fhe',
+      name: 'fheatherx-fhe',
       partialize: (state) => ({
         revealedBalances: state.revealedBalances,
       }),
@@ -681,16 +681,16 @@ export const useFheStore = create<FheState>()(
 import { useCallback, useEffect, useRef } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { useEthersProvider } from '@/hooks/useEthersProvider';
-import { PheatherXFheClient } from '@/lib/fhe/client';
+import { FheatherXFheClient } from '@/lib/fhe/client';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { fheSupport } from '@/lib/chains';
 
 export function useFheSession() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const provider = useEthersProvider();
-  const clientRef = useRef<PheatherXFheClient | null>(null);
+  const clientRef = useRef<FheatherXFheClient | null>(null);
 
   const {
     sessionStatus,
@@ -701,7 +701,7 @@ export function useFheSession() {
     reset,
   } = useFheStore();
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const networkFheSupport = fheSupport[chainId];
 
   // Initialize session
@@ -721,7 +721,7 @@ export function useFheSession() {
     setSessionStatus('initializing');
 
     try {
-      const client = new PheatherXFheClient(provider);
+      const client = new FheatherXFheClient(provider);
       const session = await client.initSession(hookAddress);
 
       clientRef.current = client;
@@ -903,15 +903,15 @@ import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useReadContract } from 'wagmi';
 import { useFheSession } from './useFheSession';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 
 type RevealStatus = 'idle' | 'fetching' | 'decrypting' | 'revealed' | 'error';
 
 export function useBalanceReveal(isToken0: boolean) {
   const { address } = useAccount();
   const chainId = useChainId();
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const { client, isReady, isMock } = useFheSession();
   const { cacheBalance, getCachedBalance } = useFheStore();
 
@@ -1015,18 +1015,18 @@ export function useBalanceReveal(isToken0: boolean) {
 ```typescript
 // src/hooks/useDeposit.ts
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { usePheatherXAddress } from './useContract';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useFheatherXAddress } from './useContract';
 
 export function useDeposit() {
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const { writeContractAsync, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const deposit = async (isToken0: boolean, amount: bigint) => {
     return writeContractAsync({
       address: hookAddress,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'deposit',
       args: [isToken0, amount],
     });
@@ -1158,7 +1158,7 @@ export function getPoolKey(hookAddress: `0x${string}`) {
 import { useWriteContract, usePublicClient } from 'wagmi';
 import { parseEther } from 'viem';
 import { SWAP_ROUTER_ABI, getPoolKey } from '@/lib/contracts/router';
-import { usePheatherXAddress, useRouterAddress } from './useContract';
+import { useFheatherXAddress, useRouterAddress } from './useContract';
 import { useFheSession } from './useFheSession';
 import { encodeSwapHookData } from '@/lib/fhe/encoding';
 import { MIN_SQRT_RATIO, MAX_SQRT_RATIO } from '@/lib/uniswap/constants';
@@ -1170,7 +1170,7 @@ interface SwapParams {
 }
 
 export function useSwap() {
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const routerAddress = useRouterAddress();
   const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
@@ -1309,9 +1309,9 @@ export function priceFromReserves(
 // src/hooks/usePlaceOrder.ts
 import { useWriteContract, usePublicClient } from 'wagmi';
 import { parseEther } from 'viem';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { PROTOCOL_FEE } from '@/lib/contracts/addresses';
-import { usePheatherXAddress } from './useContract';
+import { useFheatherXAddress } from './useContract';
 import { useFheSession } from './useFheSession';
 import { encodeEncryptedBool, encodeEncryptedUint128 } from '@/lib/fhe/encoding';
 
@@ -1323,7 +1323,7 @@ interface PlaceOrderParams {
 }
 
 export function usePlaceOrder() {
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { client: fheClient, isMock } = useFheSession();
@@ -1354,7 +1354,7 @@ export function usePlaceOrder() {
     // Simulate
     await publicClient.simulateContract({
       address: hookAddress,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'placeOrder',
       args: [params.triggerTick, encDirection, encAmount, encMinOutput],
       value: parseEther(PROTOCOL_FEE.toString()),
@@ -1363,7 +1363,7 @@ export function usePlaceOrder() {
     // Execute
     return writeContractAsync({
       address: hookAddress,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'placeOrder',
       args: [params.triggerTick, encDirection, encAmount, encMinOutput],
       value: parseEther(PROTOCOL_FEE.toString()),
@@ -1381,7 +1381,7 @@ export function usePlaceOrder() {
 import { useQuery } from '@tanstack/react-query';
 import { useAccount, usePublicClient } from 'wagmi';
 import { parseAbiItem } from 'viem';
-import { usePheatherXAddress } from './useContract';
+import { useFheatherXAddress } from './useContract';
 
 interface OrderEvent {
   orderId: bigint;
@@ -1394,7 +1394,7 @@ interface OrderEvent {
 
 export function useOrderHistory() {
   const { address } = useAccount();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const publicClient = usePublicClient();
 
   return useQuery({
@@ -1468,19 +1468,19 @@ export function useOrderHistory() {
 import { useEffect } from 'react';
 import { useAccount, useWatchContractEvent } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { usePheatherXAddress } from './useContract';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useFheatherXAddress } from './useContract';
 import { useToast } from './useToast';
 
 export function useOrderFillNotifications() {
   const { address } = useAccount();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'OrderFilled',
     onLogs: (logs) => {
       logs.forEach((log) => {
@@ -1529,16 +1529,16 @@ export function useOrderFillNotifications() {
 ```typescript
 // src/hooks/usePoolMetrics.ts
 import { useReadContract } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { usePheatherXAddress } from './useContract';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useFheatherXAddress } from './useContract';
 import { priceFromReserves } from '@/lib/uniswap/ticks';
 
 export function usePoolMetrics() {
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
 
   const { data: reserves } = useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getReserves',
   });
 

@@ -64,9 +64,9 @@ export function LiquidityPosition() {
     <Card data-testid="liquidity-position">
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
-          <CardTitle>Your Position</CardTitle>
+          <CardTitle>Your Orders</CardTitle>
           <p className="text-sm text-feather-white/60">
-            {isEncrypted ? 'Encrypted FHE balances' : 'Your liquidity in the pool'}
+            {isEncrypted ? 'Encrypted order amounts' : 'Your active orders'}
           </p>
         </div>
         {hasPosition && !isLoading && !isEncrypted && (
@@ -79,9 +79,9 @@ export function LiquidityPosition() {
       <CardContent>
         {!hasPosition && !isLoading ? (
           <div className="text-center py-8">
-            <p className="text-feather-white/60 mb-2">No liquidity position</p>
+            <p className="text-feather-white/60 mb-2">No active orders</p>
             <p className="text-sm text-feather-white/40">
-              Add liquidity to start earning
+              Place orders to start trading
             </p>
           </div>
         ) : (
@@ -89,7 +89,7 @@ export function LiquidityPosition() {
             {isEncrypted && (
               <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg mb-4">
                 <p className="text-sm text-amber-400">
-                  Your balances are FHE encrypted on-chain. Use the Portfolio page to reveal your decrypted balances.
+                  Your order amounts are FHE encrypted on-chain. Use the Portfolio page to reveal your decrypted amounts.
                 </p>
               </div>
             )}

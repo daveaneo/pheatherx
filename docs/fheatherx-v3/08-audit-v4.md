@@ -1,4 +1,4 @@
-# PheatherX v3 Design Audit - Version 4
+# FheatherX v3 Design Audit - Version 4
 
 > **Audit Date:** December 2024
 > **Document Reviewed:** 07-implementation-v4.md

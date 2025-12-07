@@ -1,8 +1,8 @@
 /**
- * PheatherX v3 Hooks
+ * FheatherX v3 Hooks
  *
  * These hooks provide React-friendly wrappers for interacting with the
- * PheatherXv3 contract. They handle FHE encryption, transaction state,
+ * FheatherXv3 contract. They handle FHE encryption, transaction state,
  * and store updates.
  */
 

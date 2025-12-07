@@ -6,7 +6,7 @@
 
 ## Overview
 
-This appendix provides complete implementation details for FHE (Fully Homomorphic Encryption) integration in the PheatherX frontend. FHE enables encrypted computations on-chain, but requires careful client-side handling.
+This appendix provides complete implementation details for FHE (Fully Homomorphic Encryption) integration in the FheatherX frontend. FHE enables encrypted computations on-chain, but requires careful client-side handling.
 
 ---
 
@@ -77,7 +77,7 @@ export type FheSessionStatus =
 import { FhenixClient } from 'cofhejs';
 import type { FheSession, EncryptedValue } from '@/types/fhe';
 
-export class PheatherXFheClient {
+export class FheatherXFheClient {
   private session: FheSession | null = null;
   private provider: any;
   private signer: any;
@@ -331,7 +331,7 @@ export function encodeEncryptedUint128(encrypted: Uint8Array): `0x${string}` {
  * This is passed through beforeSwap() for additional privacy
  */
 export async function encodeSwapHookData(
-  client: PheatherXFheClient,
+  client: FheatherXFheClient,
   params: {
     minOutput?: bigint;
     // Add other privacy parameters as needed
@@ -367,10 +367,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { useEthersSigner } from './useEthersSigner';
 import { useEthersProvider } from './useEthersProvider';
-import { PheatherXFheClient } from '@/lib/fhe/client';
+import { FheatherXFheClient } from '@/lib/fhe/client';
 import { MockFheClient } from '@/lib/fhe/mockClient';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { fheSupport } from '@/lib/chains';
 
 export function useFheSession() {
@@ -379,7 +379,7 @@ export function useFheSession() {
   const provider = useEthersProvider();
   const signer = useEthersSigner();
 
-  const clientRef = useRef<PheatherXFheClient | MockFheClient | null>(null);
+  const clientRef = useRef<FheatherXFheClient | MockFheClient | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
 
   const {
@@ -391,7 +391,7 @@ export function useFheSession() {
     reset,
   } = useFheStore();
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const networkFheSupport = fheSupport[chainId];
   const isMock = networkFheSupport !== 'full';
 
@@ -407,7 +407,7 @@ export function useFheSession() {
     setSessionStatus('initializing');
 
     try {
-      let client: PheatherXFheClient | MockFheClient;
+      let client: FheatherXFheClient | MockFheClient;
 
       if (isMock) {
         client = new MockFheClient();
@@ -415,7 +415,7 @@ export function useFheSession() {
         if (!signer) {
           throw new Error('Signer not available');
         }
-        client = new PheatherXFheClient(provider, signer);
+        client = new FheatherXFheClient(provider, signer);
       }
 
       const session = await client.initSession(hookAddress);
@@ -498,8 +498,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAccount, useChainId, useReadContract } from 'wagmi';
 import { useFheSession } from './useFheSession';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 
 type RevealStatus = 'idle' | 'fetching' | 'decrypting' | 'revealed' | 'error';
 
@@ -517,7 +517,7 @@ interface UseBalanceRevealResult {
 export function useBalanceReveal(isToken0: boolean): UseBalanceRevealResult {
   const { address } = useAccount();
   const chainId = useChainId();
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   const { client, isReady, isMock } = useFheSession();
   const { cacheBalance, getCachedBalance } = useFheStore();
@@ -532,7 +532,7 @@ export function useBalanceReveal(isToken0: boolean): UseBalanceRevealResult {
   // Fetch encrypted balance from contract
   const { data: encryptedBalance, refetch: refetchBalance } = useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: isToken0 ? 'getUserBalanceToken0' : 'getUserBalanceToken1',
     args: address ? [address] : undefined,
     query: {

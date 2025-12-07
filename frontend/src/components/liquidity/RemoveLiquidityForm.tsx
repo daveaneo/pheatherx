@@ -94,15 +94,15 @@ export function RemoveLiquidityForm() {
   const getButtonText = () => {
     switch (step) {
       case 'withdrawing-token0':
-        return `Withdrawing ${token0?.symbol || 'Token0'}...`;
+        return `Cancelling ${token0?.symbol || 'Token0'} order...`;
       case 'withdrawing-token1':
-        return `Withdrawing ${token1?.symbol || 'Token1'}...`;
+        return `Cancelling ${token1?.symbol || 'Token1'} order...`;
       case 'complete':
         return 'Done';
       case 'error':
         return 'Try Again';
       default:
-        return 'Remove Liquidity';
+        return 'Cancel Orders';
     }
   };
 
@@ -121,9 +121,9 @@ export function RemoveLiquidityForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Remove Liquidity</CardTitle>
+        <CardTitle>Cancel Orders</CardTitle>
         <p className="text-sm text-feather-white/60">
-          Withdraw tokens from the pool
+          Cancel unfilled orders and reclaim your tokens
         </p>
       </CardHeader>
       <CardContent>
@@ -191,13 +191,13 @@ export function RemoveLiquidityForm() {
           {step === 'complete' && (
             <div className="p-3 bg-electric-teal/10 border border-electric-teal/30 rounded-lg space-y-2">
               <p className="text-electric-teal text-sm">
-                Liquidity removed successfully!
+                Orders cancelled successfully!
               </p>
               {token0TxHash && (
-                <TransactionLink hash={token0TxHash} label={`${token0?.symbol} withdrawal`} />
+                <TransactionLink hash={token0TxHash} label={`${token0?.symbol} cancellation`} />
               )}
               {token1TxHash && (
-                <TransactionLink hash={token1TxHash} label={`${token1?.symbol} withdrawal`} />
+                <TransactionLink hash={token1TxHash} label={`${token1?.symbol} cancellation`} />
               )}
             </div>
           )}

@@ -1,8 +1,8 @@
-# PheatherX v2: Gas Bottlenecks & Optimization Strategy
+# FheatherX v2: Gas Bottlenecks & Optimization Strategy
 
 ## The Core Problem: The "Constant Time" Trap
 
-PheatherX faces a fundamental tension between **Privacy (Anti-Probing)** and **Scalability (Gas Limits)**.
+FheatherX faces a fundamental tension between **Privacy (Anti-Probing)** and **Scalability (Gas Limits)**.
 
 To prevent attackers from determining if an order was filled by measuring gas usage, the contract executes full swap mathematics for *every* limit order at a crossed tick—regardless of whether that order actually triggers.
 
@@ -160,7 +160,7 @@ Before deploying optimizations, establish baseline metrics.
 ### Test: LimitOrderGasStressTest
 
 **Setup:**
-1. Deploy PheatherXv2 with two mock FHERC20 tokens
+1. Deploy FheatherXv2 with two mock FHERC20 tokens
 2. Add initial liquidity
 
 **Measurements:**
@@ -203,7 +203,7 @@ Bucketed: All liquidity aggregated in bucket [1000-1050]
 - Current 4-order-type system (buy/sell × limit/stop) doesn't map cleanly
 - Would need new UI/UX for "price range" orders
 
-**When to consider:** If stress tests show N_max < 3 even after optimizations, or for a future "PheatherX Pro" product targeting institutional liquidity.
+**When to consider:** If stress tests show N_max < 3 even after optimizations, or for a future "FheatherX Pro" product targeting institutional liquidity.
 
 ---
 

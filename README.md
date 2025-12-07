@@ -97,7 +97,7 @@ fheatherx/
 ├── contracts/
 │   ├── src/
 │   │   ├── FheatherXv4.sol      # Uniswap v4 Hook
-│   │   ├── PheatherXv3.sol      # Standalone private DEX
+│   │   ├── FheatherXv3.sol      # Standalone private DEX
 │   │   └── tokens/              # FHERC20 implementations
 │   └── test/
 ├── frontend/

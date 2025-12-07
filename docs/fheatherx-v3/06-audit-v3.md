@@ -1,4 +1,4 @@
-# PheatherX v3 Design Audit - Version 3
+# FheatherX v3 Design Audit - Version 3
 
 > **Audit Date:** December 2024
 > **Document Reviewed:** 05-implementation-v3.md
@@ -466,7 +466,7 @@ Add pausable functionality:
 ```solidity
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
-contract PheatherXv3 is ReentrancyGuard, Pausable {
+contract FheatherXv3 is ReentrancyGuard, Pausable {
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 

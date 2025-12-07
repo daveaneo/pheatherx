@@ -67,7 +67,7 @@ export const useUiStore = create<UiState>()(
         })),
     }),
     {
-      name: 'pheatherx-ui',
+      name: 'fheatherx-ui',
       partialize: state => ({
         slippageTolerance: state.slippageTolerance,
         expertMode: state.expertMode,

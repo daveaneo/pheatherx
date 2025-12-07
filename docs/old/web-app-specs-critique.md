@@ -1,4 +1,4 @@
-# PheatherX Web App Specification - Critique & Suggestions (Final)
+# FheatherX Web App Specification - Critique & Suggestions (Final)
 
 **Reviewing:** `web-app-specs.md` v1.0
 **Date:** November 2024
@@ -92,8 +92,8 @@ function testUserBalanceDecreasesOnOrderPlacement() public {
 
 Add to Section 3.1 (Landing Page) "How It Works":
 
-> **Step 1: Deposit tokens into your PheatherX balance**
-> Unlike traditional DEXs where you swap directly from your wallet, PheatherX requires depositing first. This enables encrypted accounting—your balance and trades remain private.
+> **Step 1: Deposit tokens into your FheatherX balance**
+> Unlike traditional DEXs where you swap directly from your wallet, FheatherX requires depositing first. This enables encrypted accounting—your balance and trades remain private.
 
 Add to Swap Interface (Section 3.2):
 
@@ -106,7 +106,7 @@ Add to Swap Interface (Section 3.2):
 │  you can swap privately.            │
 │                                     │
 │  Wallet: 2.5 ETH                    │
-│  PheatherX: 0 ETH                   │
+│  FheatherX: 0 ETH                   │
 │                                     │
 │  [Deposit to Start]                 │
 └─────────────────────────────────────┘
@@ -128,7 +128,7 @@ PROTOCOL_FEE = 0.001 ether  // Fee for placing orders
 hook.placeOrder{value: 0.001 ether}(triggerTick, direction, amount, minOutput);
 
 function testPlaceOrderInsufficientFeeReverts() public {
-    vm.expectRevert(IPheatherX.InsufficientFee.selector);
+    vm.expectRevert(IFheatherX.InsufficientFee.selector);
     hook.placeOrder{value: 0.0001 ether}(...);  // Too low
 }
 ```
@@ -164,7 +164,7 @@ Add to Order History section:
 
 **Status: ⚠️ Slippage Failed**
 - Order triggered but couldn't fill at acceptable price
-- Your tokens have been returned to your PheatherX balance
+- Your tokens have been returned to your FheatherX balance
 - Consider placing a new order with higher slippage tolerance
 
 ---
@@ -190,7 +190,7 @@ function testUserBalanceRestoredOnCancel() public {
 ### Recommendation
 
 Clarify in Cancel Flow:
-> "Cancel this order? **Your tokens will be returned to your PheatherX balance** (not your wallet). You can withdraw them from the Portfolio page."
+> "Cancel this order? **Your tokens will be returned to your FheatherX balance** (not your wallet). You can withdraw them from the Portfolio page."
 
 ---
 

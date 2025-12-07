@@ -1,8 +1,8 @@
-# PheatherX Frontend Design Improvement Plan
+# FheatherX Frontend Design Improvement Plan
 
 ## Overview
 
-This document outlines a comprehensive plan to transform the PheatherX frontend into a beautiful, futuristic cryptocurrency/blockchain interface that embodies the phoenix/feather/encryption symbolism.
+This document outlines a comprehensive plan to transform the FheatherX frontend into a beautiful, futuristic cryptocurrency/blockchain interface that embodies the phoenix/feather/encryption symbolism.
 
 ---
 
@@ -288,7 +288,7 @@ Claude Code doesn't have a dedicated "frontend design plugin" but you can effect
 When you're ready to implement, use this prompt:
 
 ```
-I want to redesign the PheatherX frontend with a futuristic phoenix/encryption theme.
+I want to redesign the FheatherX frontend with a futuristic phoenix/encryption theme.
 
 Color Palette:
 - Background: #0a0e17 (deep midnight)
@@ -357,7 +357,7 @@ src/
 When ready to begin, tell Claude Code:
 
 ```
-Let's start implementing the PheatherX design system. First, update
+Let's start implementing the FheatherX design system. First, update
 tailwind.config.js with the phoenix color palette from DESIGN_IMPROVEMENT_PLAN.md,
 then create the PhoenixButton component with gradient and glow effects.
 ```

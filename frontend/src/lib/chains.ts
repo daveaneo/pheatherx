@@ -54,7 +54,7 @@ export const fhenixTestnet = defineChain({
 // Ethereum Sepolia first = default chain for production (has CoFHE + Uniswap v4)
 export const supportedChains = [ethereumSepolia, arbSepolia, fhenixTestnet, localAnvil] as const;
 
-// Local Anvil first = default chain for testing (uses MockPheatherX)
+// Local Anvil first = default chain for testing (uses MockFheatherX)
 export const testSupportedChains = [localAnvil, ethereumSepolia, arbSepolia, fhenixTestnet] as const;
 
 // FHE support per network

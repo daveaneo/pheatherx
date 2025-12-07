@@ -1,4 +1,4 @@
-# PheatherX Issues and Fixes Tracking
+# FheatherX Issues and Fixes Tracking
 
 This document tracks all issues encountered and their resolutions to prevent revisiting them.
 
@@ -14,7 +14,7 @@ This document tracks all issues encountered and their resolutions to prevent rev
 - Trace shows `isAllowed()` returning `false` for the hook contract
 
 ### Root Cause
-When FHE operations like `FHE.add()` or `FHE.sub()` create a **new ciphertext**, that new ciphertext needs explicit ACL permissions to be used in subsequent operations. The PheatherX contract was missing `FHE.allowThis()` calls after every FHE operation that creates a new encrypted value stored in state.
+When FHE operations like `FHE.add()` or `FHE.sub()` create a **new ciphertext**, that new ciphertext needs explicit ACL permissions to be used in subsequent operations. The FheatherX contract was missing `FHE.allowThis()` calls after every FHE operation that creates a new encrypted value stored in state.
 
 ### Analysis
 The FHE ACL (Access Control List) system works as follows:
@@ -25,7 +25,7 @@ The FHE ACL (Access Control List) system works as follows:
 5. You must call `FHE.allow(newCiphertext, user)` to allow a user to decrypt it
 
 ### Fix Applied
-Added `FHE.allowThis()` calls after every state-modifying FHE operation in `PheatherX.sol`:
+Added `FHE.allowThis()` calls after every state-modifying FHE operation in `FheatherX.sol`:
 
 **Locations fixed:**
 1. `deposit()` function (lines 417-428)

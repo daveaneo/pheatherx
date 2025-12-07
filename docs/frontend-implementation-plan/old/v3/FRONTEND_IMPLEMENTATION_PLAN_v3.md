@@ -1,4 +1,4 @@
-# PheatherX Frontend Implementation Plan v3
+# FheatherX Frontend Implementation Plan v3
 
 **Version:** 3.0
 **Based on:** v2 + v2 Audit Findings
@@ -119,7 +119,7 @@ Phase 7: Testing & QA
 ### 2.1 Initialize Next.js Project
 
 ```bash
-cd /home/david/PycharmProjects/pheatherx/frontend
+cd /home/david/PycharmProjects/fheatherx/frontend
 npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir
 ```
 
@@ -264,8 +264,8 @@ const requiredEnvVars = [
 ] as const;
 
 const networkEnvVars = [
-  'NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL',
-  'NEXT_PUBLIC_PHEATHERX_ADDRESS_BASE_SEPOLIA',
+  'NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL',
+  'NEXT_PUBLIC_FHEATHERX_ADDRESS_BASE_SEPOLIA',
   'NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL',
   'NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_BASE_SEPOLIA',
 ] as const;
@@ -309,21 +309,21 @@ NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
 
 # Network: Local
 NEXT_PUBLIC_LOCAL_RPC_URL=http://localhost:8545
-NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL=0x...
 NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL=0x...
 NEXT_PUBLIC_TOKEN0_ADDRESS_LOCAL=0x...
 NEXT_PUBLIC_TOKEN1_ADDRESS_LOCAL=0x...
 
 # Network: Base Sepolia
 NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
-NEXT_PUBLIC_PHEATHERX_ADDRESS_BASE_SEPOLIA=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_BASE_SEPOLIA=0x...
 NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_BASE_SEPOLIA=0x...
 NEXT_PUBLIC_TOKEN0_ADDRESS_BASE_SEPOLIA=0x...
 NEXT_PUBLIC_TOKEN1_ADDRESS_BASE_SEPOLIA=0x...
 
 # Network: Fhenix (when ready)
 NEXT_PUBLIC_FHENIX_RPC_URL=https://testnet.fhenix.io
-NEXT_PUBLIC_PHEATHERX_ADDRESS_FHENIX=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX=0x...
 NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_FHENIX=0x...
 
 # Pool Configuration

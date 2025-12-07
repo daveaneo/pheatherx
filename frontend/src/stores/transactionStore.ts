@@ -69,7 +69,7 @@ export const useTransactionStore = create<TransactionState>()(
       },
     })),
     {
-      name: 'pheatherx-transactions',
+      name: 'fheatherx-transactions',
     }
   )
 );

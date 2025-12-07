@@ -50,7 +50,7 @@ interface FheSession {
   expiresAt: number;
 }
 
-export class PheatherXFheClient {
+export class FheatherXFheClient {
   private session: FheSession | null = null;
   private provider: any;
 
@@ -115,16 +115,16 @@ export class PheatherXFheClient {
 // src/hooks/useFheSession.ts
 export function useFheSession() {
   const { provider } = useProvider();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const [status, setStatus] = useState<'disconnected' | 'initializing' | 'ready' | 'error'>('disconnected');
-  const [client, setClient] = useState<PheatherXFheClient | null>(null);
+  const [client, setClient] = useState<FheatherXFheClient | null>(null);
 
   const initialize = async () => {
     if (!provider || !hookAddress) return;
 
     setStatus('initializing');
     try {
-      const fheClient = new PheatherXFheClient(provider);
+      const fheClient = new FheatherXFheClient(provider);
       await fheClient.initSession(hookAddress);
       setClient(fheClient);
       setStatus('ready');
@@ -193,7 +193,7 @@ export function encodeEncryptedUint128(encrypted: EncryptedUint128): `0x${string
 
 // src/hooks/usePlaceOrder.ts
 export function usePlaceOrder() {
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const { writeContractAsync, isPending } = useWriteContract();
   const { client: fheClient, isReady: fheReady } = useFheSession();
   const publicClient = usePublicClient();
@@ -222,7 +222,7 @@ export function usePlaceOrder() {
     try {
       await publicClient.simulateContract({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'placeOrder',
         args: [params.triggerTick, encodedDirection, encodedAmount, encodedMinOutput],
         value: parseEther('0.001'),
@@ -235,7 +235,7 @@ export function usePlaceOrder() {
     // 4. Execute transaction
     const hash = await writeContractAsync({
       address: hookAddress,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'placeOrder',
       args: [params.triggerTick, encodedDirection, encodedAmount, encodedMinOutput],
       value: parseEther('0.001'),
@@ -323,7 +323,7 @@ export const useFheStore = create<FheStore>()(
       clearRevealedBalances: () => set({ revealedBalances: {} }),
     }),
     {
-      name: 'pheatherx-fhe',
+      name: 'fheatherx-fhe',
       partialize: (state) => ({
         // Only persist revealed balances, not session (security)
         revealedBalances: state.revealedBalances,
@@ -355,7 +355,7 @@ interface OrdersStore {
 
 ### Current Issue
 
-The plan's swap implementation assumes a simple swap function, but PheatherX uses Uniswap v4's router pattern:
+The plan's swap implementation assumes a simple swap function, but FheatherX uses Uniswap v4's router pattern:
 
 ```typescript
 // From plan - incorrect assumption
@@ -368,7 +368,7 @@ const handleSwap = async () => {
 ### How Swaps Actually Work
 
 1. User calls Uniswap v4 `PoolManager.swap()` via a router
-2. The swap triggers PheatherX hook's `beforeSwap()`
+2. The swap triggers FheatherX hook's `beforeSwap()`
 3. Hook intercepts and executes privately using `BeforeSwapDelta`
 4. User receives tokens
 
@@ -405,7 +405,7 @@ export const SWAP_ROUTER_ABI = [
 export function useSwap() {
   const { writeContractAsync } = useWriteContract();
   const { client: fheClient } = useFheSession();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
 
   const swap = async (params: {
     zeroForOne: boolean;
@@ -445,7 +445,7 @@ export function useSwap() {
 }
 ```
 
-**Note:** This requires understanding the exact router contract being used. May need to deploy a custom router that handles the PheatherX hook properly.
+**Note:** This requires understanding the exact router contract being used. May need to deploy a custom router that handles the FheatherX hook properly.
 
 ---
 
@@ -475,7 +475,7 @@ const handleReveal = async () => {
 // src/hooks/useBalanceReveal.ts
 export function useBalanceReveal(isToken0: boolean) {
   const { address } = useAccount();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const { client: fheClient, isReady: fheReady } = useFheSession();
   const { cacheRevealedBalance, getRevealedBalance } = useFheStore();
 
@@ -507,7 +507,7 @@ export function useBalanceReveal(isToken0: boolean) {
       setState({ status: 'fetching' });
       const encryptedBalance = await readContract({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: isToken0 ? 'getUserBalanceToken0' : 'getUserBalanceToken1',
         args: [address],
       });
@@ -591,8 +591,8 @@ export function useOrderFillNotifications() {
 
   // Watch for order fills in real-time
   useWatchContractEvent({
-    address: PHEATHERX_ADDRESS,
-    abi: PHEATHERX_ABI,
+    address: FHEATHERX_ADDRESS,
+    abi: FHEATHERX_ABI,
     eventName: 'OrderFilled',
     onLogs: (logs) => {
       logs.forEach((log) => {
@@ -624,19 +624,19 @@ export function useOrderHistory() {
       // Fetch all order events for user
       const [placedLogs, filledLogs, cancelledLogs] = await Promise.all([
         publicClient.getLogs({
-          address: PHEATHERX_ADDRESS,
+          address: FHEATHERX_ADDRESS,
           event: parseAbiItem('event OrderPlaced(uint256 indexed orderId, address indexed owner, int24 triggerTick)'),
           args: { owner: address },
           fromBlock: 'earliest',
         }),
         publicClient.getLogs({
-          address: PHEATHERX_ADDRESS,
+          address: FHEATHERX_ADDRESS,
           event: parseAbiItem('event OrderFilled(uint256 indexed orderId, address indexed owner, address indexed executor)'),
           args: { owner: address },
           fromBlock: 'earliest',
         }),
         publicClient.getLogs({
-          address: PHEATHERX_ADDRESS,
+          address: FHEATHERX_ADDRESS,
           event: parseAbiItem('event OrderCancelled(uint256 indexed orderId, address indexed owner)'),
           args: { owner: address },
           fromBlock: 'earliest',

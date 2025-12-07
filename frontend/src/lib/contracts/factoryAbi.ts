@@ -1,7 +1,7 @@
 /**
- * ABI for MockPheatherXFactory contract
+ * ABI for MockFheatherXFactory contract
  */
-export const PHEATHERX_FACTORY_ABI = [
+export const FHEATHERX_FACTORY_ABI = [
   // Events
   {
     type: 'event',

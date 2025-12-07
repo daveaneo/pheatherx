@@ -58,7 +58,7 @@ import { FhenixClient } from 'cofhejs';
 import type { FheSession, EncryptedValue } from '@/types/fhe';
 import { FHE_RETRY_ATTEMPTS, FHE_RETRY_BASE_DELAY_MS } from '@/lib/constants';
 
-export class PheatherXFheClient {
+export class FheatherXFheClient {
   private session: FheSession | null = null;
   private provider: any;
   private signer: any;
@@ -302,10 +302,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { useEthersSigner } from './useEthersSigner';
 import { useEthersProvider } from './useEthersProvider';
-import { PheatherXFheClient } from '@/lib/fhe/client';
+import { FheatherXFheClient } from '@/lib/fhe/client';
 import { MockFheClient } from '@/lib/fhe/mockClient';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { fheSupport } from '@/lib/chains';
 
 export function useFheSession() {
@@ -314,7 +314,7 @@ export function useFheSession() {
   const provider = useEthersProvider();
   const signer = useEthersSigner();
 
-  const clientRef = useRef<PheatherXFheClient | MockFheClient | null>(null);
+  const clientRef = useRef<FheatherXFheClient | MockFheClient | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
 
   const {
@@ -326,7 +326,7 @@ export function useFheSession() {
     reset,
   } = useFheStore();
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const networkFheSupport = fheSupport[chainId];
   const isMock = networkFheSupport !== 'full';
 
@@ -341,7 +341,7 @@ export function useFheSession() {
     setSessionStatus('initializing');
 
     try {
-      let client: PheatherXFheClient | MockFheClient;
+      let client: FheatherXFheClient | MockFheClient;
 
       if (isMock) {
         client = new MockFheClient();
@@ -349,7 +349,7 @@ export function useFheSession() {
         if (!signer) {
           throw new Error('Signer not available');
         }
-        client = new PheatherXFheClient(provider, signer);
+        client = new FheatherXFheClient(provider, signer);
       }
 
       const session = await client.initSession(hookAddress);
@@ -423,8 +423,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAccount, useChainId, useReadContract } from 'wagmi';
 import { useFheSession } from './useFheSession';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { FHE_RETRY_ATTEMPTS } from '@/lib/constants';
 
 type RevealStatus = 'idle' | 'fetching' | 'decrypting' | 'revealed' | 'error';
@@ -443,7 +443,7 @@ interface UseBalanceRevealResult {
 export function useBalanceReveal(isToken0: boolean): UseBalanceRevealResult {
   const { address } = useAccount();
   const chainId = useChainId();
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   const { client, isReady, isMock } = useFheSession();
   const { cacheBalance, getCachedBalance } = useFheStore();
@@ -457,7 +457,7 @@ export function useBalanceReveal(isToken0: boolean): UseBalanceRevealResult {
 
   const { refetch: refetchBalance } = useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: isToken0 ? 'getUserBalanceToken0' : 'getUserBalanceToken1',
     args: address ? [address] : undefined,
     query: { enabled: false },
@@ -652,9 +652,9 @@ export const TOKEN_LIST: Record<number, Token[]> = {
 
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, useReadContract, usePublicClient, useWaitForTransactionReceipt } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
-import { PHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
 import { isNativeEth } from '@/lib/tokens';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
@@ -686,7 +686,7 @@ export function useDeposit(): UseDepositResult {
   const { toast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const token0Address = TOKEN_ADDRESSES[chainId]?.token0;
   const token1Address = TOKEN_ADDRESSES[chainId]?.token1;
 
@@ -807,7 +807,7 @@ export function useDeposit(): UseDepositResult {
     try {
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'deposit',
         args: [isToken0, amount],
         // Send value for native ETH
@@ -1035,8 +1035,8 @@ export function getExplorerName(chainId: number): string | null {
 
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 
@@ -1056,7 +1056,7 @@ export function useWithdraw(): UseWithdrawResult {
   const { toast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawHash, setWithdrawHash] = useState<`0x${string}` | null>(null);
@@ -1082,7 +1082,7 @@ export function useWithdraw(): UseWithdrawResult {
     try {
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'withdraw',
         args: [isToken0, amount],
       });
@@ -1292,8 +1292,8 @@ export function useSwap(): UseSwapResult {
 
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { PROTOCOL_FEE_WEI } from '@/lib/constants';
 import { useFheSession } from './useFheSession';
 import { useToast } from '@/stores/uiStore';
@@ -1324,7 +1324,7 @@ export function usePlaceOrder(): UsePlaceOrderResult {
   const { toast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   const [isPlacing, setIsPlacing] = useState(false);
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
@@ -1368,7 +1368,7 @@ export function usePlaceOrder(): UsePlaceOrderResult {
 
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'placeOrder',
         args: [
           params.triggerTick,
@@ -1422,8 +1422,8 @@ export function usePlaceOrder(): UsePlaceOrderResult {
 import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { queryKeys } from '@/lib/queryKeys';
 import { useOrdersStore } from '@/stores/ordersStore';
 import { useToast } from '@/stores/uiStore';
@@ -1439,13 +1439,13 @@ export function useCancelOrder() {
   const { toast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
   return useMutation({
     mutationFn: async (orderId: bigint) => {
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'cancelOrder',
         args: [orderId],
       });

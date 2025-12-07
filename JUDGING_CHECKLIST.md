@@ -127,7 +127,7 @@ FheatherX deeply integrates with **Fhenix's CoFHE** infrastructure:
 | File | Description |
 |------|-------------|
 | `contracts/src/FheatherXv4.sol` | Main Uniswap v4 Hook |
-| `contracts/src/PheatherXv3.sol` | Standalone private DEX (reference) |
+| `contracts/src/FheatherXv3.sol` | Standalone private DEX (reference) |
 | `contracts/src/tokens/FHERC20FaucetToken.sol` | FHE-encrypted ERC20 |
 | `frontend/src/lib/fhe/singleton.ts` | CoFHE session management |
 | `frontend/src/hooks/useV3Deposit.ts` | FHE deposit flow |
@@ -139,8 +139,8 @@ FheatherX deeply integrates with **Fhenix's CoFHE** infrastructure:
 
 | Network | Contract | Address |
 |---------|----------|---------|
-| Ethereum Sepolia | PheatherXv3 | `0x47712BED8Ae60A41B5d092A3Dc04cb19FF508AC8` |
-| Ethereum Sepolia | PheatherXFactory | `0x...` |
+| Ethereum Sepolia | FheatherXv3 | `0x47712BED8Ae60A41B5d092A3Dc04cb19FF508AC8` |
+| Ethereum Sepolia | FheatherXFactory | `0x...` |
 | Ethereum Sepolia | tWETH (ERC20) | Deployed |
 | Ethereum Sepolia | tUSDC (ERC20) | Deployed |
 | Ethereum Sepolia | fheWETH (FHERC20) | Deployed |

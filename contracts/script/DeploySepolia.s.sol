@@ -22,7 +22,7 @@ contract TestToken is ERC20 {
 }
 
 /// @title DeploySepolia
-/// @notice Deploy test tokens on Ethereum Sepolia for PheatherX testing
+/// @notice Deploy test tokens on Ethereum Sepolia for FheatherX testing
 /// @dev Run with: forge script script/DeploySepolia.s.sol:DeploySepolia --rpc-url https://ethereum-sepolia-rpc.publicnode.com --broadcast
 contract DeploySepolia is Script {
     // Token amounts
@@ -33,7 +33,7 @@ contract DeploySepolia is Script {
         address deployer = vm.addr(deployerPrivateKey);
 
         console.log("===========================================");
-        console.log("  PheatherX Sepolia Test Token Deployment");
+        console.log("  FheatherX Sepolia Test Token Deployment");
         console.log("===========================================");
         console.log("");
         console.log("Deployer:", deployer);
@@ -44,8 +44,8 @@ contract DeploySepolia is Script {
         // ============ Deploy Tokens ============
         console.log("--- Deploying Tokens ---");
 
-        TestToken tokenA = new TestToken("PheatherX Test USDC", "tUSDC", 6);
-        TestToken tokenB = new TestToken("PheatherX Test WETH", "tWETH", 18);
+        TestToken tokenA = new TestToken("FheatherX Test USDC", "tUSDC", 6);
+        TestToken tokenB = new TestToken("FheatherX Test WETH", "tWETH", 18);
 
         // Sort tokens (Uniswap requirement: token0 < token1)
         (address token0Addr, address token1Addr) = address(tokenA) < address(tokenB)

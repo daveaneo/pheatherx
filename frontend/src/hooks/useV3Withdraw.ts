@@ -3,8 +3,8 @@
 import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 import { BucketSide } from '@/types/bucket';
-import { PHEATHERX_V3_ABI } from '@/lib/contracts/pheatherXv3Abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_V3_ABI } from '@/lib/contracts/fheatherXv3Abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { encryptUint128, isSessionValid } from '@/lib/fhe/singleton';
 import { useBucketStore } from '@/stores/bucketStore';
 import { isValidTick } from '@/lib/constants';
@@ -84,7 +84,7 @@ export function useV3Withdraw(): UseV3WithdrawReturn {
           throw new Error('FHE session not initialized. Please initialize first.');
         }
 
-        const contractAddress = PHEATHERX_ADDRESSES[chainId];
+        const contractAddress = FHEATHERX_ADDRESSES[chainId];
         if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
           throw new Error(`FheatherX contract not deployed on chain ${chainId}`);
         }
@@ -105,7 +105,7 @@ export function useV3Withdraw(): UseV3WithdrawReturn {
 
         const withdrawHash = await walletClient.writeContract({
           address: contractAddress,
-          abi: PHEATHERX_V3_ABI,
+          abi: FHEATHERX_V3_ABI,
           functionName: 'withdraw',
           args: [
             tick,

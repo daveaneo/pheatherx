@@ -3,7 +3,7 @@ const requiredEnvVars = [
 ] as const;
 
 const networkEnvVars = [
-  'NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL',
+  'NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL',
   'NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL',
 ] as const;
 

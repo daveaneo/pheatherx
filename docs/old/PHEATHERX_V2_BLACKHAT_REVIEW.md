@@ -1,10 +1,10 @@
-# PheatherX v2 Black Hat Security Review
+# FheatherX v2 Black Hat Security Review
 
 ## Attacks Worth Investigating
 
 ### 1. Reserve Oracle Manipulation
 The public reserve cache is your weak point. You say arbitrageurs keep prices current, but what if I *am* the arbitrageur? I could:
-- Make a large trade on PheatherX
+- Make a large trade on FheatherX
 - The encrypted reserves update, but public cache is stale
 - Immediately arbitrage against an external pool at the "old" price
 - Profit from the lag window before the cache syncs
@@ -47,7 +47,7 @@ The attack does not affect users who use the protocol with encrypted data.
 
 ### 3. FHERC20 Wrap/Unwrap Timing
 When users wrap ERC20 → FHERC20 or unwrap, that's a plaintext operation. I'd watch:
-- Who wraps tokens before PheatherX activity
+- Who wraps tokens before FheatherX activity
 - Who unwraps after
 - Build a deanonymization graph of likely traders
 
@@ -57,7 +57,7 @@ When users wrap ERC20 → FHERC20 or unwrap, that's a plaintext operation. I'd w
 
 **Actual user flow:**
 1. Wrap ERC20 → FHERC20 (one time)
-2. Trade on PheatherX - receive FHERC20 output tokens
+2. Trade on FheatherX - receive FHERC20 output tokens
 3. Trade again - balances update in FHERC20
 4. Continue trading indefinitely with FHERC20 balances
 5. Unwrap only when exiting the ecosystem entirely (days/weeks/months later)
@@ -97,7 +97,7 @@ You say I can't tell order *type*, but I know orders *exist* at certain ticks (t
 
 **Why this is acceptable:**
 - Traditional order books expose ALL order info (price, size, side)
-- PheatherX only exposes that orders exist at certain prices
+- FheatherX only exposes that orders exist at certain prices
 - An attacker knows "there's activity at $2000" but not "there's $1M of stop-losses at $2000"
 - This is massively less information than centralized exchanges or on-chain limit order books
 
@@ -114,7 +114,7 @@ You say I can't tell order *type*, but I know orders *exist* at certain ticks (t
 
 **Status:** VERIFIED - CONSTANT GAS ON OUR SIDE
 
-**Analysis:** We audited all `if` statements in PheatherXv2.sol. Every conditional branches on **plaintext values only**:
+**Analysis:** We audited all `if` statements in FheatherXv2.sol. Every conditional branches on **plaintext values only**:
 - Input validation (amountIn == 0, msg.value checks)
 - Order state (order.active, order.owner)
 - Pool state (reserve0 == 0, totalLpSupply)
@@ -150,7 +150,7 @@ You say failed trades just revert. But what if I:
 2. Front-run to move price past the victim's slippage
 3. Victim's trade reverts, attacker profits
 
-**Why this is not a PheatherX-specific vulnerability:**
+**Why this is not a FheatherX-specific vulnerability:**
 - This is standard MEV that exists on ALL DEXs (Uniswap, Sushiswap, etc.)
 - The victim loses only gas fees, not funds
 - This is exactly why the encrypted path exists
@@ -205,7 +205,7 @@ These create tasks that are processed by the off-chain threshold network. Result
 | `FHE.getDecryptResult()` | Retrieve completed decryption result |
 | `FHE.getDecryptResultSafe()` | Retrieve result with ready flag |
 
-**PheatherX Functions and Their FHE Dependencies:**
+**FheatherX Functions and Their FHE Dependencies:**
 
 | Function | Sync FHE | Async FHE | Works if coprocessor down? |
 |----------|----------|-----------|---------------------------|
@@ -256,7 +256,7 @@ LPs add/remove liquidity. Even with encrypted amounts:
 
 **Status:** PARTIAL LEAKAGE - TWO PATHS WITH DIFFERENT PRIVACY LEVELS
 
-**Analysis:** PheatherX offers two LP paths with different privacy characteristics:
+**Analysis:** FheatherX offers two LP paths with different privacy characteristics:
 
 **Plaintext Path (`addLiquidity`, `removeLiquidity`):**
 - LP balances are stored in plaintext: `mapping(address => uint256) public lpBalances`
@@ -340,7 +340,7 @@ The encrypted LP math is currently simplified (returns `amt0 + amt1` as LP token
 - All liquidity operations continue working
 - Only public reserve cache becomes stale
 
-### What PheatherX Successfully Protects
+### What FheatherX Successfully Protects
 
 - Trade direction (buy/sell) - encrypted with `ebool`
 - Trade amounts - encrypted with `euint128`

@@ -1,7 +1,7 @@
 /**
- * PheatherX v3 Bucket Types
+ * FheatherX v3 Bucket Types
  *
- * These types map directly to the PheatherXv3 contract interface.
+ * These types map directly to the FheatherXv3 contract interface.
  * BucketSide enum values MUST match contract: BUY=0, SELL=1
  */
 

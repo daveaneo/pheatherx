@@ -1,4 +1,4 @@
-# PheatherX Web Application Specification
+# FheatherX Web Application Specification
 
 **Version:** 2.0
 **Last Updated:** November 2024
@@ -23,9 +23,9 @@
 
 ### 1.1 Product Vision
 
-PheatherX is a private execution layer built on Fully Homomorphic Encryption (FHE) within the Fhenix ecosystem. The web application provides a premium, institutional-grade trading interface that enables users to execute swaps and limit orders with complete privacy—trade direction, size, and intent remain hidden from all observers.
+FheatherX is a private execution layer built on Fully Homomorphic Encryption (FHE) within the Fhenix ecosystem. The web application provides a premium, institutional-grade trading interface that enables users to execute swaps and limit orders with complete privacy—trade direction, size, and intent remain hidden from all observers.
 
-*Named after the phoenix feather — a symbol of silent, precise movement — PheatherX delivers privacy without sacrificing atomicity, performance, or trustlessness.*
+*Named after the phoenix feather — a symbol of silent, precise movement — FheatherX delivers privacy without sacrificing atomicity, performance, or trustlessness.*
 
 ### 1.2 Target Users
 
@@ -36,7 +36,7 @@ PheatherX is a private execution layer built on Fully Homomorphic Encryption (FH
 
 ### 1.3 Key Differentiators
 
-| Feature | Traditional DEX | PheatherX |
+| Feature | Traditional DEX | FheatherX |
 |---------|-----------------|-----------|
 | Trade Direction | Public | Encrypted |
 | Trade Amount | Public | Encrypted |
@@ -54,11 +54,11 @@ PheatherX is a private execution layer built on Fully Homomorphic Encryption (FH
 
 ### 1.5 Core Concept: Deposit-First Trading
 
-> **Important:** Unlike traditional DEXs where you swap directly from your wallet, PheatherX requires depositing tokens first. This enables encrypted accounting—your balance and trades remain private on-chain.
+> **Important:** Unlike traditional DEXs where you swap directly from your wallet, FheatherX requires depositing tokens first. This enables encrypted accounting—your balance and trades remain private on-chain.
 
 **User Flow:**
-1. **Deposit** tokens from wallet into PheatherX balance
-2. **Trade** using your encrypted PheatherX balance
+1. **Deposit** tokens from wallet into FheatherX balance
+2. **Trade** using your encrypted FheatherX balance
 3. **Withdraw** tokens back to wallet when needed
 
 This architecture is fundamental to how FHE privacy works and cannot be bypassed.
@@ -107,7 +107,7 @@ This architecture is fundamental to how FHE privacy works and cannot be bypassed
 
 ### 3.1 Landing Page
 
-**Purpose:** Introduce PheatherX and its privacy value proposition.
+**Purpose:** Introduce FheatherX and its privacy value proposition.
 
 **Sections:**
 1. **Hero Section**
@@ -123,7 +123,7 @@ This architecture is fundamental to how FHE privacy works and cannot be bypassed
    - Institutional-Grade Privacy
 
 3. **How It Works**
-   - Step 1: **Deposit tokens into your PheatherX balance** — Unlike traditional DEXs, you deposit first to enable encrypted accounting
+   - Step 1: **Deposit tokens into your FheatherX balance** — Unlike traditional DEXs, you deposit first to enable encrypted accounting
    - Step 2: **Execute encrypted trades** — Swap or place limit orders privately
    - Step 3: **Manage orders & withdraw** — Cancel orders, withdraw anytime
 
@@ -180,7 +180,7 @@ This architecture is fundamental to how FHE privacy works and cannot be bypassed
 
 2. **Amount Input**
    - Numeric input with decimal support
-   - "MAX" button fills available PheatherX balance
+   - "MAX" button fills available FheatherX balance
    - Real-time USD value estimate
    - Encrypted balance display (••••••)
    - "Reveal" button to decrypt balance (async operation)
@@ -213,7 +213,7 @@ This architecture is fundamental to how FHE privacy works and cannot be bypassed
 | State | Description | UI |
 |-------|-------------|-----|
 | No Wallet | Wallet not connected | "Connect Wallet" button |
-| No Deposit | Wallet connected but no PheatherX balance | Deposit prompt (see below) |
+| No Deposit | Wallet connected but no FheatherX balance | Deposit prompt (see below) |
 | Ready | Has balance, can swap | Normal swap interface |
 | Insufficient Balance | Amount exceeds available balance | Error message, deposit link |
 | Loading | Fetching rates | Skeleton loaders |
@@ -229,10 +229,10 @@ This architecture is fundamental to how FHE privacy works and cannot be bypassed
 ├─────────────────────────────────────┤
 │                                     │
 │  To trade privately, first deposit  │
-│  tokens into your PheatherX balance.│
+│  tokens into your FheatherX balance.│
 │                                     │
 │  Wallet Balance: 2.5 ETH            │
-│  PheatherX Balance: 0 ETH           │
+│  FheatherX Balance: 0 ETH           │
 │                                     │
 │  Your funds remain under your       │
 │  control and can be withdrawn       │
@@ -251,7 +251,7 @@ This architecture is fundamental to how FHE privacy works and cannot be bypassed
 
 #### 3.3.1 Order Types Explained
 
-PheatherX supports 4 order types, all using the same underlying contract function:
+FheatherX supports 4 order types, all using the same underlying contract function:
 ```solidity
 placeOrder(int24 triggerTick, ebool direction, euint128 amount, euint128 minOutput)
 ```
@@ -296,7 +296,7 @@ function getOrderDirection(orderType: OrderType): boolean {
 
 **UI must validate:**
 - Trigger tick is on the correct side of current price for the order type
-- Amount doesn't exceed available PheatherX balance
+- Amount doesn't exceed available FheatherX balance
 
 #### 3.3.3 New Order Form (`/orders/new`)
 
@@ -359,7 +359,7 @@ function getOrderDirection(orderType: OrderType): boolean {
 > "Buy [TOKEN] when the price drops to your target. Your order sits privately on-chain and executes automatically when the market reaches your price. Perfect for accumulating at lower prices."
 
 **Limit Sell**
-> "Sell [TOKEN] when the price rises to your target. Set your desired sell price above the current market and let PheatherX execute when the market comes to you. Ideal for selling at better prices."
+> "Sell [TOKEN] when the price rises to your target. Set your desired sell price above the current market and let FheatherX execute when the market comes to you. Ideal for selling at better prices."
 
 **Stop-Loss**
 > "Automatically sell [TOKEN] if the price drops to your trigger level. Protect your position from further losses. The market won't see your stop until it triggers—no front-running your exit."
@@ -444,7 +444,7 @@ function getOrderDirection(orderType: OrderType): boolean {
 ├─────────────────────────────────────┤
 │                                     │
 │  Your tokens will be returned to    │
-│  your PheatherX balance (not your   │
+│  your FheatherX balance (not your   │
 │  wallet).                           │
 │                                     │
 │  You can withdraw from the          │
@@ -460,7 +460,7 @@ function getOrderDirection(orderType: OrderType): boolean {
 1. Click "Cancel Order"
 2. Confirmation modal (shown above)
 3. Sign transaction
-4. Success: "Order cancelled. Funds returned to your PheatherX balance."
+4. Success: "Order cancelled. Funds returned to your FheatherX balance."
 
 #### 3.3.5 Order History (`/orders/history`)
 
@@ -488,7 +488,7 @@ function getOrderDirection(orderType: OrderType): boolean {
 │  │ ⚠️ SLIPPAGE FAILED  •  LIMIT BUY  •  ETH/USDC    ID: #1229   │ │
 │  │ ──────────────────────────────────────────────────────────── │ │
 │  │ Order triggered but couldn't fill at acceptable price.      │ │
-│  │ Your 1,000 USDC was returned to your PheatherX balance.     │ │
+│  │ Your 1,000 USDC was returned to your FheatherX balance.     │ │
 │  │ Trigger: $2,200.00        Attempted: 1 day ago              │ │
 │  │ ──────────────────────────────────────────────────────────── │ │
 │  │                                              [View on Block] │ │
@@ -499,7 +499,7 @@ function getOrderDirection(orderType: OrderType): boolean {
 │  │ ──────────────────────────────────────────────────────────── │ │
 │  │ Amount: 1.0 ETH           Trigger: $2,200.00                │ │
 │  │ Created: 5 days ago       Cancelled: 4 days ago             │ │
-│  │ Funds returned to PheatherX balance.                        │ │
+│  │ Funds returned to FheatherX balance.                        │ │
 │  │ ──────────────────────────────────────────────────────────── │ │
 │  │                                              [View on Block] │ │
 │  └──────────────────────────────────────────────────────────────┘ │
@@ -583,7 +583,7 @@ function getOrderDirection(orderType: OrderType): boolean {
 │  ┌───────────────────────────────┐ │
 │  │ ℹ️ About Deposits              │ │
 │  │ Deposited funds are held in   │ │
-│  │ the PheatherX hook contract.  │ │
+│  │ the FheatherX hook contract.  │ │
 │  │ You can withdraw anytime.     │ │
 │  │                               │ │
 │  │ This enables encrypted        │ │
@@ -741,15 +741,15 @@ User clicks [Reveal]
 │                                                                    │
 │                         [Phoenix Icon]                             │
 │                                                                    │
-│                    PHEATHERX LAUNCHPAD                             │
+│                    FHEATHERX LAUNCHPAD                             │
 │                      COMING SOON                                   │
 │                                                                    │
 │  Launch privacy-enabled tokens on the phERC20 standard.           │
 │                                                                    │
-│  WHY LAUNCH ON PHEATHERX?                                         │
+│  WHY LAUNCH ON FHEATHERX?                                         │
 │  • Built-in encrypted balances                                    │
 │  • Private transfers from day one                                 │
-│  • Seamless PheatherX DEX integration                            │
+│  • Seamless FheatherX DEX integration                            │
 │  • Fair launch mechanics                                          │
 │                                                                    │
 │  ┌─────────────────────────────────────────────────────────────┐  │
@@ -1070,10 +1070,10 @@ export const fheSupport: Record<number, 'full' | 'mock'> = {
 ### 5.4 Contract Integration
 
 ```typescript
-// lib/contracts/pheatherx.ts
-export const PHEATHERX_ABI = [...] as const;
+// lib/contracts/fheatherx.ts
+export const FHEATHERX_ABI = [...] as const;
 
-export const PHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
+export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
   31337: '0x...', // Local
   84532: '0x...', // Base Sepolia
   8008135: '0x...', // Fhenix Testnet
@@ -1083,7 +1083,7 @@ export const PHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
 export const PROTOCOL_FEE = 0.001; // ETH
 export const EXECUTOR_REWARD_BPS = 100; // 1%
 
-// hooks/usePheatherX.ts
+// hooks/useFheatherX.ts
 import { useReadContract, useWriteContract } from 'wagmi';
 
 export function useDeposit() {
@@ -1091,8 +1091,8 @@ export function useDeposit() {
 
   return async (isToken0: boolean, amount: bigint) => {
     await writeContract({
-      address: PHEATHERX_ADDRESSES[chainId],
-      abi: PHEATHERX_ABI,
+      address: FHEATHERX_ADDRESSES[chainId],
+      abi: FHEATHERX_ABI,
       functionName: 'deposit',
       args: [isToken0, amount],
     });
@@ -1104,8 +1104,8 @@ export function useWithdraw() {
 
   return async (isToken0: boolean, amount: bigint) => {
     await writeContract({
-      address: PHEATHERX_ADDRESSES[chainId],
-      abi: PHEATHERX_ABI,
+      address: FHEATHERX_ADDRESSES[chainId],
+      abi: FHEATHERX_ABI,
       functionName: 'withdraw',
       args: [isToken0, amount],
     });
@@ -1128,7 +1128,7 @@ export function usePlaceOrder() {
     const encMinOutput = await encryptUint128(minOutput);
 
     // Grant hook access to encrypted values
-    const hookAddress = PHEATHERX_ADDRESSES[chainId];
+    const hookAddress = FHEATHERX_ADDRESSES[chainId];
     await allow(encDirection, hookAddress);
     await allow(encAmount, hookAddress);
     await allow(encMinOutput, hookAddress);
@@ -1136,7 +1136,7 @@ export function usePlaceOrder() {
     // Place order
     await writeContract({
       address: hookAddress,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'placeOrder',
       args: [triggerTick, encDirection, encAmount, encMinOutput],
       value: parseEther(PROTOCOL_FEE.toString()),
@@ -1149,8 +1149,8 @@ export function useCancelOrder() {
 
   return async (orderId: bigint) => {
     await writeContract({
-      address: PHEATHERX_ADDRESSES[chainId],
-      abi: PHEATHERX_ABI,
+      address: FHEATHERX_ADDRESSES[chainId],
+      abi: FHEATHERX_ABI,
       functionName: 'cancelOrder',
       args: [orderId],
     });
@@ -1159,8 +1159,8 @@ export function useCancelOrder() {
 
 export function useActiveOrders(userAddress: `0x${string}`) {
   return useReadContract({
-    address: PHEATHERX_ADDRESSES[chainId],
-    abi: PHEATHERX_ABI,
+    address: FHEATHERX_ADDRESSES[chainId],
+    abi: FHEATHERX_ABI,
     functionName: 'getActiveOrders',
     args: [userAddress],
   });
@@ -1168,8 +1168,8 @@ export function useActiveOrders(userAddress: `0x${string}`) {
 
 export function useOrderCount(userAddress: `0x${string}`) {
   return useReadContract({
-    address: PHEATHERX_ADDRESSES[chainId],
-    abi: PHEATHERX_ABI,
+    address: FHEATHERX_ADDRESSES[chainId],
+    abi: FHEATHERX_ABI,
     functionName: 'getOrderCount',
     args: [userAddress],
   });
@@ -1177,16 +1177,16 @@ export function useOrderCount(userAddress: `0x${string}`) {
 
 export function useReserves() {
   return useReadContract({
-    address: PHEATHERX_ADDRESSES[chainId],
-    abi: PHEATHERX_ABI,
+    address: FHEATHERX_ADDRESSES[chainId],
+    abi: FHEATHERX_ABI,
     functionName: 'getReserves',
   });
 }
 
 export function useHasOrdersAtTick(tick: number) {
   return useReadContract({
-    address: PHEATHERX_ADDRESSES[chainId],
-    abi: PHEATHERX_ABI,
+    address: FHEATHERX_ADDRESSES[chainId],
+    abi: FHEATHERX_ABI,
     functionName: 'hasOrdersAtTick',
     args: [tick],
   });
@@ -1435,7 +1435,7 @@ const EVENTS = {
 - Message: "Connect your wallet to continue"
 - Action: Show Connect Wallet button
 
-**No PheatherX Balance**
+**No FheatherX Balance**
 - Message: "Deposit tokens to start trading privately"
 - Action: Link to deposit modal
 
@@ -1520,7 +1520,7 @@ function placeOrder(
     euint128 minOutput
 ) external payable returns (uint256 orderId);
 
-// Cancel active order (funds returned to PheatherX balance)
+// Cancel active order (funds returned to FheatherX balance)
 function cancelOrder(uint256 orderId) external;
 
 // Get public reserves (display cache, may lag slightly)

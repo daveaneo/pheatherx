@@ -156,7 +156,7 @@ export const usePoolStore = create<PoolState>()(
       },
     }),
     {
-      name: 'pheatherx-pools',
+      name: 'fheatherx-pools',
       partialize: state => ({
         selectedPoolAddressByChain: state.selectedPoolAddressByChain,
       }),

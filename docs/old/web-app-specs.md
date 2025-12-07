@@ -1,4 +1,4 @@
-# PheatherX Web Application Specification
+# FheatherX Web Application Specification
 
 **Version:** 1.0
 **Last Updated:** November 2024
@@ -23,9 +23,9 @@
 
 ### 1.1 Product Vision
 
-PheatherX is a private execution layer built on Fully Homomorphic Encryption (FHE) within the Fhenix ecosystem. The web application provides a premium, institutional-grade trading interface that enables users to execute swaps and limit orders with complete privacy—trade direction, size, and intent remain hidden from all observers.
+FheatherX is a private execution layer built on Fully Homomorphic Encryption (FHE) within the Fhenix ecosystem. The web application provides a premium, institutional-grade trading interface that enables users to execute swaps and limit orders with complete privacy—trade direction, size, and intent remain hidden from all observers.
 
-*Named after the phoenix feather — a symbol of silent, precise movement — PheatherX delivers privacy without sacrificing atomicity, performance, or trustlessness.*
+*Named after the phoenix feather — a symbol of silent, precise movement — FheatherX delivers privacy without sacrificing atomicity, performance, or trustlessness.*
 
 ### 1.2 Target Users
 
@@ -36,7 +36,7 @@ PheatherX is a private execution layer built on Fully Homomorphic Encryption (FH
 
 ### 1.3 Key Differentiators
 
-| Feature | Traditional DEX | PheatherX |
+| Feature | Traditional DEX | FheatherX |
 |---------|-----------------|-----------|
 | Trade Direction | Public | Encrypted |
 | Trade Amount | Public | Encrypted |
@@ -96,7 +96,7 @@ PheatherX is a private execution layer built on Fully Homomorphic Encryption (FH
 
 ### 3.1 Landing Page
 
-**Purpose:** Introduce PheatherX and its privacy value proposition.
+**Purpose:** Introduce FheatherX and its privacy value proposition.
 
 **Sections:**
 1. **Hero Section**
@@ -207,7 +207,7 @@ PheatherX is a private execution layer built on Fully Homomorphic Encryption (FH
 
 #### 3.3.1 Order Types Explained
 
-PheatherX supports 4 order types, all using the same underlying contract function:
+FheatherX supports 4 order types, all using the same underlying contract function:
 ```solidity
 placeOrder(int24 triggerTick, ebool direction, euint128 amount, euint128 minOutput)
 ```
@@ -275,7 +275,7 @@ placeOrder(int24 triggerTick, ebool direction, euint128 amount, euint128 minOutp
 > "Buy [TOKEN] when the price drops to your target. Your order sits privately on-chain and executes automatically when the market reaches your price. Perfect for accumulating at lower prices."
 
 **Limit Sell**
-> "Sell [TOKEN] when the price rises to your target. Set your desired sell price above the current market and let PheatherX execute when the market comes to you. Ideal for selling at better prices."
+> "Sell [TOKEN] when the price rises to your target. Set your desired sell price above the current market and let FheatherX execute when the market comes to you. Ideal for selling at better prices."
 
 **Stop-Loss**
 > "Automatically sell [TOKEN] if the price drops to your trigger level. Protect your position from further losses. The market won't see your stop until it triggers—no front-running your exit."
@@ -437,7 +437,7 @@ placeOrder(int24 triggerTick, ebool direction, euint128 amount, euint128 minOutp
 │  └─────────────────────────────┘   │
 │                                     │
 │  ⚠️ Deposited funds are held in    │
-│  the PheatherX hook contract.      │
+│  the FheatherX hook contract.      │
 │  You can withdraw anytime.         │
 │                                     │
 │  [Step 1: Approve]  [Step 2: Deposit] │
@@ -559,15 +559,15 @@ placeOrder(int24 triggerTick, ebool direction, euint128 amount, euint128 minOutp
 │                                                                    │
 │                         [Phoenix Icon]                             │
 │                                                                    │
-│                    PHEATHERX LAUNCHPAD                             │
+│                    FHEATHERX LAUNCHPAD                             │
 │                      COMING SOON                                   │
 │                                                                    │
 │  Launch privacy-enabled tokens on the phERC20 standard.           │
 │                                                                    │
-│  WHY LAUNCH ON PHEATHERX?                                         │
+│  WHY LAUNCH ON FHEATHERX?                                         │
 │  • Built-in encrypted balances                                    │
 │  • Private transfers from day one                                 │
-│  • Seamless PheatherX DEX integration                            │
+│  • Seamless FheatherX DEX integration                            │
 │  • Fair launch mechanics                                          │
 │                                                                    │
 │  ┌─────────────────────────────────────────────────────────────┐  │
@@ -878,16 +878,16 @@ export const supportedChains = [localAnvil, baseSepolia, fhenixTestnet];
 ### 5.4 Contract Integration
 
 ```typescript
-// lib/contracts/pheatherx.ts
-export const PHEATHERX_ABI = [...] as const;
+// lib/contracts/fheatherx.ts
+export const FHEATHERX_ABI = [...] as const;
 
-export const PHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
+export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
   31337: '0x...', // Local
   84532: '0x...', // Base Sepolia
   8008135: '0x...', // Fhenix Testnet
 };
 
-// hooks/usePheatherX.ts
+// hooks/useFheatherX.ts
 import { useReadContract, useWriteContract } from 'wagmi';
 
 export function useDeposit() {
@@ -895,8 +895,8 @@ export function useDeposit() {
 
   return async (isToken0: boolean, amount: bigint) => {
     await writeContract({
-      address: PHEATHERX_ADDRESSES[chainId],
-      abi: PHEATHERX_ABI,
+      address: FHEATHERX_ADDRESSES[chainId],
+      abi: FHEATHERX_ABI,
       functionName: 'deposit',
       args: [isToken0, amount],
     });
@@ -913,8 +913,8 @@ export function usePlaceOrder() {
     minOutput: EncryptedUint128
   ) => {
     await writeContract({
-      address: PHEATHERX_ADDRESSES[chainId],
-      abi: PHEATHERX_ABI,
+      address: FHEATHERX_ADDRESSES[chainId],
+      abi: FHEATHERX_ABI,
       functionName: 'placeOrder',
       args: [triggerTick, direction, amount, minOutput],
       value: PROTOCOL_FEE,

@@ -90,7 +90,7 @@ function TradeHistoryPlaceholder() {
           Your swap and order history will appear here.
         </p>
         <p className="text-xs mt-2">
-          Coming soon: View past swaps, deposits, claims, and withdrawals.
+          Coming soon: View past swaps, orders, claims, and cancellations.
         </p>
       </div>
     </div>

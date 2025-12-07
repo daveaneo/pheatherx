@@ -83,19 +83,19 @@ export function AddLiquidityForm() {
       case 'approving-token0':
         return `Approving ${token0?.symbol || 'Token0'}...`;
       case 'depositing-token0':
-        return `Depositing ${token0?.symbol || 'Token0'}...`;
+        return `Placing ${token0?.symbol || 'Token0'} order...`;
       case 'checking-token1':
         return 'Checking allowance...';
       case 'approving-token1':
         return `Approving ${token1?.symbol || 'Token1'}...`;
       case 'depositing-token1':
-        return `Depositing ${token1?.symbol || 'Token1'}...`;
+        return `Placing ${token1?.symbol || 'Token1'} order...`;
       case 'complete':
         return 'Done';
       case 'error':
         return 'Try Again';
       default:
-        return 'Add Liquidity';
+        return 'Place Orders';
     }
   };
 
@@ -132,9 +132,9 @@ export function AddLiquidityForm() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Add Liquidity</CardTitle>
+            <CardTitle>Place Orders</CardTitle>
             <p className="text-sm text-feather-white/60">
-              Deposit tokens to provide liquidity
+              Place encrypted limit orders at the current price
             </p>
           </div>
           <PoolSelector compact />
@@ -189,13 +189,13 @@ export function AddLiquidityForm() {
           {step === 'complete' && (
             <div className="p-3 bg-electric-teal/10 border border-electric-teal/30 rounded-lg space-y-2" data-testid="deposit-success">
               <p className="text-electric-teal text-sm">
-                Liquidity added successfully!
+                Orders placed successfully!
               </p>
               {token0TxHash && (
-                <TransactionLink hash={token0TxHash} label={`${token0?.symbol} deposit`} />
+                <TransactionLink hash={token0TxHash} label={`${token0?.symbol} order`} />
               )}
               {token1TxHash && (
-                <TransactionLink hash={token1TxHash} label={`${token1?.symbol} deposit`} />
+                <TransactionLink hash={token1TxHash} label={`${token1?.symbol} order`} />
               )}
             </div>
           )}

@@ -3,8 +3,8 @@
 import { useCallback } from 'react';
 import { useAccount, usePublicClient } from 'wagmi';
 import { BucketSide, BucketPosition, Bucket } from '@/types/bucket';
-import { PHEATHERX_V3_ABI } from '@/lib/contracts/pheatherXv3Abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_V3_ABI } from '@/lib/contracts/fheatherXv3Abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useBucketStore } from '@/stores/bucketStore';
 import { isValidTick, TICK_SPACING, MIN_TICK_V3, MAX_TICK_V3 } from '@/lib/constants';
 
@@ -57,7 +57,7 @@ export function useV3Position(): UseV3PositionReturn {
     async (tick: number, side: BucketSide): Promise<BucketPosition | null> => {
       if (!address || !chainId || !publicClient) return null;
 
-      const contractAddress = PHEATHERX_ADDRESSES[chainId];
+      const contractAddress = FHEATHERX_ADDRESSES[chainId];
       if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
         return null;
       }
@@ -65,7 +65,7 @@ export function useV3Position(): UseV3PositionReturn {
       try {
         const result = await publicClient.readContract({
           address: contractAddress,
-          abi: PHEATHERX_V3_ABI,
+          abi: FHEATHERX_V3_ABI,
           functionName: 'getPosition',
           args: [address, tick, side],
         }) as [bigint, bigint, bigint, bigint];
@@ -103,7 +103,7 @@ export function useV3Position(): UseV3PositionReturn {
   const fetchAllPositions = useCallback(async (): Promise<BucketPosition[]> => {
     if (!address || !chainId || !publicClient) return [];
 
-    const contractAddress = PHEATHERX_ADDRESSES[chainId];
+    const contractAddress = FHEATHERX_ADDRESSES[chainId];
     if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
       return [];
     }
@@ -131,7 +131,7 @@ export function useV3Position(): UseV3PositionReturn {
             try {
               const result = await publicClient.readContract({
                 address: contractAddress,
-                abi: PHEATHERX_V3_ABI,
+                abi: FHEATHERX_V3_ABI,
                 functionName: 'getPosition',
                 args: [address, tick, side],
               }) as [bigint, bigint, bigint, bigint];
@@ -177,7 +177,7 @@ export function useV3Position(): UseV3PositionReturn {
     async (tick: number, side: BucketSide): Promise<Bucket | null> => {
       if (!chainId || !publicClient) return null;
 
-      const contractAddress = PHEATHERX_ADDRESSES[chainId];
+      const contractAddress = FHEATHERX_ADDRESSES[chainId];
       if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
         return null;
       }
@@ -185,7 +185,7 @@ export function useV3Position(): UseV3PositionReturn {
       try {
         const result = await publicClient.readContract({
           address: contractAddress,
-          abi: PHEATHERX_V3_ABI,
+          abi: FHEATHERX_V3_ABI,
           functionName: 'getBucket',
           args: [tick, side],
         }) as [bigint, bigint, bigint, bigint, boolean];

@@ -54,7 +54,7 @@ The v2 implementation plan represents a significant improvement over v1, with pr
 const deposit = async (isToken0: boolean, amount: bigint) => {
   return writeContractAsync({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'deposit',
     args: [isToken0, amount],
   });
@@ -69,7 +69,7 @@ const deposit = async (isToken0: boolean, amount: bigint) => {
 // src/hooks/useDeposit.ts
 
 export function useDeposit() {
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const { writeContractAsync } = useWriteContract();
 
   const checkAllowance = async (tokenAddress: `0x${string}`, amount: bigint) => {
@@ -104,7 +104,7 @@ export function useDeposit() {
 
     return writeContractAsync({
       address: hookAddress,
-      abi: PHEATHERX_ABI,
+      abi: FHEATHERX_ABI,
       functionName: 'deposit',
       args: [isToken0, amount],
     });
@@ -144,7 +144,7 @@ if (isNativeEth(tokenAddress)) {
   // Send with value
   return writeContractAsync({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'deposit',
     args: [isToken0, amount],
     value: amount, // Native ETH
@@ -439,7 +439,7 @@ export function NetworkGuard({ children }: { children: ReactNode }) {
 ```markdown
 # Frontend Implementation Plan
 
-This folder contains the complete frontend implementation plan for PheatherX.
+This folder contains the complete frontend implementation plan for FheatherX.
 
 ## Documents
 
@@ -487,7 +487,7 @@ Add startup validation:
 
 const requiredEnvVars = [
   'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID',
-  'NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL',
+  'NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL',
 ] as const;
 
 export function validateEnv() {

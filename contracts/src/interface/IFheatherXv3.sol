@@ -3,9 +3,9 @@ pragma solidity ^0.8.24;
 
 import {euint128, InEuint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
-/// @title IPheatherXv3
-/// @notice Interface for PheatherX v3 - Private Bucketed Limit Order DEX
-interface IPheatherXv3 {
+/// @title IFheatherXv3
+/// @notice Interface for FheatherX v3 - Private Bucketed Limit Order DEX
+interface IFheatherXv3 {
     // ═══════════════════════════════════════════════════════════════════════
     //                               TYPES
     // ═══════════════════════════════════════════════════════════════════════

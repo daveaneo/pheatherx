@@ -9,7 +9,7 @@ import {CurrencyLibrary, Currency} from "@uniswap/v4-core/src/types/Currency.sol
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 
-import {PheatherX} from "../src/PheatherX.sol";
+import {FheatherX} from "../src/FheatherX.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -66,7 +66,7 @@ contract DeployLocal is Script {
         //                 BEFORE_SWAP, AFTER_SWAP, BEFORE_SWAP_RETURNS_DELTA
         // Note: For local testing, we deploy then etch the bytecode to correct address
         // In production, use CREATE2 mining
-        PheatherX hookImpl = new PheatherX(
+        FheatherX hookImpl = new FheatherX(
             IPoolManager(address(poolManager)),
             token0,
             token1,

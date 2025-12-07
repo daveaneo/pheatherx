@@ -128,7 +128,7 @@ export const useFheStore = create<FheState>()(
         }),
     })),
     {
-      name: 'pheatherx-fhe',
+      name: 'fheatherx-fhe',
       storage: createJSONStorage(() => sessionStorage), // Use sessionStorage, not localStorage
       partialize: (state) => ({
         // Only persist revealed balances, NOT session (security)
@@ -301,7 +301,7 @@ export const useUiStore = create<UiState>()(
         })),
     }),
     {
-      name: 'pheatherx-ui',
+      name: 'fheatherx-ui',
       partialize: (state) => ({
         slippageTolerance: state.slippageTolerance,
         expertMode: state.expertMode,
@@ -395,7 +395,7 @@ export const useTransactionStore = create<TransactionState>()(
         }),
     })),
     {
-      name: 'pheatherx-transactions',
+      name: 'fheatherx-transactions',
     }
   )
 );
@@ -464,16 +464,16 @@ export const queryKeys = {
 
 import { useQuery } from '@tanstack/react-query';
 import { useReadContract } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { usePheatherXAddress } from '@/hooks/useContract';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useFheatherXAddress } from '@/hooks/useContract';
 import { queryKeys } from '@/lib/queryKeys';
 
 export function useReserves() {
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
 
   return useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getReserves',
     query: {
       queryKey: queryKeys.reserves(hookAddress),
@@ -489,17 +489,17 @@ export function useReserves() {
 import { useQuery } from '@tanstack/react-query';
 import { useAccount } from 'wagmi';
 import { useReadContract } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { usePheatherXAddress } from '@/hooks/useContract';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useFheatherXAddress } from '@/hooks/useContract';
 import { queryKeys } from '@/lib/queryKeys';
 
 export function useActiveOrders() {
   const { address } = useAccount();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
 
   return useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getActiveOrders',
     args: address ? [address] : undefined,
     query: {
@@ -523,21 +523,21 @@ export function useActiveOrders() {
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccount, useWatchContractEvent } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { usePheatherXAddress } from '@/hooks/useContract';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useFheatherXAddress } from '@/hooks/useContract';
 import { queryKeys } from '@/lib/queryKeys';
 import { useFheStore } from '@/stores/fheStore';
 
 export function useEventInvalidation() {
   const { address } = useAccount();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const queryClient = useQueryClient();
   const clearBalances = useFheStore((state) => state.clearBalances);
 
   // Invalidate on Deposit
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'Deposit',
     onLogs: (logs) => {
       logs.forEach((log) => {
@@ -557,7 +557,7 @@ export function useEventInvalidation() {
   // Invalidate on Withdraw
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'Withdraw',
     onLogs: (logs) => {
       logs.forEach((log) => {
@@ -575,7 +575,7 @@ export function useEventInvalidation() {
   // Invalidate on OrderPlaced
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'OrderPlaced',
     onLogs: (logs) => {
       logs.forEach((log) => {
@@ -596,7 +596,7 @@ export function useEventInvalidation() {
   // Invalidate on OrderFilled
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'OrderFilled',
     onLogs: (logs) => {
       logs.forEach((log) => {
@@ -617,7 +617,7 @@ export function useEventInvalidation() {
   // Invalidate on OrderCancelled
   useWatchContractEvent({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     eventName: 'OrderCancelled',
     onLogs: (logs) => {
       logs.forEach((log) => {
@@ -644,15 +644,15 @@ export function useEventInvalidation() {
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAccount, useWriteContract } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { usePheatherXAddress } from '@/hooks/useContract';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useFheatherXAddress } from '@/hooks/useContract';
 import { queryKeys } from '@/lib/queryKeys';
 import { useOrdersStore } from '@/stores/ordersStore';
 import { useToast } from '@/stores/uiStore';
 
 export function useCancelOrder() {
   const { address } = useAccount();
-  const hookAddress = usePheatherXAddress();
+  const hookAddress = useFheatherXAddress();
   const queryClient = useQueryClient();
   const { writeContractAsync } = useWriteContract();
   const { addPendingCancellation, removePendingCancellation } = useOrdersStore();
@@ -662,7 +662,7 @@ export function useCancelOrder() {
     mutationFn: async (orderId: bigint) => {
       return writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'cancelOrder',
         args: [orderId],
       });
@@ -793,7 +793,7 @@ export const useFheStore = create<FheState>()(
       immer((set, get) => ({
         // ... store implementation
       })),
-      { name: 'pheatherx-fhe' }
+      { name: 'fheatherx-fhe' }
     ),
     { name: 'FheStore' }
   )

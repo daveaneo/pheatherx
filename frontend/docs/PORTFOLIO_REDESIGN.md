@@ -7,8 +7,8 @@ Merge the Faucet functionality into the Portfolio page and remove the confusing 
 ## Current Issues
 
 1. **Encoding bug**: Shows "&#x1F4B0;" instead of actual emoji
-2. **Confusing "Deposit/Withdraw" tabs**: Implies moving tokens into/out of PheatherX private balances, but deposits only happen when adding liquidity
-3. **"Private Balance" concept**: Conflates wallet balances with encrypted balances in PheatherX contracts
+2. **Confusing "Deposit/Withdraw" tabs**: Implies moving tokens into/out of FheatherX private balances, but deposits only happen when adding liquidity
+3. **"Private Balance" concept**: Conflates wallet balances with encrypted balances in FheatherX contracts
 
 ## New Design
 

@@ -9,12 +9,12 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
-import {PheatherX} from "../src/PheatherX.sol";
+import {FheatherX} from "../src/FheatherX.sol";
 
-/// @title DeployPheatherX
-/// @notice Deployment script for PheatherX - a private execution layer built on FHE
-/// @dev Run with: forge script script/DeployPheatherX.s.sol --rpc-url <RPC_URL> --broadcast
-contract DeployPheatherX is Script {
+/// @title DeployFheatherX
+/// @notice Deployment script for FheatherX - a private execution layer built on FHE
+/// @dev Run with: forge script script/DeployFheatherX.s.sol --rpc-url <RPC_URL> --broadcast
+contract DeployFheatherX is Script {
     // Uniswap v4 PoolManager address (update for target network)
     // Mainnet: TBD
     // Sepolia: 0x...
@@ -57,7 +57,7 @@ contract DeployPheatherX is Script {
         //
         // For production, use HookMiner to find a CREATE2 salt that produces
         // an address with the correct flag bits
-        PheatherX hook = new PheatherX(
+        FheatherX hook = new FheatherX(
             IPoolManager(POOL_MANAGER),
             TOKEN0,
             TOKEN1,
@@ -90,10 +90,10 @@ contract DeployPheatherX is Script {
     }
 }
 
-/// @title DeployPheatherXWithMining
+/// @title DeployFheatherXWithMining
 /// @notice Deployment script that mines for correct hook address
 /// @dev Use this for production deployments where hook address must have correct flags
-contract DeployPheatherXWithMining is Script {
+contract DeployFheatherXWithMining is Script {
     using CurrencyLibrary for Currency;
 
     function run() external pure {

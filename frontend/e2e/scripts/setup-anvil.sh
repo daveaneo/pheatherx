@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup script for E2E tests with local Anvil and MockPheatherX
+# Setup script for E2E tests with local Anvil and MockFheatherX
 
 set -e
 
@@ -17,7 +17,7 @@ ANVIL_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f
 
 RPC_URL="http://127.0.0.1:8545"
 
-echo "=== PheatherX E2E Test Setup ==="
+echo "=== FheatherX E2E Test Setup ==="
 echo ""
 
 # Check if anvil is already running
@@ -49,16 +49,16 @@ echo "$DEPLOYED_OUTPUT"
 # Extract addresses from deployment output using grep
 TOKEN0_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep -oP "Token0 \(ALPHA\):\s+\K0x[a-fA-F0-9]+")
 TOKEN1_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep -oP "Token1 \(BETA\):\s+\K0x[a-fA-F0-9]+")
-PHEATHERX_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep -oP "MockPheatherX:\s+\K0x[a-fA-F0-9]+")
+FHEATHERX_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep -oP "MockFheatherX:\s+\K0x[a-fA-F0-9]+")
 ROUTER_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep -oP "MockSwapRouter:\s+\K0x[a-fA-F0-9]+")
 
-if [ -z "$TOKEN0_ADDRESS" ] || [ -z "$PHEATHERX_ADDRESS" ]; then
+if [ -z "$TOKEN0_ADDRESS" ] || [ -z "$FHEATHERX_ADDRESS" ]; then
     echo ""
     echo "Could not parse addresses from output. Trying alternative extraction..."
     # Alternative: look for NEXT_PUBLIC format
     TOKEN0_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep "NEXT_PUBLIC_TOKEN0_ADDRESS_LOCAL=" | cut -d'=' -f2 | tr -d ' ')
     TOKEN1_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep "NEXT_PUBLIC_TOKEN1_ADDRESS_LOCAL=" | cut -d'=' -f2 | tr -d ' ')
-    PHEATHERX_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep "NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL=" | cut -d'=' -f2 | tr -d ' ')
+    FHEATHERX_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep "NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL=" | cut -d'=' -f2 | tr -d ' ')
     ROUTER_ADDRESS=$(echo "$DEPLOYED_OUTPUT" | grep "NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL=" | cut -d'=' -f2 | tr -d ' ')
 fi
 
@@ -66,7 +66,7 @@ echo ""
 echo "Extracted addresses:"
 echo "  Token0: $TOKEN0_ADDRESS"
 echo "  Token1: $TOKEN1_ADDRESS"
-echo "  MockPheatherX: $PHEATHERX_ADDRESS"
+echo "  MockFheatherX: $FHEATHERX_ADDRESS"
 echo "  MockSwapRouter: $ROUTER_ADDRESS"
 
 # Fund the test wallet
@@ -117,7 +117,7 @@ echo "=== Setup Complete ==="
 echo ""
 echo "Contract Addresses for .env.local:"
 echo ""
-echo "NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL=$PHEATHERX_ADDRESS"
+echo "NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL=$FHEATHERX_ADDRESS"
 echo "NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL=$ROUTER_ADDRESS"
 echo "NEXT_PUBLIC_TOKEN0_ADDRESS_LOCAL=$TOKEN0_ADDRESS"
 echo "NEXT_PUBLIC_TOKEN1_ADDRESS_LOCAL=$TOKEN1_ADDRESS"

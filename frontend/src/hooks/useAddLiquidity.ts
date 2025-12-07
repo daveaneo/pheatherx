@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
@@ -166,7 +166,7 @@ export function useAddLiquidity(): UseAddLiquidityResult {
 
         const deposit0Hash = await writeContractAsync({
           address: hookAddress,
-          abi: PHEATHERX_ABI,
+          abi: FHEATHERX_ABI,
           functionName: 'deposit',
           args: [true, amount0],
         });
@@ -234,7 +234,7 @@ export function useAddLiquidity(): UseAddLiquidityResult {
 
         const deposit1Hash = await writeContractAsync({
           address: hookAddress,
-          abi: PHEATHERX_ABI,
+          abi: FHEATHERX_ABI,
           functionName: 'deposit',
           args: [false, amount1],
         });

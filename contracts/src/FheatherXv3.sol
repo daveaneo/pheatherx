@@ -10,8 +10,8 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {TickBitmap} from "./lib/TickBitmap.sol";
 
-/// @title PheatherX v3 - Private Bucketed Limit Order DEX
-/// @author PheatherX Team
+/// @title FheatherX v3 - Private Bucketed Limit Order DEX
+/// @author FheatherX Team
 /// @notice A decentralized exchange implementing encrypted limit orders using Fully Homomorphic Encryption (FHE)
 /// @dev This contract implements a bucketed limit order system where:
 ///      - Orders are grouped by price ticks (buckets) for O(1) gas per bucket during swaps
@@ -33,7 +33,7 @@ import {TickBitmap} from "./lib/TickBitmap.sol";
 ///      - Pausable for emergency stops
 ///      - 2-day timelock on fee changes
 ///      - Encrypted amounts prevent front-running and sandwich attacks
-contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
+contract FheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     using SafeERC20 for IERC20;
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -234,7 +234,7 @@ contract PheatherXv3 is ReentrancyGuard, Pausable, Ownable {
     //                            CONSTRUCTOR
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Initializes the PheatherX v3 contract with token pair and owner
+    /// @notice Initializes the FheatherX v3 contract with token pair and owner
     /// @dev Sets up encrypted constants and initializes the tick price table.
     ///      Token addresses must be in ascending order (token0 < token1).
     /// @param _token0 Address of the first token (must be lower than _token1)

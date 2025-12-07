@@ -5,8 +5,8 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 
 // Local Imports
-import {PheatherXv3} from "../src/PheatherXv3.sol";
-import {IPheatherXv3} from "../src/interface/IPheatherXv3.sol";
+import {FheatherXv3} from "../src/FheatherXv3.sol";
+import {IFheatherXv3} from "../src/interface/IFheatherXv3.sol";
 import {TickBitmap} from "../src/lib/TickBitmap.sol";
 import {FHERC20FaucetToken} from "../src/tokens/FHERC20FaucetToken.sol";
 
@@ -17,7 +17,7 @@ import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
 // OpenZeppelin Imports
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract PheatherXv3Test is Test, CoFheTest {
+contract FheatherXv3Test is Test, CoFheTest {
     // Test addresses
     address private owner = makeAddr("owner");
     address private user1 = makeAddr("user1");
@@ -25,7 +25,7 @@ contract PheatherXv3Test is Test, CoFheTest {
     address private feeCollector = makeAddr("feeCollector");
 
     // Contract instances
-    PheatherXv3 public pheatherX;
+    FheatherXv3 public fheatherX;
     FHERC20FaucetToken public token0;
     FHERC20FaucetToken public token1;
 
@@ -53,18 +53,18 @@ contract PheatherXv3Test is Test, CoFheTest {
         token0 = tempToken0;
         token1 = tempToken1;
 
-        // Deploy PheatherXv3
-        pheatherX = new PheatherXv3(
+        // Deploy FheatherXv3
+        fheatherX = new FheatherXv3(
             address(token0),
             address(token1),
             owner
         );
 
         // Initialize reserves for price estimation
-        pheatherX.initializeReserves(1000e18, 1000e18);
+        fheatherX.initializeReserves(1000e18, 1000e18);
 
         // Set fee collector
-        pheatherX.setFeeCollector(feeCollector);
+        fheatherX.setFeeCollector(feeCollector);
 
         vm.stopPrank();
 
@@ -73,7 +73,7 @@ contract PheatherXv3Test is Test, CoFheTest {
         vm.label(user1, "user1");
         vm.label(user2, "user2");
         vm.label(feeCollector, "feeCollector");
-        vm.label(address(pheatherX), "pheatherX");
+        vm.label(address(fheatherX), "fheatherX");
         vm.label(address(token0), "token0");
         vm.label(address(token1), "token1");
 
@@ -81,11 +81,11 @@ contract PheatherXv3Test is Test, CoFheTest {
         _mintAndApprove(user1, DEPOSIT_AMOUNT * 10);
         _mintAndApprove(user2, DEPOSIT_AMOUNT * 10);
 
-        // Initialize PheatherX contract with small token balances
+        // Initialize FheatherX contract with small token balances
         // This is needed because transferEncryptedDirect requires initialized balances
         vm.startPrank(owner);
-        token0.mintEncrypted(address(pheatherX), 1);
-        token1.mintEncrypted(address(pheatherX), 1);
+        token0.mintEncrypted(address(fheatherX), 1);
+        token1.mintEncrypted(address(fheatherX), 1);
         vm.stopPrank();
     }
 
@@ -96,10 +96,10 @@ contract PheatherXv3Test is Test, CoFheTest {
         vm.stopPrank();
 
         vm.startPrank(user);
-        // Approve PheatherX to spend tokens via encrypted allowance
+        // Approve FheatherX to spend tokens via encrypted allowance
         InEuint128 memory maxApproval = _createInEuint128(type(uint128).max, user);
-        token0.approveEncrypted(address(pheatherX), maxApproval);
-        token1.approveEncrypted(address(pheatherX), maxApproval);
+        token0.approveEncrypted(address(fheatherX), maxApproval);
+        token1.approveEncrypted(address(fheatherX), maxApproval);
         vm.stopPrank();
     }
 
@@ -112,38 +112,38 @@ contract PheatherXv3Test is Test, CoFheTest {
     // ═══════════════════════════════════════════════════════════════════════
 
     function testConstructor() public view {
-        assertEq(address(pheatherX.token0()), address(token0));
-        assertEq(address(pheatherX.token1()), address(token1));
-        assertEq(pheatherX.owner(), owner);
-        assertEq(pheatherX.maxBucketsPerSwap(), 5);
-        assertEq(pheatherX.protocolFeeBps(), 5);
+        assertEq(address(fheatherX.token0()), address(token0));
+        assertEq(address(fheatherX.token1()), address(token1));
+        assertEq(fheatherX.owner(), owner);
+        assertEq(fheatherX.maxBucketsPerSwap(), 5);
+        assertEq(fheatherX.protocolFeeBps(), 5);
     }
 
     function testConstructorRevertsZeroAddress() public {
         vm.expectRevert("Zero address");
-        new PheatherXv3(address(0), address(token1), owner);
+        new FheatherXv3(address(0), address(token1), owner);
     }
 
     function testConstructorRevertsWrongTokenOrder() public {
         vm.expectRevert("Token order");
-        new PheatherXv3(address(token1), address(token0), owner);
+        new FheatherXv3(address(token1), address(token0), owner);
     }
 
     function testTickPricesInitialized() public view {
         // Check tick 0 = 1e18
-        assertEq(pheatherX.tickPrices(0), 1e18);
+        assertEq(fheatherX.tickPrices(0), 1e18);
 
         // Check positive tick 60
-        assertEq(pheatherX.tickPrices(60), 1006017120990792834);
+        assertEq(fheatherX.tickPrices(60), 1006017120990792834);
 
         // Check negative tick -60
-        assertEq(pheatherX.tickPrices(-60), 994017962903844986);
+        assertEq(fheatherX.tickPrices(-60), 994017962903844986);
 
         // Check max tick 6000
-        assertGt(pheatherX.tickPrices(6000), 0);
+        assertGt(fheatherX.tickPrices(6000), 0);
 
         // Check min tick -6000
-        assertGt(pheatherX.tickPrices(-6000), 0);
+        assertGt(fheatherX.tickPrices(-6000), 0);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -157,10 +157,10 @@ contract PheatherXv3Test is Test, CoFheTest {
         uint256 deadline = block.timestamp + 1 hours;
         int24 maxDrift = 100;
 
-        euint128 shares = pheatherX.deposit(
+        euint128 shares = fheatherX.deposit(
             TEST_TICK,
             amount,
-            PheatherXv3.BucketSide.SELL,
+            FheatherXv3.BucketSide.SELL,
             deadline,
             maxDrift
         );
@@ -170,7 +170,7 @@ contract PheatherXv3Test is Test, CoFheTest {
 
         // Verify bucket state
         (euint128 totalShares, euint128 liquidity, , , bool initialized) =
-            pheatherX.getBucket(TEST_TICK, PheatherXv3.BucketSide.SELL);
+            fheatherX.getBucket(TEST_TICK, FheatherXv3.BucketSide.SELL);
 
         assertTrue(initialized);
         assertHashValue(totalShares, uint128(DEPOSIT_AMOUNT));
@@ -186,10 +186,10 @@ contract PheatherXv3Test is Test, CoFheTest {
         uint256 deadline = block.timestamp + 1 hours;
         int24 maxDrift = 100;
 
-        euint128 shares = pheatherX.deposit(
+        euint128 shares = fheatherX.deposit(
             TEST_TICK,
             amount,
-            PheatherXv3.BucketSide.BUY,
+            FheatherXv3.BucketSide.BUY,
             deadline,
             maxDrift
         );
@@ -207,7 +207,7 @@ contract PheatherXv3Test is Test, CoFheTest {
         int24 maxDrift = 100;
 
         vm.expectRevert("Expired");
-        pheatherX.deposit(TEST_TICK, amount, PheatherXv3.BucketSide.SELL, deadline, maxDrift);
+        fheatherX.deposit(TEST_TICK, amount, FheatherXv3.BucketSide.SELL, deadline, maxDrift);
 
         vm.stopPrank();
     }
@@ -220,7 +220,7 @@ contract PheatherXv3Test is Test, CoFheTest {
         int24 maxDrift = 100;
 
         vm.expectRevert("Invalid tick spacing");
-        pheatherX.deposit(61, amount, PheatherXv3.BucketSide.SELL, deadline, maxDrift); // 61 is not divisible by 60
+        fheatherX.deposit(61, amount, FheatherXv3.BucketSide.SELL, deadline, maxDrift); // 61 is not divisible by 60
 
         vm.stopPrank();
     }
@@ -233,7 +233,7 @@ contract PheatherXv3Test is Test, CoFheTest {
         int24 maxDrift = 10000; // High drift to not hit price moved
 
         vm.expectRevert("Tick out of range");
-        pheatherX.deposit(6060, amount, PheatherXv3.BucketSide.SELL, deadline, maxDrift); // Beyond MAX_TICK
+        fheatherX.deposit(6060, amount, FheatherXv3.BucketSide.SELL, deadline, maxDrift); // Beyond MAX_TICK
 
         vm.stopPrank();
     }
@@ -242,17 +242,17 @@ contract PheatherXv3Test is Test, CoFheTest {
         // User1 deposits
         vm.startPrank(user1);
         InEuint128 memory amount1 = _createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        pheatherX.deposit(TEST_TICK, amount1, PheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, amount1, FheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
         vm.stopPrank();
 
         // User2 deposits to same bucket
         vm.startPrank(user2);
         InEuint128 memory amount2 = _createInEuint128(uint128(DEPOSIT_AMOUNT), user2);
-        pheatherX.deposit(TEST_TICK, amount2, PheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, amount2, FheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
         vm.stopPrank();
 
         // Verify total shares
-        (euint128 totalShares, , , , ) = pheatherX.getBucket(TEST_TICK, PheatherXv3.BucketSide.SELL);
+        (euint128 totalShares, , , , ) = fheatherX.getBucket(TEST_TICK, FheatherXv3.BucketSide.SELL);
         assertHashValue(totalShares, uint128(DEPOSIT_AMOUNT * 2));
     }
 
@@ -263,22 +263,22 @@ contract PheatherXv3Test is Test, CoFheTest {
     function testSwapZeroForOne() public {
         // Initialize reserves for price estimation and to prevent underflow
         vm.startPrank(owner);
-        pheatherX.initializeReserves(DEPOSIT_AMOUNT * 10, DEPOSIT_AMOUNT * 10);
+        fheatherX.initializeReserves(DEPOSIT_AMOUNT * 10, DEPOSIT_AMOUNT * 10);
 
-        // Provide plaintext liquidity to pheatherX for swap outputs
+        // Provide plaintext liquidity to fheatherX for swap outputs
         // The BUY bucket (being filled when selling token0) outputs token1
         token1.mintEncrypted(owner, DEPOSIT_AMOUNT * 2);
         vm.stopPrank();
 
         vm.startPrank(owner);
         token1.unwrap(DEPOSIT_AMOUNT * 2);
-        IERC20(address(token1)).transfer(address(pheatherX), DEPOSIT_AMOUNT * 2);
+        IERC20(address(token1)).transfer(address(fheatherX), DEPOSIT_AMOUNT * 2);
         vm.stopPrank();
 
         // First deposit liquidity to BUY bucket (which will be filled by selling token0)
         vm.startPrank(user1);
         InEuint128 memory amount = _createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        pheatherX.deposit(TEST_TICK, amount, PheatherXv3.BucketSide.BUY, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, amount, FheatherXv3.BucketSide.BUY, block.timestamp + 1 hours, 100);
         vm.stopPrank();
 
         // Give swapper some plaintext tokens
@@ -289,9 +289,9 @@ contract PheatherXv3Test is Test, CoFheTest {
         // Unwrap tokens to plaintext for swap
         vm.startPrank(user2);
         token0.unwrap(SWAP_AMOUNT);
-        IERC20(address(token0)).approve(address(pheatherX), SWAP_AMOUNT);
+        IERC20(address(token0)).approve(address(fheatherX), SWAP_AMOUNT);
 
-        uint256 amountOut = pheatherX.swap(
+        uint256 amountOut = fheatherX.swap(
             true, // zeroForOne - selling token0
             SWAP_AMOUNT,
             0 // minAmountOut
@@ -306,7 +306,7 @@ contract PheatherXv3Test is Test, CoFheTest {
         vm.startPrank(user1);
 
         vm.expectRevert("Zero input");
-        pheatherX.swap(true, 0, 0);
+        fheatherX.swap(true, 0, 0);
 
         vm.stopPrank();
     }
@@ -314,21 +314,21 @@ contract PheatherXv3Test is Test, CoFheTest {
     function testSwapRevertsSlippageExceeded() public {
         // Initialize reserves for price estimation
         vm.startPrank(owner);
-        pheatherX.initializeReserves(DEPOSIT_AMOUNT * 10, DEPOSIT_AMOUNT * 10);
+        fheatherX.initializeReserves(DEPOSIT_AMOUNT * 10, DEPOSIT_AMOUNT * 10);
 
-        // Provide plaintext liquidity to pheatherX for swap outputs
+        // Provide plaintext liquidity to fheatherX for swap outputs
         token1.mintEncrypted(owner, DEPOSIT_AMOUNT * 2);
         vm.stopPrank();
 
         vm.startPrank(owner);
         token1.unwrap(DEPOSIT_AMOUNT * 2);
-        IERC20(address(token1)).transfer(address(pheatherX), DEPOSIT_AMOUNT * 2);
+        IERC20(address(token1)).transfer(address(fheatherX), DEPOSIT_AMOUNT * 2);
         vm.stopPrank();
 
         // First deposit liquidity
         vm.startPrank(user1);
         InEuint128 memory amount = _createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        pheatherX.deposit(TEST_TICK, amount, PheatherXv3.BucketSide.BUY, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, amount, FheatherXv3.BucketSide.BUY, block.timestamp + 1 hours, 100);
         vm.stopPrank();
 
         // Give swapper tokens
@@ -339,10 +339,10 @@ contract PheatherXv3Test is Test, CoFheTest {
         // Try to swap with unrealistic minAmountOut
         vm.startPrank(user2);
         token0.unwrap(SWAP_AMOUNT);
-        IERC20(address(token0)).approve(address(pheatherX), SWAP_AMOUNT);
+        IERC20(address(token0)).approve(address(fheatherX), SWAP_AMOUNT);
 
         vm.expectRevert("Slippage exceeded");
-        pheatherX.swap(true, SWAP_AMOUNT, type(uint256).max);
+        fheatherX.swap(true, SWAP_AMOUNT, type(uint256).max);
 
         vm.stopPrank();
     }
@@ -355,16 +355,16 @@ contract PheatherXv3Test is Test, CoFheTest {
         // First deposit
         vm.startPrank(user1);
         InEuint128 memory depositAmount = _createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        pheatherX.deposit(TEST_TICK, depositAmount, PheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, depositAmount, FheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
 
         // Withdraw half
         InEuint128 memory withdrawAmount = _createInEuint128(uint128(DEPOSIT_AMOUNT / 2), user1);
-        euint128 withdrawn = pheatherX.withdraw(TEST_TICK, PheatherXv3.BucketSide.SELL, withdrawAmount);
+        euint128 withdrawn = fheatherX.withdraw(TEST_TICK, FheatherXv3.BucketSide.SELL, withdrawAmount);
 
         assertHashValue(withdrawn, uint128(DEPOSIT_AMOUNT / 2));
 
         // Verify bucket liquidity decreased
-        (, euint128 liquidity, , , ) = pheatherX.getBucket(TEST_TICK, PheatherXv3.BucketSide.SELL);
+        (, euint128 liquidity, , , ) = fheatherX.getBucket(TEST_TICK, FheatherXv3.BucketSide.SELL);
         assertHashValue(liquidity, uint128(DEPOSIT_AMOUNT / 2));
 
         vm.stopPrank();
@@ -376,7 +376,7 @@ contract PheatherXv3Test is Test, CoFheTest {
         InEuint128 memory amount = _createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
 
         vm.expectRevert("Invalid tick");
-        pheatherX.withdraw(61, PheatherXv3.BucketSide.SELL, amount); // Invalid tick spacing
+        fheatherX.withdraw(61, FheatherXv3.BucketSide.SELL, amount); // Invalid tick spacing
 
         vm.stopPrank();
     }
@@ -389,10 +389,10 @@ contract PheatherXv3Test is Test, CoFheTest {
         // First deposit
         vm.startPrank(user1);
         InEuint128 memory depositAmount = _createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        pheatherX.deposit(TEST_TICK, depositAmount, PheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, depositAmount, FheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
 
         // Exit entire position
-        (euint128 unfilled, euint128 proceeds) = pheatherX.exit(TEST_TICK, PheatherXv3.BucketSide.SELL);
+        (euint128 unfilled, euint128 proceeds) = fheatherX.exit(TEST_TICK, FheatherXv3.BucketSide.SELL);
 
         // Should return all unfilled (no swaps happened)
         assertHashValue(unfilled, uint128(DEPOSIT_AMOUNT));
@@ -409,8 +409,8 @@ contract PheatherXv3Test is Test, CoFheTest {
     function testSetMaxBucketsPerSwap() public {
         vm.startPrank(owner);
 
-        pheatherX.setMaxBucketsPerSwap(10);
-        assertEq(pheatherX.maxBucketsPerSwap(), 10);
+        fheatherX.setMaxBucketsPerSwap(10);
+        assertEq(fheatherX.maxBucketsPerSwap(), 10);
 
         vm.stopPrank();
     }
@@ -419,10 +419,10 @@ contract PheatherXv3Test is Test, CoFheTest {
         vm.startPrank(owner);
 
         vm.expectRevert("Invalid range");
-        pheatherX.setMaxBucketsPerSwap(0);
+        fheatherX.setMaxBucketsPerSwap(0);
 
         vm.expectRevert("Invalid range");
-        pheatherX.setMaxBucketsPerSwap(21);
+        fheatherX.setMaxBucketsPerSwap(21);
 
         vm.stopPrank();
     }
@@ -431,20 +431,20 @@ contract PheatherXv3Test is Test, CoFheTest {
         vm.startPrank(owner);
 
         // Queue new fee
-        pheatherX.queueProtocolFee(10);
-        assertEq(pheatherX.pendingFeeBps(), 10);
-        assertGt(pheatherX.feeChangeTimestamp(), block.timestamp);
+        fheatherX.queueProtocolFee(10);
+        assertEq(fheatherX.pendingFeeBps(), 10);
+        assertGt(fheatherX.feeChangeTimestamp(), block.timestamp);
 
         // Try to apply before timelock
         vm.expectRevert("Too early");
-        pheatherX.applyProtocolFee();
+        fheatherX.applyProtocolFee();
 
         // Warp time past timelock
         vm.warp(block.timestamp + 2 days + 1);
 
         // Apply fee
-        pheatherX.applyProtocolFee();
-        assertEq(pheatherX.protocolFeeBps(), 10);
+        fheatherX.applyProtocolFee();
+        assertEq(fheatherX.protocolFeeBps(), 10);
 
         vm.stopPrank();
     }
@@ -453,7 +453,7 @@ contract PheatherXv3Test is Test, CoFheTest {
         vm.startPrank(owner);
 
         vm.expectRevert("Fee too high");
-        pheatherX.queueProtocolFee(101); // > 1%
+        fheatherX.queueProtocolFee(101); // > 1%
 
         vm.stopPrank();
     }
@@ -462,8 +462,8 @@ contract PheatherXv3Test is Test, CoFheTest {
         vm.startPrank(owner);
 
         address newCollector = makeAddr("newCollector");
-        pheatherX.setFeeCollector(newCollector);
-        assertEq(pheatherX.feeCollector(), newCollector);
+        fheatherX.setFeeCollector(newCollector);
+        assertEq(fheatherX.feeCollector(), newCollector);
 
         vm.stopPrank();
     }
@@ -471,7 +471,7 @@ contract PheatherXv3Test is Test, CoFheTest {
     function testPauseUnpause() public {
         vm.startPrank(owner);
 
-        pheatherX.pause();
+        fheatherX.pause();
 
         // Try to deposit while paused
         vm.stopPrank();
@@ -479,18 +479,18 @@ contract PheatherXv3Test is Test, CoFheTest {
 
         InEuint128 memory amount = _createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
         vm.expectRevert(); // EnforcedPause
-        pheatherX.deposit(TEST_TICK, amount, PheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, amount, FheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
 
         vm.stopPrank();
         vm.startPrank(owner);
 
-        pheatherX.unpause();
+        fheatherX.unpause();
 
         vm.stopPrank();
         vm.startPrank(user1);
 
         // Should work now
-        pheatherX.deposit(TEST_TICK, amount, PheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, amount, FheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
 
         vm.stopPrank();
     }
@@ -502,13 +502,13 @@ contract PheatherXv3Test is Test, CoFheTest {
         ticks[2] = -60;
 
         vm.startPrank(owner);
-        pheatherX.seedBuckets(ticks);
+        fheatherX.seedBuckets(ticks);
         vm.stopPrank();
 
         // Verify buckets are initialized
-        (, , , , bool init0Buy) = pheatherX.getBucket(0, PheatherXv3.BucketSide.BUY);
-        (, , , , bool init0Sell) = pheatherX.getBucket(0, PheatherXv3.BucketSide.SELL);
-        (, , , , bool init60Buy) = pheatherX.getBucket(60, PheatherXv3.BucketSide.BUY);
+        (, , , , bool init0Buy) = fheatherX.getBucket(0, FheatherXv3.BucketSide.BUY);
+        (, , , , bool init0Sell) = fheatherX.getBucket(0, FheatherXv3.BucketSide.SELL);
+        (, , , , bool init60Buy) = fheatherX.getBucket(60, FheatherXv3.BucketSide.BUY);
 
         assertTrue(init0Buy);
         assertTrue(init0Sell);
@@ -521,7 +521,7 @@ contract PheatherXv3Test is Test, CoFheTest {
 
         vm.startPrank(owner);
         vm.expectRevert("Invalid tick");
-        pheatherX.seedBuckets(ticks);
+        fheatherX.seedBuckets(ticks);
         vm.stopPrank();
     }
 
@@ -533,12 +533,12 @@ contract PheatherXv3Test is Test, CoFheTest {
         // Deposit first
         vm.startPrank(user1);
         InEuint128 memory amount = _createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        pheatherX.deposit(TEST_TICK, amount, PheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
+        fheatherX.deposit(TEST_TICK, amount, FheatherXv3.BucketSide.SELL, block.timestamp + 1 hours, 100);
         vm.stopPrank();
 
         // Get position
         (euint128 shares, euint128 proceedsSnapshot, euint128 filledSnapshot, euint128 realized) =
-            pheatherX.getPosition(user1, TEST_TICK, PheatherXv3.BucketSide.SELL);
+            fheatherX.getPosition(user1, TEST_TICK, FheatherXv3.BucketSide.SELL);
 
         assertHashValue(shares, uint128(DEPOSIT_AMOUNT));
     }
@@ -549,7 +549,7 @@ contract PheatherXv3Test is Test, CoFheTest {
         ticks[1] = 60;
         ticks[2] = -60;
 
-        uint256[] memory prices = pheatherX.getTickPrices(ticks);
+        uint256[] memory prices = fheatherX.getTickPrices(ticks);
 
         assertEq(prices[0], 1e18);
         assertEq(prices[1], 1006017120990792834);

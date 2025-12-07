@@ -1,4 +1,4 @@
-# PheatherX v3 Implementation Plan - Version 2
+# FheatherX v3 Implementation Plan - Version 2
 
 > **Status:** NOT IMPLEMENTED - Design Document
 > **Revision:** v2 - Addresses all issues from Audit v1
@@ -28,7 +28,7 @@
 
 ## Executive Summary
 
-PheatherX v3 replaces individual limit orders with **bucketed liquidity pools** using a **"proceeds per share" accumulator model**. This achieves O(1) gas scaling per bucket while correctly handling pro-rata distribution across multiple depositors.
+FheatherX v3 replaces individual limit orders with **bucketed liquidity pools** using a **"proceeds per share" accumulator model**. This achieves O(1) gas scaling per bucket while correctly handling pro-rata distribution across multiple depositors.
 
 ---
 
@@ -284,7 +284,7 @@ contract FHERC6909 {
 
 ---
 
-## PheatherX v3 Contract
+## FheatherX v3 Contract
 
 ### Constants and Modifiers
 
@@ -297,7 +297,7 @@ import {IFHERC20} from "./tokens/IFHERC20.sol";
 import {TickBitmap} from "./lib/TickBitmap.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract PheatherXv3 is ReentrancyGuard {
+contract FheatherXv3 is ReentrancyGuard {
     using TickBitmap for TickBitmap.State;
 
     // ============ Constants ============
@@ -897,9 +897,9 @@ function testReentrancyProtection() public {
 |------|-------------|
 | `src/tokens/IFHERC6909.sol` | Interface |
 | `src/tokens/FHERC6909.sol` | Implementation (updated) |
-| `src/PheatherXv3.sol` | Main contract |
-| `src/interface/IPheatherXv3.sol` | Interface |
+| `src/FheatherXv3.sol` | Main contract |
+| `src/interface/IFheatherXv3.sol` | Interface |
 | `src/lib/TickBitmap.sol` | Reuse from v2 |
 | `test/FHERC6909.t.sol` | Token tests |
-| `test/PheatherXv3.t.sol` | Hook tests |
-| `script/DeployPheatherXv3.s.sol` | Deployment |
+| `test/FheatherXv3.t.sol` | Hook tests |
+| `script/DeployFheatherXv3.s.sol` | Deployment |

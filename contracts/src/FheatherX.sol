@@ -31,15 +31,15 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 // Local Imports
 import {TickBitmap} from "./lib/TickBitmap.sol";
 import {DirectionLock} from "./lib/DirectionLock.sol";
-import {IPheatherX} from "./interface/IPheatherX.sol";
+import {IFheatherX} from "./interface/IFheatherX.sol";
 import {IFHERC20} from "./interface/IFHERC20.sol";
 
-/// @title PheatherX
+/// @title FheatherX
 /// @notice A private execution layer built on FHE within the Fhenix ecosystem
-/// @dev PheatherX replaces public swap paths with encrypted balance accounting,
+/// @dev FheatherX replaces public swap paths with encrypted balance accounting,
 ///      ensuring that trade direction, size, and intent remain hidden from all observers.
 ///      Named after the phoenix feather — a symbol of silent, precise movement.
-contract PheatherX is BaseHook, ReentrancyGuard, IPheatherX {
+contract FheatherX is BaseHook, ReentrancyGuard, IFheatherX {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;

@@ -6,7 +6,7 @@ import { useEthersSigner } from '@/hooks/useEthersSigner';
 import { useEthersProvider } from '@/hooks/useEthersProvider';
 import * as fheSingleton from '@/lib/fhe/singleton';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { fheSupport } from '@/lib/chains';
 import { MockFheClient } from '@/lib/fhe/mockClient';
 
@@ -23,7 +23,7 @@ function isAutoInitDisabled(): boolean {
     return true;
   }
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('pheatherx:disableAutoInit') === 'true';
+    return localStorage.getItem('fheatherx:disableAutoInit') === 'true';
   }
   return false;
 }
@@ -53,7 +53,7 @@ export function FheAutoInitProvider({ children, disabled = false }: FheAutoInitP
   const lastChainIdRef = useRef<number | null>(null);
   const lastAddressRef = useRef<string | null>(null);
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const networkFheSupport = fheSupport[chainId];
   const isMock = networkFheSupport !== 'full';
   const hasFheSupport = networkFheSupport === 'full' || networkFheSupport === 'mock';

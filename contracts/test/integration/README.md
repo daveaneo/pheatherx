@@ -1,4 +1,4 @@
-# PheatherX Integration Tests
+# FheatherX Integration Tests
 
 These tests run against **real FHE** using the CoFHE coprocessor on supported testnets.
 
@@ -57,7 +57,7 @@ npm run test:integration
 ## How It Works
 
 ### Unit Tests (Mock FHE)
-- Located in `test/PheatherX.t.sol`
+- Located in `test/FheatherX.t.sol`
 - Use `CoFheTest` which provides mock FHE operations
 - Fast, free, runs locally
 - Good for development and CI/CD
@@ -80,7 +80,7 @@ npm run test:integration
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  PheatherX Hook (deployed on testnet)                            │
+│  FheatherX Hook (deployed on testnet)                            │
 │  - Calls FHE.asEuint128(), FHE.add(), etc.                      │
 └─────────────────────────────────────────────────────────────────┘
                               │

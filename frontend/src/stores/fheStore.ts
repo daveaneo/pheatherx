@@ -107,7 +107,7 @@ export const useFheStore = create<FheState>()(
         }),
     })),
     {
-      name: 'pheatherx-fhe',
+      name: 'fheatherx-fhe',
       storage: createJSONStorage(() => sessionStorage),
       partialize: state => ({
         revealedBalances: state.revealedBalances,

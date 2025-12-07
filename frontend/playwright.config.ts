@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Playwright configuration for PheatherX E2E tests
+ * Playwright configuration for FheatherX E2E tests
  *
  * Tests run with NEXT_PUBLIC_TEST_MODE=true which:
  * - Uses a mock wallet connector instead of MetaMask/Rainbow

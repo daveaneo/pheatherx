@@ -3,9 +3,9 @@
 import { useReadContract } from 'wagmi';
 import { useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PHEATHERX_FACTORY_ABI } from '@/lib/contracts/factoryAbi';
-import { PHEATHERX_FACTORY_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_FACTORY_ABI } from '@/lib/contracts/factoryAbi';
+import { FHEATHERX_FACTORY_ADDRESSES } from '@/lib/contracts/addresses';
 import { useSelectedPool } from '@/stores/poolStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 
@@ -44,7 +44,7 @@ export function useProtocolStats(): ProtocolStats {
   const { hookAddress, token0, token1 } = useSelectedPool();
   const transactions = useTransactionStore(state => state.transactions);
 
-  const factoryAddress = PHEATHERX_FACTORY_ADDRESSES[chainId];
+  const factoryAddress = FHEATHERX_FACTORY_ADDRESSES[chainId];
 
   // Fetch reserves for TVL
   const {
@@ -54,7 +54,7 @@ export function useProtocolStats(): ProtocolStats {
     refetch: refetchReserves,
   } = useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getReserves',
     query: {
       enabled: !!hookAddress,
@@ -68,7 +68,7 @@ export function useProtocolStats(): ProtocolStats {
     isLoading: isLoadingPoolCount,
   } = useReadContract({
     address: factoryAddress,
-    abi: PHEATHERX_FACTORY_ABI,
+    abi: FHEATHERX_FACTORY_ABI,
     functionName: 'poolCount',
     query: {
       enabled: !!factoryAddress && factoryAddress !== '0x0000000000000000000000000000000000000000',
@@ -144,7 +144,7 @@ export function useFormattedReserves(): {
 
   const { data, isLoading } = useReadContract({
     address: hookAddress,
-    abi: PHEATHERX_ABI,
+    abi: FHEATHERX_ABI,
     functionName: 'getReserves',
     query: {
       enabled: !!hookAddress,

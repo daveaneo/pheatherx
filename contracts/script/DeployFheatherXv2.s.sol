@@ -11,13 +11,13 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
-import {PheatherXv2} from "../src/PheatherXv2.sol";
+import {FheatherXv2} from "../src/FheatherXv2.sol";
 import {FHERC20FaucetToken} from "../src/tokens/FHERC20FaucetToken.sol";
 
-/// @title DeployPheatherXv2
-/// @notice Deploy PheatherXv2 with FHERC20 tokens for private AMM
-/// @dev Run with: source .env && forge script script/DeployPheatherXv2.s.sol:DeployPheatherXv2 --rpc-url $ETH_SEPOLIA_RPC --broadcast
-contract DeployPheatherXv2 is Script {
+/// @title DeployFheatherXv2
+/// @notice Deploy FheatherXv2 with FHERC20 tokens for private AMM
+/// @dev Run with: source .env && forge script script/DeployFheatherXv2.s.sol:DeployFheatherXv2 --rpc-url $ETH_SEPOLIA_RPC --broadcast
+contract DeployFheatherXv2 is Script {
     using stdJson for string;
 
     // Ethereum Sepolia addresses (from Uniswap v4 docs)
@@ -34,14 +34,14 @@ contract DeployPheatherXv2 is Script {
     int24 constant TICK_SPACING = 60;
     uint24 constant SWAP_FEE_BPS = 30; // 0.3%
 
-    string constant DEPLOYMENTS_PATH = "deployments/pheatherx-v2.json";
+    string constant DEPLOYMENTS_PATH = "deployments/fheatherx-v2.json";
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
 
         console.log("===========================================");
-        console.log("  PheatherXv2 Deployment (Private AMM)");
+        console.log("  FheatherXv2 Deployment (Private AMM)");
         console.log("===========================================");
         console.log("");
         console.log("Chain ID:", block.chainid);
@@ -52,7 +52,7 @@ contract DeployPheatherXv2 is Script {
         // Check if we already have a deployment
         bool hasExistingDeployment = _checkExistingDeployment();
         if (hasExistingDeployment) {
-            console.log("Found existing deployment. Delete deployments/pheatherx-v2.json to redeploy.");
+            console.log("Found existing deployment. Delete deployments/fheatherx-v2.json to redeploy.");
             return;
         }
 
@@ -61,8 +61,8 @@ contract DeployPheatherXv2 is Script {
         // ============ Deploy FHERC20 Tokens ============
         console.log("--- Deploying FHERC20 Tokens ---");
 
-        FHERC20FaucetToken tokenA = new FHERC20FaucetToken("PheatherX Test USDC", "tUSDC", 6);
-        FHERC20FaucetToken tokenB = new FHERC20FaucetToken("PheatherX Test WETH", "tWETH", 18);
+        FHERC20FaucetToken tokenA = new FHERC20FaucetToken("FheatherX Test USDC", "tUSDC", 6);
+        FHERC20FaucetToken tokenB = new FHERC20FaucetToken("FheatherX Test WETH", "tWETH", 18);
 
         // Sort tokens (Uniswap requirement: token0 < token1)
         (address token0Addr, address token1Addr) = address(tokenA) < address(tokenB)
@@ -74,7 +74,7 @@ contract DeployPheatherXv2 is Script {
 
         // ============ Deploy Hook with CREATE2 ============
         console.log("");
-        console.log("--- Deploying PheatherXv2 Hook (CREATE2) ---");
+        console.log("--- Deploying FheatherXv2 Hook (CREATE2) ---");
 
         // Calculate required hook flags
         uint160 flags = uint160(
@@ -88,7 +88,7 @@ contract DeployPheatherXv2 is Script {
         console.log("Required flags:", flags);
 
         // Mine a salt that produces a valid hook address
-        bytes memory creationCode = type(PheatherXv2).creationCode;
+        bytes memory creationCode = type(FheatherXv2).creationCode;
         bytes memory constructorArgs = abi.encode(
             IPoolManager(POOL_MANAGER),
             token0Addr,
@@ -114,7 +114,7 @@ contract DeployPheatherXv2 is Script {
         require(success, "CREATE2 deployment failed");
 
         // Verify deployment
-        PheatherXv2 hook = PheatherXv2(payable(hookAddress));
+        FheatherXv2 hook = FheatherXv2(payable(hookAddress));
         require(address(hook).code.length > 0, "Hook not deployed");
 
         console.log("Hook deployed at:", hookAddress);
@@ -142,12 +142,12 @@ contract DeployPheatherXv2 is Script {
         // ============ Print Summary ============
         console.log("");
         console.log("===========================================");
-        console.log("  DEPLOYMENT COMPLETE - PheatherXv2");
+        console.log("  DEPLOYMENT COMPLETE - FheatherXv2");
         console.log("===========================================");
         console.log("");
         console.log("FHERC20 Token0:", token0Addr);
         console.log("FHERC20 Token1:", token1Addr);
-        console.log("PheatherXv2 Hook:", hookAddress);
+        console.log("FheatherXv2 Hook:", hookAddress);
         console.log("Pool Manager:", POOL_MANAGER);
         console.log("");
         console.log("Deployment saved to:", DEPLOYMENTS_PATH);

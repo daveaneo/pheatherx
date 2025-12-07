@@ -2,9 +2,9 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient, useWalletClient } from 'wagmi';
-import { PHEATHERX_ABI } from '@/lib/contracts/abi';
+import { FHEATHERX_ABI } from '@/lib/contracts/abi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
-import { PHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
 import { isNativeEth } from '@/lib/tokens';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
@@ -43,7 +43,7 @@ export function useDeposit(): UseDepositResult {
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const token0Address = TOKEN_ADDRESSES[chainId]?.token0;
   const token1Address = TOKEN_ADDRESSES[chainId]?.token1;
 
@@ -227,7 +227,7 @@ export function useDeposit(): UseDepositResult {
       // Native ETH support would require a different contract function (depositETH)
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: PHEATHERX_ABI,
+        abi: FHEATHERX_ABI,
         functionName: 'deposit' as const,
         args: [isToken0, amount] as const,
       });

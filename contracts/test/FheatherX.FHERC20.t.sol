@@ -16,8 +16,8 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 
 // Local Imports
-import {PheatherX} from "../src/PheatherX.sol";
-import {IPheatherX} from "../src/interface/IPheatherX.sol";
+import {FheatherX} from "../src/FheatherX.sol";
+import {IFheatherX} from "../src/interface/IFheatherX.sol";
 import {FHERC20FaucetToken} from "../src/tokens/FHERC20FaucetToken.sol";
 
 // Test Utils
@@ -28,9 +28,9 @@ import {Fixtures} from "./utils/Fixtures.sol";
 import {FHE, euint128, InEuint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
 
-/// @title PheatherX FHERC20 Integration Tests
+/// @title FheatherX FHERC20 Integration Tests
 /// @notice Tests for depositEncrypted and withdrawEncrypted with FHERC20 tokens
-contract PheatherXFHERC20Test is Test, Fixtures, CoFheTest {
+contract FheatherXFHERC20Test is Test, Fixtures, CoFheTest {
     using EasyPosm for IPositionManager;
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -39,7 +39,7 @@ contract PheatherXFHERC20Test is Test, Fixtures, CoFheTest {
     address private user = makeAddr("user");
     address private user2 = makeAddr("user2");
 
-    PheatherX hook;
+    FheatherX hook;
     PoolId poolId;
 
     FHERC20FaucetToken fheToken0;
@@ -108,8 +108,8 @@ contract PheatherXFHERC20Test is Test, Fixtures, CoFheTest {
             address(fheToken1),
             30 // 0.3% swap fee
         );
-        deployCodeTo("PheatherX.sol:PheatherX", constructorArgs, flags);
-        hook = PheatherX(payable(flags));
+        deployCodeTo("FheatherX.sol:FheatherX", constructorArgs, flags);
+        hook = FheatherX(payable(flags));
 
         vm.label(address(hook), "hook");
 

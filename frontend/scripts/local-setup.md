@@ -1,6 +1,6 @@
 # Local Development Setup
 
-This guide walks you through setting up PheatherX for local testing with Anvil.
+This guide walks you through setting up FheatherX for local testing with Anvil.
 
 ## Prerequisites
 
@@ -20,10 +20,10 @@ This will start a local Ethereum node at `http://127.0.0.1:8545`.
 
 ## Step 2: Deploy Contracts
 
-Navigate to the PheatherX contracts directory and deploy:
+Navigate to the FheatherX contracts directory and deploy:
 
 ```bash
-cd /home/david/PycharmProjects/atrium/learning-hooks-with-atrium/hooks/pheatherx
+cd /home/david/PycharmProjects/atrium/learning-hooks-with-atrium/hooks/fheatherx
 
 # Deploy contracts
 forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
@@ -36,7 +36,7 @@ Note the deployed contract addresses and update `.env.local`.
 After deployment, update the addresses in `.env.local`:
 
 ```env
-NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL=<deployed_pheatherx_address>
+NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL=<deployed_fheatherx_address>
 NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL=<deployed_router_address>
 NEXT_PUBLIC_TOKEN0_ADDRESS_LOCAL=<deployed_token0_address>
 NEXT_PUBLIC_TOKEN1_ADDRESS_LOCAL=<deployed_token1_address>
@@ -58,7 +58,7 @@ NEXT_PUBLIC_TOKEN1_ADDRESS_LOCAL=<deployed_token1_address>
 ## Step 5: Start the Frontend
 
 ```bash
-cd /home/david/PycharmProjects/atrium/pheatherx/frontend
+cd /home/david/PycharmProjects/atrium/fheatherx/frontend
 npm run dev
 ```
 

@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Script.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {MockPheatherX} from "./MockPheatherX.sol";
+import {MockFheatherX} from "./MockFheatherX.sol";
 
 /// @notice Simple mock ERC20 token for local testing
 contract MockToken is ERC20 {
@@ -57,7 +57,7 @@ contract DeployLocalTest is Script {
 
     function run() external {
         console.log("===========================================");
-        console.log("  PheatherX Local Test Deployment");
+        console.log("  FheatherX Local Test Deployment");
         console.log("===========================================");
         console.log("");
         console.log("Deployer/Test Account:", TEST_ACCOUNT);
@@ -87,12 +87,12 @@ contract DeployLocalTest is Script {
         token1.mint(TEST_ACCOUNT, INITIAL_MINT);
         console.log("Minted", INITIAL_MINT / 1e18, "of each token to test account");
 
-        // ============ Deploy Mock PheatherX ============
+        // ============ Deploy Mock FheatherX ============
         console.log("");
-        console.log("--- Deploying MockPheatherX ---");
+        console.log("--- Deploying MockFheatherX ---");
 
-        MockPheatherX pheatherX = new MockPheatherX(address(token0), address(token1));
-        console.log("MockPheatherX:", address(pheatherX));
+        MockFheatherX fheatherX = new MockFheatherX(address(token0), address(token1));
+        console.log("MockFheatherX:", address(fheatherX));
 
         // ============ Deploy Mock Router ============
         console.log("");
@@ -105,13 +105,13 @@ contract DeployLocalTest is Script {
         console.log("");
         console.log("--- Seeding Initial Liquidity ---");
 
-        // Approve tokens for PheatherX
-        token0.approve(address(pheatherX), type(uint256).max);
-        token1.approve(address(pheatherX), type(uint256).max);
+        // Approve tokens for FheatherX
+        token0.approve(address(fheatherX), type(uint256).max);
+        token1.approve(address(fheatherX), type(uint256).max);
 
         // Deposit initial liquidity
-        pheatherX.deposit(true, LIQUIDITY_AMOUNT);  // Deposit token0
-        pheatherX.deposit(false, LIQUIDITY_AMOUNT); // Deposit token1
+        fheatherX.deposit(true, LIQUIDITY_AMOUNT);  // Deposit token0
+        fheatherX.deposit(false, LIQUIDITY_AMOUNT); // Deposit token1
 
         console.log("Deposited", LIQUIDITY_AMOUNT / 1e18, "of each token as initial liquidity");
 
@@ -126,7 +126,7 @@ contract DeployLocalTest is Script {
         console.log("Contract Addresses:");
         console.log("  Token0 (ALPHA):    ", address(token0));
         console.log("  Token1 (BETA):     ", address(token1));
-        console.log("  MockPheatherX:     ", address(pheatherX));
+        console.log("  MockFheatherX:     ", address(fheatherX));
         console.log("  MockSwapRouter:    ", address(router));
         console.log("");
         console.log("Test Account:", TEST_ACCOUNT);
@@ -136,7 +136,7 @@ contract DeployLocalTest is Script {
         console.log("");
         console.log("--- Frontend .env.local Values ---");
         console.log("");
-        console.log("NEXT_PUBLIC_PHEATHERX_ADDRESS_LOCAL=", address(pheatherX));
+        console.log("NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL=", address(fheatherX));
         console.log("NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL=", address(router));
         console.log("NEXT_PUBLIC_TOKEN0_ADDRESS_LOCAL=", address(token0));
         console.log("NEXT_PUBLIC_TOKEN1_ADDRESS_LOCAL=", address(token1));

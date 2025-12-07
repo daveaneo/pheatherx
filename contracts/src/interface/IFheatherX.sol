@@ -3,9 +3,9 @@ pragma solidity ^0.8.24;
 
 import {euint128, ebool, InEuint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
-/// @title IPheatherX
-/// @notice Interface for PheatherX - a private execution layer built on FHE
-interface IPheatherX {
+/// @title IFheatherX
+/// @notice Interface for FheatherX - a private execution layer built on FHE
+interface IFheatherX {
     // ============ Events ============
 
     event Deposit(address indexed user, address indexed token, uint256 amount);

@@ -7,7 +7,7 @@ import { useEthersProvider } from './useEthersProvider';
 import { MockFheClient } from '@/lib/fhe/mockClient';
 import * as fheSingleton from '@/lib/fhe/singleton';
 import { useFheStore } from '@/stores/fheStore';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { fheSupport } from '@/lib/chains';
 
 export function useFheSession() {
@@ -37,7 +37,7 @@ export function useFheSession() {
     reset,
   } = useFheStore();
 
-  const hookAddress = PHEATHERX_ADDRESSES[chainId];
+  const hookAddress = FHEATHERX_ADDRESSES[chainId];
   const networkFheSupport = fheSupport[chainId];
   const isMock = networkFheSupport !== 'full';
 

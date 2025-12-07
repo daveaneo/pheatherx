@@ -3,8 +3,8 @@
 import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 import { parseAbi } from 'viem';
-import { PHEATHERX_V3_ABI } from '@/lib/contracts/pheatherXv3Abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_V3_ABI } from '@/lib/contracts/fheatherXv3Abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useBucketStore } from '@/stores/bucketStore';
 
 // ============================================================================
@@ -88,7 +88,7 @@ export function useV3Swap(): UseV3SwapReturn {
           throw new Error('Amount must be greater than 0');
         }
 
-        const contractAddress = PHEATHERX_ADDRESSES[chainId];
+        const contractAddress = FHEATHERX_ADDRESSES[chainId];
         if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
           throw new Error(`FheatherX contract not deployed on chain ${chainId}`);
         }
@@ -97,12 +97,12 @@ export function useV3Swap(): UseV3SwapReturn {
         const [token0, token1] = await Promise.all([
           publicClient.readContract({
             address: contractAddress,
-            abi: PHEATHERX_V3_ABI,
+            abi: FHEATHERX_V3_ABI,
             functionName: 'token0',
           }) as Promise<`0x${string}`>,
           publicClient.readContract({
             address: contractAddress,
-            abi: PHEATHERX_V3_ABI,
+            abi: FHEATHERX_V3_ABI,
             functionName: 'token1',
           }) as Promise<`0x${string}`>,
         ]);
@@ -139,7 +139,7 @@ export function useV3Swap(): UseV3SwapReturn {
 
         const swapHash = await walletClient.writeContract({
           address: contractAddress,
-          abi: PHEATHERX_V3_ABI,
+          abi: FHEATHERX_V3_ABI,
           functionName: 'swap',
           args: [zeroForOne, amountIn, minAmountOut],
         });
@@ -168,12 +168,12 @@ export function useV3Swap(): UseV3SwapReturn {
         const [newReserve0, newReserve1] = await Promise.all([
           publicClient.readContract({
             address: contractAddress,
-            abi: PHEATHERX_V3_ABI,
+            abi: FHEATHERX_V3_ABI,
             functionName: 'reserve0',
           }) as Promise<bigint>,
           publicClient.readContract({
             address: contractAddress,
-            abi: PHEATHERX_V3_ABI,
+            abi: FHEATHERX_V3_ABI,
             functionName: 'reserve1',
           }) as Promise<bigint>,
         ]);

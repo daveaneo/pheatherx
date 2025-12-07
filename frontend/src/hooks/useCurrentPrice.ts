@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { usePublicClient, useAccount } from 'wagmi';
-import { PHEATHERX_V3_ABI } from '@/lib/contracts/pheatherXv3Abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_V3_ABI } from '@/lib/contracts/fheatherXv3Abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useBucketStore } from '@/stores/bucketStore';
 import { tickToPrice, formatPrice, PRECISION, TICK_SPACING } from '@/lib/constants';
 import type { CurrentPrice } from '@/types/bucket';
@@ -70,7 +70,7 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
   const refresh = useCallback(async () => {
     if (!chainId || !publicClient) return;
 
-    const contractAddress = PHEATHERX_ADDRESSES[chainId];
+    const contractAddress = FHEATHERX_ADDRESSES[chainId];
     if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
       return;
     }
@@ -83,12 +83,12 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
       const [reserve0, reserve1] = await Promise.all([
         publicClient.readContract({
           address: contractAddress,
-          abi: PHEATHERX_V3_ABI,
+          abi: FHEATHERX_V3_ABI,
           functionName: 'reserve0',
         }) as Promise<bigint>,
         publicClient.readContract({
           address: contractAddress,
-          abi: PHEATHERX_V3_ABI,
+          abi: FHEATHERX_V3_ABI,
           functionName: 'reserve1',
         }) as Promise<bigint>,
       ]);
@@ -155,7 +155,7 @@ export function useTickPrices(ticks: number[]): { prices: Record<number, bigint>
   useEffect(() => {
     if (!chainId || !publicClient || ticks.length === 0) return;
 
-    const contractAddress = PHEATHERX_ADDRESSES[chainId];
+    const contractAddress = FHEATHERX_ADDRESSES[chainId];
     if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
       // Use local calculation as fallback
       const localPrices: Record<number, bigint> = {};
@@ -171,7 +171,7 @@ export function useTickPrices(ticks: number[]): { prices: Record<number, bigint>
     publicClient
       .readContract({
         address: contractAddress,
-        abi: PHEATHERX_V3_ABI,
+        abi: FHEATHERX_V3_ABI,
         functionName: 'getTickPrices',
         args: [ticks],
       })

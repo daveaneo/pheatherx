@@ -1,4 +1,4 @@
-export const PHEATHERX_ABI = [
+export const FHEATHERX_ABI = [
   // Events
   {
     type: 'event',

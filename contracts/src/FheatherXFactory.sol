@@ -3,10 +3,10 @@ pragma solidity ^0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-/// @title PheatherXFactory
-/// @notice Factory contract for managing and discovering PheatherX hook pools
-/// @dev This factory registers and tracks PheatherX hook deployments for frontend discovery
-contract PheatherXFactory is Ownable {
+/// @title FheatherXFactory
+/// @notice Factory contract for managing and discovering FheatherX hook pools
+/// @dev This factory registers and tracks FheatherX hook deployments for frontend discovery
+contract FheatherXFactory is Ownable {
     // ============ Structs ============
 
     struct PoolInfo {
@@ -63,10 +63,10 @@ contract PheatherXFactory is Ownable {
 
     // ============ Admin Functions ============
 
-    /// @notice Register an existing PheatherX hook as a pool
+    /// @notice Register an existing FheatherX hook as a pool
     /// @param tokenA First token address
     /// @param tokenB Second token address
-    /// @param hook The deployed PheatherX hook address
+    /// @param hook The deployed FheatherX hook address
     /// @return poolIndex The index of the registered pool
     function registerPool(
         address tokenA,
@@ -221,8 +221,8 @@ contract PheatherXFactory is Ownable {
 
     // ============ Stub for Interface Compatibility ============
 
-    /// @notice Create a new pool (stub - actual PheatherX deployment requires CREATE2 mining)
-    /// @dev This function reverts because PheatherX hooks require special CREATE2 deployment
+    /// @notice Create a new pool (stub - actual FheatherX deployment requires CREATE2 mining)
+    /// @dev This function reverts because FheatherX hooks require special CREATE2 deployment
     ///      with hook address mining. Use registerPool() to register pre-deployed hooks.
     /// @param tokenA First token address
     /// @param tokenB Second token address
@@ -230,7 +230,7 @@ contract PheatherXFactory is Ownable {
     function createPool(address tokenA, address tokenB) external view returns (address hook) {
         // Suppress unused variable warnings
         tokenA; tokenB;
-        revert("Use registerPool() - PheatherX hooks require CREATE2 mining");
+        revert("Use registerPool() - FheatherX hooks require CREATE2 mining");
     }
 
     // ============ Internal Functions ============

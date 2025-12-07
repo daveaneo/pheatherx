@@ -1,4 +1,4 @@
-# PheatherX v3 Implementation Plan - Version 3
+# FheatherX v3 Implementation Plan - Version 3
 
 > **Status:** NOT IMPLEMENTED - Design Document
 > **Revision:** v3 - Addresses all issues from Audit v2
@@ -760,11 +760,11 @@ event BucketFilled(
 |------|-------------|
 | `src/tokens/IFHERC6909.sol` | Interface |
 | `src/tokens/FHERC6909.sol` | Implementation |
-| `src/PheatherXv3.sol` | Main contract |
-| `src/interface/IPheatherXv3.sol` | Interface |
+| `src/FheatherXv3.sol` | Main contract |
+| `src/interface/IFheatherXv3.sol` | Interface |
 | `src/lib/TickBitmap.sol` | Reuse from v2 |
 | `src/lib/TickPrices.sol` | Price lookup library |
 | `test/FHERC6909.t.sol` | Token tests |
-| `test/PheatherXv3.t.sol` | Hook tests |
-| `test/PheatherXv3Invariants.t.sol` | Invariant tests |
-| `script/DeployPheatherXv3.s.sol` | Deployment |
+| `test/FheatherXv3.t.sol` | Hook tests |
+| `test/FheatherXv3Invariants.t.sol` | Invariant tests |
+| `script/DeployFheatherXv3.s.sol` | Deployment |

@@ -11,7 +11,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
-import {PheatherX} from "../src/PheatherX.sol";
+import {FheatherX} from "../src/FheatherX.sol";
 
 /// @notice Simple mintable ERC20 token for testing
 contract TestToken is ERC20 {
@@ -31,7 +31,7 @@ contract TestToken is ERC20 {
 }
 
 /// @title DeployEthSepolia
-/// @notice Deploy PheatherX and test tokens on Ethereum Sepolia for real FHE integration testing
+/// @notice Deploy FheatherX and test tokens on Ethereum Sepolia for real FHE integration testing
 /// @dev Run with: source .env && forge script script/DeployEthSepolia.s.sol:DeployEthSepolia --rpc-url $ETH_SEPOLIA_RPC --broadcast
 contract DeployEthSepolia is Script {
     using stdJson for string;
@@ -61,7 +61,7 @@ contract DeployEthSepolia is Script {
         address deployer = vm.addr(deployerPrivateKey);
 
         console.log("===========================================");
-        console.log("  PheatherX Ethereum Sepolia Deployment");
+        console.log("  FheatherX Ethereum Sepolia Deployment");
         console.log("===========================================");
         console.log("");
         console.log("Chain ID:", block.chainid);
@@ -82,8 +82,8 @@ contract DeployEthSepolia is Script {
         // ============ Deploy Tokens ============
         console.log("--- Deploying Tokens ---");
 
-        TestToken tokenA = new TestToken("PheatherX Test USDC", "tUSDC", 6);
-        TestToken tokenB = new TestToken("PheatherX Test WETH", "tWETH", 18);
+        TestToken tokenA = new TestToken("FheatherX Test USDC", "tUSDC", 6);
+        TestToken tokenB = new TestToken("FheatherX Test WETH", "tWETH", 18);
 
         // Sort tokens (Uniswap requirement: token0 < token1)
         (address token0Addr, address token1Addr) = address(tokenA) < address(tokenB)
@@ -100,7 +100,7 @@ contract DeployEthSepolia is Script {
 
         // ============ Deploy Hook with CREATE2 ============
         console.log("");
-        console.log("--- Deploying PheatherX Hook (CREATE2) ---");
+        console.log("--- Deploying FheatherX Hook (CREATE2) ---");
 
         // Calculate required hook flags
         uint160 flags = uint160(
@@ -114,7 +114,7 @@ contract DeployEthSepolia is Script {
         console.log("Required flags:", flags);
 
         // Mine a salt that produces a valid hook address
-        bytes memory creationCode = type(PheatherX).creationCode;
+        bytes memory creationCode = type(FheatherX).creationCode;
         bytes memory constructorArgs = abi.encode(
             IPoolManager(POOL_MANAGER),
             token0Addr,
@@ -140,7 +140,7 @@ contract DeployEthSepolia is Script {
         require(success, "CREATE2 deployment failed");
 
         // Verify deployment
-        PheatherX hook = PheatherX(payable(hookAddress));
+        FheatherX hook = FheatherX(payable(hookAddress));
         require(address(hook).code.length > 0, "Hook not deployed");
 
         console.log("Hook deployed at:", hookAddress);

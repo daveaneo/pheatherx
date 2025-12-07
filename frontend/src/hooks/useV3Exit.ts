@@ -3,8 +3,8 @@
 import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 import { BucketSide } from '@/types/bucket';
-import { PHEATHERX_V3_ABI } from '@/lib/contracts/pheatherXv3Abi';
-import { PHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_V3_ABI } from '@/lib/contracts/fheatherXv3Abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useBucketStore } from '@/stores/bucketStore';
 import { isValidTick } from '@/lib/constants';
 
@@ -80,7 +80,7 @@ export function useV3Exit(): UseV3ExitReturn {
           throw new Error(`Invalid tick: ${tick}. Must be multiple of TICK_SPACING within range.`);
         }
 
-        const contractAddress = PHEATHERX_ADDRESSES[chainId];
+        const contractAddress = FHEATHERX_ADDRESSES[chainId];
         if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
           throw new Error(`FheatherX contract not deployed on chain ${chainId}`);
         }
@@ -91,7 +91,7 @@ export function useV3Exit(): UseV3ExitReturn {
 
         const exitHash = await walletClient.writeContract({
           address: contractAddress,
-          abi: PHEATHERX_V3_ABI,
+          abi: FHEATHERX_V3_ABI,
           functionName: 'exit',
           args: [tick, side],
         });
