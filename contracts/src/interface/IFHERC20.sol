@@ -46,4 +46,9 @@ interface IFHERC20 {
     /// @param account The address to check
     /// @return True if the account has an encrypted balance
     function hasEncryptedBalance(address account) external view returns (bool);
+
+    /// @notice Approve spender to transfer encrypted tokens
+    /// @param spender The address to approve
+    /// @param amount The encrypted amount to approve
+    function approveEncrypted(address spender, InEuint128 calldata amount) external;
 }
