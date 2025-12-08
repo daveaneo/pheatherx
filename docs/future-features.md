@@ -281,8 +281,162 @@ Bridge encrypted balances across chains while maintaining privacy:
 
 ---
 
+## 3. FHE Division Optimization
+
+### Problem
+
+`FHE.div` is extremely expensive in the FHE coprocessor, costing approximately **100-200x more** than other FHE operations like `mul`, `add`, or `shr`. FheatherXv5.sol currently contains **11 FHE.div calls**, primarily in pro-rata calculations for LP shares and order claims.
+
+Example from `_computeProRataAmount`:
+```solidity
+// Current: expensive division
+result = FHE.div(FHE.mul(userShare, totalReserves), totalSupply);
+// Cost: 1 mul (~1 unit) + 1 div (~200 units) = ~201 units
+```
+
+### Potential Workarounds
+
+#### 3.1 Newton-Raphson Approximation
+
+Replace division with iterative multiplication using Newton-Raphson to compute the reciprocal:
+
+```solidity
+/// @notice Compute (userShare * totalReserves) / totalSupply without FHE.div
+/// @param hintTotalSupply Plaintext hint from frontend (untrusted)
+function computeProRataApprox(
+    euint128 userShare,
+    euint128 totalReserves,
+    euint128 totalSupply,
+    uint128 hintTotalSupply
+) internal returns (euint128 result) {
+    uint128 SHIFT = 64;
+    uint128 SCALED_ONE = uint128(1) << 64;  // Q64.64 format: "1.0"
+    uint128 SCALED_TWO = uint128(2) << 64;  // Q64.64 format: "2.0"
+
+    // Initial guess: 2^64 / hint (plaintext computation)
+    uint128 safeHint = hintTotalSupply == 0 ? 1 : hintTotalSupply;
+    uint128 initialGuess = SCALED_ONE / safeHint;
+    euint128 inverse = FHE.asEuint128(initialGuess);
+
+    euint128 encScaledTwo = FHE.asEuint128(SCALED_TWO);
+    euint128 encShift = FHE.asEuint128(SHIFT);
+
+    // Newton-Raphson: x_new = x * (2 - supply * x)
+    // 2 iterations typically sufficient
+    for (uint i = 0; i < 2; i++) {
+        euint128 product = FHE.mul(totalSupply, inverse);
+        euint128 correction = FHE.sub(encScaledTwo, product);
+        inverse = FHE.mul(inverse, correction);
+        inverse = FHE.shr(inverse, encShift);
+    }
+
+    // Final: result = userShare * reserves * inverse >> 64
+    result = FHE.mul(userShare, totalReserves);
+    result = FHE.mul(result, inverse);
+    result = FHE.shr(result, encShift);
+}
+```
+
+**Cost Analysis:**
+| Approach | FHE Operations | Estimated Cost (if div=200, others=1) |
+|----------|----------------|---------------------------------------|
+| Direct `FHE.div` | 1 mul + 1 div | ~201 units |
+| Newton-Raphson | ~13 mul/shr/sub | ~13 units |
+| **Savings** | | **~94%** |
+
+**Limitations:**
+- **Q64.64 Overflow**: The fixed-point format uses 2^64 as the scaling factor. For 18-decimal tokens (e.g., 500e18), the initial guess `2^64 / 500e18` truncates to 0 because 2^64 ≈ 18.4e18 < 500e18.
+- **Requires Normalization**: To handle large values, tokens must be normalized (divided by a known scale) before computation, then denormalized after.
+- **Hint Accuracy**: Newton-Raphson converges only if the initial guess is reasonably close to the true value. Bad hints can cause divergence.
+
+**Status**: Gas tests created in `test/gas/FHEDivApproxGas.t.sol`. Works for small values. Needs normalization strategy for 18-decimal tokens.
+
+#### 3.2 Off-Chain Encrypted Computation with On-Chain Verification
+
+Compute the division off-chain, submit the encrypted result, and verify on-chain via multiplication:
+
+```solidity
+/// @notice Verify that encryptedResult ≈ numerator / denominator
+/// @dev Uses multiplication check: result * denominator ≈ numerator
+/// @param encryptedResult Encrypted result submitted by frontend (untrusted)
+/// @param numerator Encrypted numerator (on-chain value)
+/// @param denominator Encrypted denominator (on-chain value)
+/// @return True if the result is within acceptable tolerance
+function verifyDivisionResult(
+    euint128 encryptedResult,
+    euint128 numerator,
+    euint128 denominator
+) internal returns (ebool) {
+    // If r = a/b, then r*b = a (with possible rounding error)
+    euint128 reconstructed = FHE.mul(encryptedResult, denominator);
+
+    // Check: reconstructed ≈ numerator
+    // Need FHE comparison or tolerance check
+    // For exact match: return FHE.eq(reconstructed, numerator);
+    // For tolerance: check |reconstructed - numerator| < epsilon
+
+    return FHE.eq(reconstructed, numerator);
+}
+```
+
+**Challenges:**
+- **Zero Trust**: The off-chain value cannot be trusted. Must verify on-chain.
+- **Rounding**: Integer division has rounding; `r*b` may not exactly equal `a`.
+- **Tolerance Checking**: FHE lacks efficient absolute value and comparison operations.
+- **State Changes**: Pool state may change between off-chain computation and on-chain verification (front-running, other transactions).
+
+**Potential Flow:**
+1. Frontend reads encrypted numerator/denominator from chain
+2. Frontend decrypts locally (with user's session key), computes division
+3. Frontend encrypts result, submits to contract
+4. Contract verifies via `FHE.mul` and accepts if valid
+
+**Status**: Theoretical. Needs more design work to handle rounding tolerance and state changes.
+
+#### 3.3 Hybrid Approach
+
+Combine Newton-Raphson with FHE.div fallback:
+
+```solidity
+function computeWithFallback(
+    euint128 numerator,
+    euint128 denominator,
+    uint128 hint
+) internal returns (euint128) {
+    // Check hint quality (plaintext comparison)
+    // If hint is within 10x of expected range, use Newton-Raphson
+    // Otherwise, fall back to expensive but correct FHE.div
+
+    if (isHintReasonable(hint)) {
+        return computeApprox(numerator, denominator, hint);
+    } else {
+        return FHE.div(numerator, denominator);
+    }
+}
+```
+
+**Trade-off**: Most operations save 94% gas, worst-case falls back to standard behavior.
+
+### Recommendation
+
+1. **Short-term**: Keep `FHE.div` - it's correct and the codebase works.
+2. **Medium-term**: Implement and test Newton-Raphson with normalization on Fhenix testnet where real FHE gas costs can be measured.
+3. **Long-term**: Explore off-chain verified computation for complex multi-division operations.
+
+### Test File
+
+Gas comparison tests are available in:
+```
+contracts/test/gas/FHEDivApproxGas.t.sol
+```
+
+Run with: `forge test --match-contract FHEDivApproxGas -vv`
+
+---
+
 ## Implementation Priority
 
 1. **High Priority:** FheatherXPeriphery (unlocks ecosystem integration)
 2. **Medium Priority:** Auto-wrap on deposit (improves UX)
-3. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
+3. **Medium Priority:** FHE.div optimization (reduces gas costs)
+4. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
