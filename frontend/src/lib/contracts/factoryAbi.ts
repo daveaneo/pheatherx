@@ -1,5 +1,6 @@
 /**
- * ABI for MockFheatherXFactory contract
+ * ABI for FheatherXFactory contract
+ * Verified from FheatherXFactory.sol
  */
 export const FHEATHERX_FACTORY_ABI = [
   // Events
@@ -11,6 +12,20 @@ export const FHEATHERX_FACTORY_ABI = [
       { name: 'token1', type: 'address', indexed: true },
       { name: 'hook', type: 'address', indexed: true },
       { name: 'poolIndex', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'PoolDeactivated',
+    inputs: [
+      { name: 'hook', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'PoolReactivated',
+    inputs: [
+      { name: 'hook', type: 'address', indexed: true },
     ],
   },
 
@@ -94,6 +109,25 @@ export const FHEATHERX_FACTORY_ABI = [
   },
   {
     type: 'function',
+    name: 'getActivePools',
+    inputs: [],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple[]',
+        components: [
+          { name: 'token0', type: 'address' },
+          { name: 'token1', type: 'address' },
+          { name: 'hook', type: 'address' },
+          { name: 'createdAt', type: 'uint256' },
+          { name: 'active', type: 'bool' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     name: 'poolCount',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
@@ -109,6 +143,20 @@ export const FHEATHERX_FACTORY_ABI = [
       { name: 'tokenB', type: 'address' },
     ],
     outputs: [{ name: 'hook', type: 'address' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'deactivatePool',
+    inputs: [{ name: 'hook', type: 'address' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'reactivatePool',
+    inputs: [{ name: 'hook', type: 'address' }],
+    outputs: [],
     stateMutability: 'nonpayable',
   },
 ] as const;

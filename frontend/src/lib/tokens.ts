@@ -1,5 +1,4 @@
 import { NATIVE_ETH_ADDRESS } from '@/lib/constants';
-import { TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
 
 export type TokenType = 'erc20' | 'fherc20';
 
@@ -25,79 +24,218 @@ export function isNativeEth(address: string): boolean {
   );
 }
 
-// Token lists per chain - will be populated dynamically from contract
-export const TOKEN_LIST: Record<number, Token[]> = {
-  // Local Anvil
+// ═══════════════════════════════════════════════════════════════════════
+//                      TOKEN ADDRESSES BY CHAIN
+// ═══════════════════════════════════════════════════════════════════════
+
+// Ethereum Sepolia Token Addresses (verified from deployments)
+const SEPOLIA_TOKENS = {
+  WETH: '0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E' as `0x${string}`,
+  USDC: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56' as `0x${string}`,
+  fheWETH: '0xf0F8f49b4065A1B01050Fa358d287106B676a25F' as `0x${string}`,
+  fheUSDC: '0x1D77eE754b2080B354733299A5aC678539a0D740' as `0x${string}`,
+} as const;
+
+// ═══════════════════════════════════════════════════════════════════════
+//                         TOKEN CONFIGURATIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * All tokens supported by the application, grouped by chain.
+ * Includes both ERC20 and FHERC20 tokens with their relationships.
+ */
+export const ALL_TOKENS: Record<number, Token[]> = {
+  // Local Anvil - placeholder tokens
   31337: [
     {
-      address: TOKEN_ADDRESSES[31337]?.token0 || '0x0000000000000000000000000000000000000000',
+      address: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
       symbol: 'TKA',
       name: 'Test Token A',
       decimals: 18,
+      type: 'erc20',
     },
     {
-      address: TOKEN_ADDRESSES[31337]?.token1 || '0x0000000000000000000000000000000000000000',
+      address: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
       symbol: 'TKB',
       name: 'Test Token B',
       decimals: 18,
+      type: 'erc20',
     },
   ],
-  // Ethereum Sepolia
-  // Note: token0/token1 are sorted by address in Uniswap v4
-  // token0 (0x453...) = WETH (18 decimals)
-  // token1 (0xF6f...) = USDC (6 decimals)
+
+  // Ethereum Sepolia - 4 tokens (2 ERC20 + 2 FHERC20)
   11155111: [
     {
-      address: TOKEN_ADDRESSES[11155111]?.token0 || '0x0000000000000000000000000000000000000000',
+      address: SEPOLIA_TOKENS.WETH,
       symbol: 'WETH',
-      name: 'WETH',
+      name: 'Wrapped Ether',
       decimals: 18,
       type: 'erc20',
-      wrappedToken: '0xf0F8f49b4065A1B01050Fa358d287106B676a25F', // fheWETH
+      wrappedToken: SEPOLIA_TOKENS.fheWETH,
     },
     {
-      address: TOKEN_ADDRESSES[11155111]?.token1 || '0x0000000000000000000000000000000000000000',
+      address: SEPOLIA_TOKENS.USDC,
       symbol: 'USDC',
-      name: 'USDC',
+      name: 'USD Coin',
       decimals: 6,
       type: 'erc20',
-      wrappedToken: '0x1D77eE754b2080B354733299A5aC678539a0D740', // fheUSDC
+      wrappedToken: SEPOLIA_TOKENS.fheUSDC,
+    },
+    {
+      address: SEPOLIA_TOKENS.fheWETH,
+      symbol: 'fheWETH',
+      name: 'FHE Wrapped Ether',
+      decimals: 18,
+      type: 'fherc20',
+      unwrappedToken: SEPOLIA_TOKENS.WETH,
+    },
+    {
+      address: SEPOLIA_TOKENS.fheUSDC,
+      symbol: 'fheUSDC',
+      name: 'FHE USD Coin',
+      decimals: 6,
+      type: 'fherc20',
+      unwrappedToken: SEPOLIA_TOKENS.USDC,
     },
   ],
-  // Arbitrum Sepolia
+
+  // Arbitrum Sepolia - placeholder
   421614: [
     {
-      address: TOKEN_ADDRESSES[421614]?.token0 || '0x0000000000000000000000000000000000000000',
+      address: '0x0000000000000000000000000000000000000000',
       symbol: 'TKA',
       name: 'Test Token A',
       decimals: 18,
+      type: 'erc20',
     },
     {
-      address: TOKEN_ADDRESSES[421614]?.token1 || '0x0000000000000000000000000000000000000000',
+      address: '0x0000000000000000000000000000000000000000',
       symbol: 'TKB',
       name: 'Test Token B',
       decimals: 18,
+      type: 'erc20',
     },
   ],
-  // Fhenix Testnet
+
+  // Fhenix Testnet - placeholder
   8008135: [
     {
-      address: TOKEN_ADDRESSES[8008135]?.token0 || '0x0000000000000000000000000000000000000000',
+      address: '0x0000000000000000000000000000000000000000',
       symbol: 'TKA',
       name: 'Test Token A',
       decimals: 18,
+      type: 'erc20',
     },
     {
-      address: TOKEN_ADDRESSES[8008135]?.token1 || '0x0000000000000000000000000000000000000000',
+      address: '0x0000000000000000000000000000000000000000',
       symbol: 'TKB',
       name: 'Test Token B',
       decimals: 18,
+      type: 'erc20',
     },
   ],
 };
 
+// Legacy TOKEN_LIST for backwards compatibility
+export const TOKEN_LIST = ALL_TOKENS;
+
+// ═══════════════════════════════════════════════════════════════════════
+//                          HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Get a token by chain and position (legacy function for backwards compatibility)
+ */
 export function getToken(chainId: number, isToken0: boolean): Token | undefined {
-  const tokens = TOKEN_LIST[chainId];
+  const tokens = ALL_TOKENS[chainId];
   if (!tokens) return undefined;
   return isToken0 ? tokens[0] : tokens[1];
+}
+
+/**
+ * Get all tokens for a chain
+ */
+export function getTokensForChain(chainId: number): Token[] {
+  return ALL_TOKENS[chainId] || [];
+}
+
+/**
+ * Get only ERC20 tokens for a chain
+ */
+export function getERC20Tokens(chainId: number): Token[] {
+  return getTokensForChain(chainId).filter(t => t.type === 'erc20');
+}
+
+/**
+ * Get only FHERC20 tokens for a chain
+ */
+export function getFHERC20Tokens(chainId: number): Token[] {
+  return getTokensForChain(chainId).filter(t => t.type === 'fherc20');
+}
+
+/**
+ * Find a token by address on a chain
+ */
+export function getTokenByAddress(chainId: number, address: `0x${string}`): Token | undefined {
+  return getTokensForChain(chainId).find(
+    t => t.address.toLowerCase() === address.toLowerCase()
+  );
+}
+
+/**
+ * Find a token by symbol on a chain
+ */
+export function getTokenBySymbol(chainId: number, symbol: string): Token | undefined {
+  return getTokensForChain(chainId).find(
+    t => t.symbol.toLowerCase() === symbol.toLowerCase()
+  );
+}
+
+/**
+ * Get the FHERC20 wrapper for an ERC20 token
+ */
+export function getWrapperForToken(chainId: number, erc20Address: `0x${string}`): Token | undefined {
+  const token = getTokenByAddress(chainId, erc20Address);
+  if (token?.wrappedToken) {
+    return getTokenByAddress(chainId, token.wrappedToken);
+  }
+  return undefined;
+}
+
+/**
+ * Get the underlying ERC20 for an FHERC20 token
+ */
+export function getUnderlyingForToken(chainId: number, fherc20Address: `0x${string}`): Token | undefined {
+  const token = getTokenByAddress(chainId, fherc20Address);
+  if (token?.unwrappedToken) {
+    return getTokenByAddress(chainId, token.unwrappedToken);
+  }
+  return undefined;
+}
+
+/**
+ * Token pairs that can be wrapped/unwrapped
+ */
+export interface TokenPair {
+  erc20: Token;
+  fherc20: Token;
+}
+
+/**
+ * Get all wrap/unwrap token pairs for a chain
+ */
+export function getWrapPairs(chainId: number): TokenPair[] {
+  const tokens = getTokensForChain(chainId);
+  const pairs: TokenPair[] = [];
+
+  for (const token of tokens) {
+    if (token.type === 'erc20' && token.wrappedToken) {
+      const fherc20 = getTokenByAddress(chainId, token.wrappedToken);
+      if (fherc20) {
+        pairs.push({ erc20: token, fherc20 });
+      }
+    }
+  }
+
+  return pairs;
 }

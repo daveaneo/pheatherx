@@ -9,7 +9,7 @@ type TxStatus = 'pending' | 'confirmed' | 'failed';
 
 interface TrackedTransaction {
   hash: `0x${string}`;
-  type: 'deposit' | 'withdraw' | 'swap' | 'placeOrder' | 'cancelOrder' | 'approve' | 'faucet';
+  type: 'deposit' | 'withdraw' | 'swap' | 'placeOrder' | 'cancelOrder' | 'approve' | 'faucet' | 'closePosition' | 'wrap' | 'unwrap' | 'addLiquidity' | 'removeLiquidity';
   status: TxStatus;
   description: string;
   createdAt: number;
