@@ -11,7 +11,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
-import {FheatherX} from "../src/FheatherX.sol";
+import {FheatherXv5} from "../src/FheatherXv5.sol";
 
 /// @notice Simple mintable ERC20 token for testing
 contract TestToken is ERC20 {
@@ -31,7 +31,7 @@ contract TestToken is ERC20 {
 }
 
 /// @title DeployEthSepolia
-/// @notice Deploy FheatherX and test tokens on Ethereum Sepolia for real FHE integration testing
+/// @notice Deploy FheatherXv5 and test tokens on Ethereum Sepolia
 /// @dev Run with: source .env && forge script script/DeployEthSepolia.s.sol:DeployEthSepolia --rpc-url $ETH_SEPOLIA_RPC --broadcast
 contract DeployEthSepolia is Script {
     using stdJson for string;
@@ -41,9 +41,6 @@ contract DeployEthSepolia is Script {
     address constant SWAP_ROUTER = 0x9B6b46e2c869aa39918Db7f52f5557FE577B6eEe;  // PoolSwapTest
     address constant POSITION_MANAGER = 0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4;
 
-    // CoFHE TaskManager (same address across networks - deterministic deployment)
-    address constant TASK_MANAGER = 0xeA30c4B8b44078Bbf8a6ef5b9f1eC1626C7848D9;
-
     // CREATE2 Deployer Proxy (standard across EVM chains)
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
@@ -52,7 +49,7 @@ contract DeployEthSepolia is Script {
     uint160 constant SQRT_PRICE_1_1 = 79228162514264337593543950336; // 1:1 price
     uint24 constant POOL_FEE = 3000; // 0.3%
     int24 constant TICK_SPACING = 60;
-    uint24 constant SWAP_FEE_BPS = 30; // 0.3%
+    uint256 constant SWAP_FEE_BPS = 30; // 0.3%
 
     string constant DEPLOYMENTS_PATH = "deployments/eth-sepolia.json";
 
@@ -61,13 +58,12 @@ contract DeployEthSepolia is Script {
         address deployer = vm.addr(deployerPrivateKey);
 
         console.log("===========================================");
-        console.log("  FheatherX Ethereum Sepolia Deployment");
+        console.log("  FheatherXv5 Ethereum Sepolia Deployment");
         console.log("===========================================");
         console.log("");
         console.log("Chain ID:", block.chainid);
         console.log("Deployer:", deployer);
         console.log("Pool Manager:", POOL_MANAGER);
-        console.log("Task Manager:", TASK_MANAGER);
         console.log("");
 
         // Check if we already have a deployment
@@ -82,8 +78,8 @@ contract DeployEthSepolia is Script {
         // ============ Deploy Tokens ============
         console.log("--- Deploying Tokens ---");
 
-        TestToken tokenA = new TestToken("USDC", "USDC", 6);
-        TestToken tokenB = new TestToken("WETH", "WETH", 18);
+        TestToken tokenA = new TestToken("PheatherX Test USDC", "tUSDC", 18);
+        TestToken tokenB = new TestToken("PheatherX Test WETH", "tWETH", 18);
 
         // Sort tokens (Uniswap requirement: token0 < token1)
         (address token0Addr, address token1Addr) = address(tokenA) < address(tokenB)
@@ -93,19 +89,19 @@ contract DeployEthSepolia is Script {
         console.log("Token0:", token0Addr);
         console.log("Token1:", token1Addr);
 
-        // Mint tokens
+        // Mint tokens to deployer
         TestToken(token0Addr).mint(deployer, INITIAL_MINT);
         TestToken(token1Addr).mint(deployer, INITIAL_MINT);
         console.log("Minted 1,000,000 of each token to deployer");
 
         // ============ Deploy Hook with CREATE2 ============
         console.log("");
-        console.log("--- Deploying FheatherX Hook (CREATE2) ---");
+        console.log("--- Deploying FheatherXv5 Hook (CREATE2) ---");
 
-        // Calculate required hook flags
+        // Calculate required hook flags for v5
+        // v5 needs: AFTER_INITIALIZE, BEFORE_SWAP, AFTER_SWAP, BEFORE_SWAP_RETURNS_DELTA
         uint160 flags = uint160(
-            Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
-            Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG |
+            Hooks.AFTER_INITIALIZE_FLAG |
             Hooks.BEFORE_SWAP_FLAG |
             Hooks.AFTER_SWAP_FLAG |
             Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
@@ -114,11 +110,10 @@ contract DeployEthSepolia is Script {
         console.log("Required flags:", flags);
 
         // Mine a salt that produces a valid hook address
-        bytes memory creationCode = type(FheatherX).creationCode;
+        bytes memory creationCode = type(FheatherXv5).creationCode;
         bytes memory constructorArgs = abi.encode(
             IPoolManager(POOL_MANAGER),
-            token0Addr,
-            token1Addr,
+            deployer,  // owner
             SWAP_FEE_BPS
         );
 
@@ -140,14 +135,14 @@ contract DeployEthSepolia is Script {
         require(success, "CREATE2 deployment failed");
 
         // Verify deployment
-        FheatherX hook = FheatherX(payable(hookAddress));
+        FheatherXv5 hook = FheatherXv5(payable(hookAddress));
         require(address(hook).code.length > 0, "Hook not deployed");
 
         console.log("Hook deployed at:", hookAddress);
 
         // ============ Initialize Pool ============
         console.log("");
-        console.log("--- Initializing Pool ---");
+        console.log("--- Initializing Pool in PoolManager ---");
 
         PoolKey memory poolKey = PoolKey({
             currency0: Currency.wrap(token0Addr),
@@ -159,6 +154,7 @@ contract DeployEthSepolia is Script {
 
         IPoolManager(POOL_MANAGER).initialize(poolKey, SQRT_PRICE_1_1);
         console.log("Pool initialized with 1:1 price ratio");
+        console.log("This triggers afterInitialize callback to set up encrypted reserves");
 
         vm.stopBroadcast();
 
@@ -168,19 +164,26 @@ contract DeployEthSepolia is Script {
         // ============ Print Summary ============
         console.log("");
         console.log("===========================================");
-        console.log("  DEPLOYMENT COMPLETE");
+        console.log("  DEPLOYMENT COMPLETE - FheatherXv5");
         console.log("===========================================");
         console.log("");
-        console.log("Token0 (USDC):", token0Addr);
-        console.log("Token1 (WETH):", token1Addr);
+        console.log("Token0 (tUSDC):", token0Addr);
+        console.log("Token1 (tWETH):", token1Addr);
         console.log("Hook:", hookAddress);
         console.log("Pool Manager:", POOL_MANAGER);
         console.log("");
         console.log("Deployment saved to:", DEPLOYMENTS_PATH);
         console.log("");
+        console.log("Features:");
+        console.log("  - Multi-pool support via PoolId");
+        console.log("  - Encrypted AMM reserves (x*y=k with FHE)");
+        console.log("  - addLiquidity / removeLiquidity functions");
+        console.log("  - Limit orders with tick bitmap");
+        console.log("");
         console.log("Next steps:");
-        console.log("1. Add liquidity to the pool");
-        console.log("2. Run integration tests: npm run test:integration:eth");
+        console.log("1. Update frontend .env.local with new addresses");
+        console.log("2. Add liquidity: hook.addLiquidity(poolId, amount0, amount1)");
+        console.log("3. Swap: hook.swapExactInput(poolId, zeroForOne, amountIn, minOut)");
     }
 
     function _checkExistingDeployment() internal view returns (bool) {
@@ -194,6 +197,7 @@ contract DeployEthSepolia is Script {
     function _saveDeployment(address token0, address token1, address hook) internal {
         string memory json = string.concat(
             '{\n',
+            '  "version": "v5",\n',
             '  "chainId": ', vm.toString(block.chainid), ',\n',
             '  "deployedAt": "', vm.toString(block.timestamp), '",\n',
             '  "contracts": {\n',
@@ -202,13 +206,18 @@ contract DeployEthSepolia is Script {
             '    "hook": "', vm.toString(hook), '",\n',
             '    "poolManager": "', vm.toString(POOL_MANAGER), '",\n',
             '    "swapRouter": "', vm.toString(SWAP_ROUTER), '",\n',
-            '    "positionManager": "', vm.toString(POSITION_MANAGER), '",\n',
-            '    "taskManager": "', vm.toString(TASK_MANAGER), '"\n',
+            '    "positionManager": "', vm.toString(POSITION_MANAGER), '"\n',
             '  },\n',
             '  "poolConfig": {\n',
             '    "fee": ', vm.toString(POOL_FEE), ',\n',
             '    "tickSpacing": ', vm.toString(int256(TICK_SPACING)), ',\n',
             '    "swapFeeBps": ', vm.toString(SWAP_FEE_BPS), '\n',
+            '  },\n',
+            '  "features": {\n',
+            '    "multiPool": true,\n',
+            '    "encryptedAMM": true,\n',
+            '    "limitOrders": true,\n',
+            '    "tickBitmap": true\n',
             '  }\n',
             '}'
         );
