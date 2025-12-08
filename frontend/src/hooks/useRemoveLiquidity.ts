@@ -1,25 +1,37 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useAccount, usePublicClient, useWriteContract } from 'wagmi';
-import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useAccount, usePublicClient } from 'wagmi';
+import { FHEATHERX_V5_ABI } from '@/lib/contracts/fheatherXv5Abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
-import { useSelectedPool } from '@/stores/poolStore';
+import { useSmartWriteContract } from './useTestWriteContract';
+import { getPoolIdFromTokens } from '@/lib/poolId';
+import type { Token } from '@/lib/tokens';
+
+// Debug logger for remove liquidity flow
+const debugLog = (stage: string, data?: unknown) => {
+  console.log(`[RemoveLiquidity Debug] ${stage}`, data !== undefined ? data : '');
+};
 
 type RemoveLiquidityStep =
   | 'idle'
-  | 'withdrawing-token0'
-  | 'withdrawing-token1'
+  | 'removing-liquidity'
   | 'complete'
   | 'error';
 
 interface UseRemoveLiquidityResult {
-  removeLiquidity: (amount0: bigint, amount1: bigint) => Promise<void>;
+  removeLiquidity: (
+    token0: Token,
+    token1: Token,
+    hookAddress: `0x${string}`,
+    lpAmount: bigint
+  ) => Promise<void>;
   step: RemoveLiquidityStep;
   isLoading: boolean;
-  token0TxHash: `0x${string}` | null;
-  token1TxHash: `0x${string}` | null;
+  txHash: `0x${string}` | null;
+  amount0Received: bigint | null;
+  amount1Received: bigint | null;
   error: string | null;
   reset: () => void;
 }
@@ -27,93 +39,136 @@ interface UseRemoveLiquidityResult {
 export function useRemoveLiquidity(): UseRemoveLiquidityResult {
   const { address } = useAccount();
   const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  const { writeContractAsync } = useSmartWriteContract();
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
 
-  // Get hook address and tokens from selected pool
-  const { hookAddress, token0, token1 } = useSelectedPool();
-
   const [step, setStep] = useState<RemoveLiquidityStep>('idle');
-  const [token0TxHash, setToken0TxHash] = useState<`0x${string}` | null>(null);
-  const [token1TxHash, setToken1TxHash] = useState<`0x${string}` | null>(null);
+  const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
+  const [amount0Received, setAmount0Received] = useState<bigint | null>(null);
+  const [amount1Received, setAmount1Received] = useState<bigint | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reset = useCallback(() => {
     setStep('idle');
-    setToken0TxHash(null);
-    setToken1TxHash(null);
+    setTxHash(null);
+    setAmount0Received(null);
+    setAmount1Received(null);
     setError(null);
   }, []);
 
-  const withdraw = useCallback(async (
-    isToken0: boolean,
-    amount: bigint,
-    tokenLabel: string
-  ): Promise<`0x${string}`> => {
-    if (!address || !hookAddress) {
-      throw new Error('Wallet not connected');
-    }
-
-    try {
-      const hash = await writeContractAsync({
-        address: hookAddress,
-        abi: FHEATHERX_ABI,
-        functionName: 'withdraw',
-        args: [isToken0, amount],
-      });
-
-      addTransaction({
-        hash,
-        type: 'withdraw',
-        description: `Remove ${tokenLabel} liquidity`,
-      });
-
-      await publicClient?.waitForTransactionReceipt({ hash });
-      updateTransaction(hash, { status: 'confirmed' });
-      return hash;
-    } catch (err) {
-      throw err;
-    }
-  }, [address, hookAddress, writeContractAsync, publicClient, addTransaction, updateTransaction]);
-
   const removeLiquidity = useCallback(async (
-    amount0: bigint,
-    amount1: bigint
+    token0: Token,
+    token1: Token,
+    hookAddress: `0x${string}`,
+    lpAmount: bigint
   ): Promise<void> => {
     setError(null);
+    setTxHash(null);
+    setAmount0Received(null);
+    setAmount1Received(null);
 
-    if (!hookAddress) {
-      setError('No pool selected');
+    debugLog('Starting remove liquidity', {
+      token0: token0.symbol,
+      token1: token1.symbol,
+      hookAddress,
+      lpAmount: lpAmount.toString(),
+    });
+
+    // Validate wallet connection
+    if (!address) {
+      const message = 'Wallet not connected';
+      setError(message);
       setStep('error');
+      errorToast('Connection Error', message);
+      return;
+    }
+
+    if (!publicClient) {
+      const message = 'Public client not available';
+      setError(message);
+      setStep('error');
+      errorToast('Connection Error', message);
+      return;
+    }
+
+    // Validate LP amount
+    if (lpAmount === 0n) {
+      const message = 'Enter LP amount to remove';
+      setError(message);
+      setStep('error');
+      errorToast('Invalid Input', message);
       return;
     }
 
     try {
-      // Withdraw Token 0
-      if (amount0 > 0n) {
-        setStep('withdrawing-token0');
-        const hash0 = await withdraw(true, amount0, token0?.symbol || 'Token0');
-        setToken0TxHash(hash0);
-      }
+      // Compute poolId
+      const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
+      debugLog('Computed poolId', poolId);
 
-      // Withdraw Token 1
-      if (amount1 > 0n) {
-        setStep('withdrawing-token1');
-        const hash1 = await withdraw(false, amount1, token1?.symbol || 'Token1');
-        setToken1TxHash(hash1);
+      // Remove liquidity using v5 AMM function
+      setStep('removing-liquidity');
+      debugLog('Removing liquidity', { poolId, lpAmount: lpAmount.toString() });
+
+      const removeLiquidityHash = await writeContractAsync({
+        address: hookAddress,
+        abi: FHEATHERX_V5_ABI,
+        functionName: 'removeLiquidity',
+        args: [poolId, lpAmount],
+      });
+
+      debugLog('Remove liquidity tx submitted', { hash: removeLiquidityHash });
+      setTxHash(removeLiquidityHash);
+
+      addTransaction({
+        hash: removeLiquidityHash,
+        type: 'withdraw',
+        description: `Remove ${token0.symbol}/${token1.symbol} liquidity`,
+      });
+
+      // Wait for confirmation
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: removeLiquidityHash });
+      updateTransaction(removeLiquidityHash, { status: 'confirmed' });
+      debugLog('Remove liquidity confirmed', { receipt });
+
+      // Try to parse amounts from logs
+      // Look for LiquidityRemoved event: event LiquidityRemoved(bytes32 indexed poolId, address indexed user, uint256 amount0, uint256 amount1, uint256 lpAmount)
+      for (const log of receipt.logs) {
+        try {
+          debugLog('Log found', { address: log.address, topics: log.topics });
+        } catch {
+          // Continue if log parsing fails
+        }
       }
 
       setStep('complete');
       successToast('Liquidity removed successfully');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to remove liquidity';
+
+    } catch (err: unknown) {
+      debugLog('ERROR in remove liquidity flow', {
+        error: err,
+        name: err instanceof Error ? err.name : 'Unknown',
+        message: err instanceof Error ? err.message : String(err),
+      });
+
+      // Better error message parsing
+      let message = 'Failed to remove liquidity';
+      if (err instanceof Error) {
+        if (err.message.includes('User rejected') || err.message.includes('user rejected')) {
+          message = 'Transaction was cancelled';
+        } else if (err.message.includes('insufficient LP')) {
+          message = 'Insufficient LP token balance';
+        } else {
+          message = err.message;
+        }
+      }
+
       setError(message);
       setStep('error');
       errorToast('Failed to remove liquidity', message);
     }
-  }, [hookAddress, token0, token1, withdraw, successToast, errorToast]);
+  }, [address, writeContractAsync, publicClient, addTransaction, updateTransaction, successToast, errorToast]);
 
   const isLoading = step !== 'idle' && step !== 'complete' && step !== 'error';
 
@@ -121,8 +176,9 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
     removeLiquidity,
     step,
     isLoading,
-    token0TxHash,
-    token1TxHash,
+    txHash,
+    amount0Received,
+    amount1Received,
     error,
     reset,
   };

@@ -108,41 +108,41 @@ test.describe('Full Trading Flow', () => {
       }
     }
 
-    // Check for Place Orders tab (this is the orders/liquidity page)
-    const placeOrdersTab = page.locator('button:has-text("Place Orders")');
-    const hasPlaceOrdersTab = await placeOrdersTab.isVisible().catch(() => false);
-    console.log('[Orders] Place Orders tab visible:', hasPlaceOrdersTab);
+    // Check for Liquidity page header (h1)
+    const liquidityHeader = page.locator('h1:has-text("Liquidity")');
+    const hasLiquidityPage = await liquidityHeader.isVisible().catch(() => false);
+    console.log('[Liquidity] Liquidity page header visible:', hasLiquidityPage);
 
-    if (hasPlaceOrdersTab) {
-      await placeOrdersTab.click();
-      await page.waitForTimeout(1000);
-    }
-
-    // Wait for pools to load (may show "Loading pools...")
-    const loadingPools = page.locator('text=Loading pools...');
+    // Wait for pools to load (may show "Discovering pools...")
+    const loadingPools = page.locator('text=/Loading pools|Discovering pools/i');
     const isLoading = await loadingPools.isVisible().catch(() => false);
     if (isLoading) {
-      console.log('[Orders] Waiting for pools to load...');
-      await page.waitForTimeout(3000);
+      console.log('[Liquidity] Waiting for pools to load...');
+      await page.waitForTimeout(5000);
     }
+
+    // Check for Add Liquidity card/section (new liquidity page design)
+    const addLiquidityHeader = page.locator('text="Add Liquidity"');
+    const hasAddLiquidity = await addLiquidityHeader.first().isVisible({ timeout: 5000 }).catch(() => false);
+    console.log('[Liquidity] Add Liquidity visible:', hasAddLiquidity);
 
     // Look for amount inputs after form loads
     const amountInput = page.locator('input[placeholder*="0.0"], input[data-testid*="amount"]').first();
     const hasAmountInput = await amountInput.isVisible({ timeout: 5000 }).catch(() => false);
-    console.log('[Orders] Amount input visible:', hasAmountInput);
+    console.log('[Liquidity] Amount input visible:', hasAmountInput);
 
     if (hasAmountInput) {
       await amountInput.fill('0.01');
       await page.waitForTimeout(500);
     }
 
-    // Look for Place Order / Submit button
-    const submitButton = page.locator('button:has-text("Place Order"), button:has-text("Submit"), button:has-text("Deposit")');
+    // Look for Add Liquidity / Submit button
+    const submitButton = page.locator('button:has-text("Add Liquidity"), button:has-text("Create Pool"), button:has-text("Submit")');
     const hasSubmitButton = await submitButton.first().isVisible().catch(() => false);
-    console.log('[Orders] Submit button visible:', hasSubmitButton);
+    console.log('[Liquidity] Submit button visible:', hasSubmitButton);
 
-    // Verify orders page loaded correctly - either has tab buttons or privacy screen
-    expect(hasPlaceOrdersTab || hasPrivacy).toBe(true);
+    // Verify liquidity page loaded correctly - either has page content, Add Liquidity form, or privacy screen
+    expect(hasLiquidityPage || hasAddLiquidity || hasPrivacy).toBe(true);
   });
 
   test('04 - Navigate to trade page', async ({ page, waitForWalletConnected }) => {

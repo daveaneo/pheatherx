@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -10,28 +10,30 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { TransactionLink } from '@/components/common/TransactionLink';
 import { useRemoveLiquidity } from '@/hooks/useRemoveLiquidity';
-import { useLiquidityPosition } from '@/hooks/useLiquidityPosition';
-import { useSelectedPool } from '@/stores/poolStore';
+import type { LPPosition } from '@/hooks/useUserLPPositions';
 
 const removeLiquiditySchema = z.object({
-  amount0: z.string(),
-  amount1: z.string(),
-}).refine(
-  (data) => {
-    const a0 = parseFloat(data.amount0 || '0');
-    const a1 = parseFloat(data.amount1 || '0');
-    return a0 > 0 || a1 > 0;
-  },
-  { message: 'Enter at least one amount', path: ['amount0'] }
-);
+  lpAmount: z.string().refine(
+    (val) => {
+      const num = parseFloat(val || '0');
+      return num > 0;
+    },
+    { message: 'Enter amount to remove' }
+  ),
+});
 
 type RemoveLiquidityFormValues = z.infer<typeof removeLiquiditySchema>;
 
-export function RemoveLiquidityForm() {
-  // Get tokens from selected pool
-  const { pool, token0, token1 } = useSelectedPool();
+interface RemoveLiquidityFormProps {
+  position: LPPosition;
+  onSuccess?: () => void;
+  onCancel?: () => void;
+}
 
-  const { balance0, balance1 } = useLiquidityPosition();
+export function RemoveLiquidityForm({ position, onSuccess, onCancel }: RemoveLiquidityFormProps) {
+  const [percentage, setPercentage] = useState(0);
+
+  const { token0, token1, lpBalance, hookAddress, poolShare, reserve0, reserve1, totalLpSupply, isEncrypted } = position;
 
   const {
     register,
@@ -39,11 +41,11 @@ export function RemoveLiquidityForm() {
     formState: { errors },
     reset: resetForm,
     setValue,
+    watch,
   } = useForm<RemoveLiquidityFormValues>({
     resolver: zodResolver(removeLiquiditySchema),
     defaultValues: {
-      amount0: '',
-      amount1: '',
+      lpAmount: '',
     },
   });
 
@@ -51,163 +53,216 @@ export function RemoveLiquidityForm() {
     removeLiquidity,
     step,
     isLoading,
-    token0TxHash,
-    token1TxHash,
+    txHash,
     error,
     reset: resetHook,
   } = useRemoveLiquidity();
 
-  // Reset form when pool changes
+  // Watch LP amount for estimated token returns
+  const watchedLpAmount = watch('lpAmount');
+
+  // Calculate estimated tokens to receive
+  const estimatedReturns = useMemo(() => {
+    if (!watchedLpAmount || isEncrypted) return null;
+
+    const lpAmount = parseUnits(watchedLpAmount, 18);
+    if (lpAmount === 0n || totalLpSupply === 0n) return null;
+
+    const amount0 = (reserve0 * lpAmount) / totalLpSupply;
+    const amount1 = (reserve1 * lpAmount) / totalLpSupply;
+
+    return { amount0, amount1 };
+  }, [watchedLpAmount, reserve0, reserve1, totalLpSupply, isEncrypted]);
+
+  // Handle success
   useEffect(() => {
-    resetForm();
-    resetHook();
-  }, [pool?.hook, resetForm, resetHook]);
+    if (step === 'complete' && onSuccess) {
+      onSuccess();
+    }
+  }, [step, onSuccess]);
 
   const onSubmit = async (data: RemoveLiquidityFormValues) => {
-    const amount0 = data.amount0
-      ? parseUnits(data.amount0, token0?.decimals || 18)
-      : 0n;
-    const amount1 = data.amount1
-      ? parseUnits(data.amount1, token1?.decimals || 18)
-      : 0n;
-
-    await removeLiquidity(amount0, amount1);
+    const lpAmount = parseUnits(data.lpAmount, 18);
+    await removeLiquidity(token0, token1, hookAddress, lpAmount);
   };
 
   const handleReset = () => {
     resetForm();
     resetHook();
+    setPercentage(0);
   };
 
-  const handleMax0 = () => {
-    if (token0 && balance0 > 0n) {
-      setValue('amount0', formatUnits(balance0, token0.decimals));
+  const handlePercentageChange = (pct: number) => {
+    setPercentage(pct);
+    if (pct === 0) {
+      setValue('lpAmount', '');
+    } else {
+      const amount = (lpBalance * BigInt(pct)) / 100n;
+      setValue('lpAmount', formatUnits(amount, 18));
     }
   };
 
-  const handleMax1 = () => {
-    if (token1 && balance1 > 0n) {
-      setValue('amount1', formatUnits(balance1, token1.decimals));
-    }
+  const handleMax = () => {
+    handlePercentageChange(100);
   };
 
   const getButtonText = () => {
     switch (step) {
-      case 'withdrawing-token0':
-        return `Cancelling ${token0?.symbol || 'Token0'} order...`;
-      case 'withdrawing-token1':
-        return `Cancelling ${token1?.symbol || 'Token1'} order...`;
+      case 'removing-liquidity':
+        return 'Removing liquidity...';
       case 'complete':
         return 'Done';
       case 'error':
         return 'Try Again';
       default:
-        return 'Cancel Orders';
+        return 'Remove Liquidity';
     }
   };
 
-  const formattedBalance0 = token0
-    ? parseFloat(formatUnits(balance0, token0.decimals)).toLocaleString(undefined, {
-        maximumFractionDigits: 4,
-      })
-    : '0';
+  const formattedLpBalance = formatUnits(lpBalance, 18);
 
-  const formattedBalance1 = token1
-    ? parseFloat(formatUnits(balance1, token1.decimals)).toLocaleString(undefined, {
-        maximumFractionDigits: 4,
-      })
-    : '0';
+  // Format for display
+  const formatTokenAmount = (amount: bigint, decimals: number): string => {
+    const formatted = formatUnits(amount, decimals);
+    const num = parseFloat(formatted);
+    if (num < 0.0001) return '<0.0001';
+    if (num < 1) return num.toFixed(4);
+    if (num < 1000) return num.toFixed(2);
+    return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cancel Orders</CardTitle>
-        <p className="text-sm text-feather-white/60">
-          Cancel unfilled orders and reclaim your tokens
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Remove Liquidity</CardTitle>
+            <p className="text-sm text-feather-white/60">
+              {token0.symbol} / {token1.symbol}
+            </p>
+          </div>
+          {onCancel && (
+            <Button variant="ghost" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {/* Position Info */}
+          <div className="p-3 rounded-lg bg-ash-gray/50 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-feather-white/60">Your LP Balance</span>
+              <span className="font-mono">
+                {isEncrypted ? '****' : parseFloat(formattedLpBalance).toFixed(4)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-feather-white/60">Pool Share</span>
+              <span>{isEncrypted ? '****' : `${poolShare.toFixed(2)}%`}</span>
+            </div>
+          </div>
+
+          {/* Percentage Quick Buttons */}
+          {!isEncrypted && (
+            <div className="flex gap-2">
+              {[25, 50, 75, 100].map((pct) => (
+                <Button
+                  key={pct}
+                  type="button"
+                  variant={percentage === pct ? 'primary' : 'secondary'}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handlePercentageChange(pct)}
+                >
+                  {pct}%
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {/* LP Amount Input */}
           <div>
             <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-medium">
-                {token0?.symbol || 'Token0'} Amount
-              </label>
-              <button
-                type="button"
-                onClick={handleMax0}
-                className="text-xs text-phoenix-ember hover:text-phoenix-ember/80"
-              >
-                Max: {formattedBalance0}
-              </button>
+              <label className="text-sm font-medium">LP Tokens to Remove</label>
+              {!isEncrypted && (
+                <button
+                  type="button"
+                  onClick={handleMax}
+                  className="text-xs text-phoenix-ember hover:text-phoenix-ember/80"
+                >
+                  Max
+                </button>
+              )}
             </div>
             <Input
-              {...register('amount0')}
+              {...register('lpAmount')}
               type="text"
               inputMode="decimal"
               placeholder="0.0"
-              error={!!errors.amount0}
+              error={!!errors.lpAmount}
+              disabled={isLoading || isEncrypted}
+              data-testid="remove-liquidity-amount"
             />
-            {errors.amount0 && (
+            {errors.lpAmount && (
               <p className="text-deep-magenta text-sm mt-1">
-                {errors.amount0.message}
+                {errors.lpAmount.message}
               </p>
             )}
           </div>
 
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-medium">
-                {token1?.symbol || 'Token1'} Amount
-              </label>
-              <button
-                type="button"
-                onClick={handleMax1}
-                className="text-xs text-phoenix-ember hover:text-phoenix-ember/80"
-              >
-                Max: {formattedBalance1}
-              </button>
+          {/* Estimated Returns */}
+          {estimatedReturns && (
+            <div className="p-3 rounded-lg bg-ash-gray/50 space-y-2 text-sm">
+              <div className="text-feather-white/60 text-xs mb-2">You will receive (estimated)</div>
+              <div className="flex justify-between">
+                <span>{token0.symbol}</span>
+                <span className="font-mono">
+                  ~{formatTokenAmount(estimatedReturns.amount0, token0.decimals)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>{token1.symbol}</span>
+                <span className="font-mono">
+                  ~{formatTokenAmount(estimatedReturns.amount1, token1.decimals)}
+                </span>
+              </div>
             </div>
-            <Input
-              {...register('amount1')}
-              type="text"
-              inputMode="decimal"
-              placeholder="0.0"
-              error={!!errors.amount1}
-            />
-            {errors.amount1 && (
-              <p className="text-deep-magenta text-sm mt-1">
-                {errors.amount1.message}
-              </p>
-            )}
-          </div>
+          )}
 
+          {/* Encrypted Position Warning */}
+          {isEncrypted && (
+            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-yellow-400 text-sm">
+              This position uses encrypted balances. Removal requires FHE decryption.
+            </div>
+          )}
+
+          {/* Error Display */}
           {error && (
             <div className="p-3 bg-deep-magenta/10 border border-deep-magenta/30 rounded-lg">
               <p className="text-deep-magenta text-sm">{error}</p>
             </div>
           )}
 
-          {step === 'complete' && (
-            <div className="p-3 bg-electric-teal/10 border border-electric-teal/30 rounded-lg space-y-2">
+          {/* Success Display */}
+          {step === 'complete' && txHash && (
+            <div className="p-3 bg-electric-teal/10 border border-electric-teal/30 rounded-lg space-y-2" data-testid="remove-liquidity-success">
               <p className="text-electric-teal text-sm">
-                Orders cancelled successfully!
+                Liquidity removed successfully!
               </p>
-              {token0TxHash && (
-                <TransactionLink hash={token0TxHash} label={`${token0?.symbol} cancellation`} />
-              )}
-              {token1TxHash && (
-                <TransactionLink hash={token1TxHash} label={`${token1?.symbol} cancellation`} />
-              )}
+              <TransactionLink hash={txHash} label="View transaction" />
             </div>
           )}
 
+          {/* Submit Button */}
           <div className="flex gap-2">
             <Button
               type="submit"
               loading={isLoading}
-              disabled={step === 'complete' || (balance0 === 0n && balance1 === 0n)}
+              disabled={step === 'complete' || lpBalance === 0n || isEncrypted}
               className="flex-1"
+              data-testid="remove-liquidity-submit"
             >
               {getButtonText()}
             </Button>
