@@ -5,6 +5,7 @@ import { Loader2, X } from 'lucide-react';
 import { ConnectPrompt } from '@/components/common/ConnectPrompt';
 import { FheSessionGuard } from '@/components/common/FheSessionGuard';
 import { TokenBalanceTable } from '@/components/portfolio/TokenBalanceTable';
+import { WrapUnwrapCard } from '@/components/tokens/WrapUnwrapCard';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, Tabs, TabsList, TabsTrigger, TabsContent, Skeleton } from '@/components/ui';
 import { useActiveOrders } from '@/hooks/useActiveOrders';
 import { useCancelOrder } from '@/hooks/useCancelOrder';
@@ -29,6 +30,9 @@ export default function PortfolioPage() {
 
         {/* Unified Token Balance Table */}
         <TokenBalanceTable />
+
+        {/* Wrap/Unwrap Section */}
+        <WrapUnwrapCard />
 
         {/* Tabs for Orders and History */}
         <Tabs defaultValue="orders">

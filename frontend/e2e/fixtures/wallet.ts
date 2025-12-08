@@ -30,6 +30,10 @@ const IGNORED_ERROR_PATTERNS = [
   /Invalid or unexpected token/i, // Can occur during HMR/service worker cache conflicts
   /sw\.js/i,                      // Service worker errors during dev
   /Unexpected token/i,            // Can occur during HMR
+  /usePoolDiscovery.*Failed to fetch/i,  // Pool discovery errors when RPC unavailable
+  /Failed to fetch metadata/i,    // Token metadata errors when RPC unavailable
+  /HTTP request failed/i,         // RPC connection errors
+  /Failed to fetch$/i,            // Generic fetch errors
 ];
 
 interface TestWalletFixtures {

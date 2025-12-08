@@ -27,18 +27,18 @@ test.describe('Liquidity Page', () => {
     await waitForWalletConnected();
     await page.waitForTimeout(2000);
 
-    // Check for Liquidity header
-    const liquidityTitle = page.locator('h1:has-text("Liquidity")');
-    await expect(liquidityTitle).toBeVisible({ timeout: 10000 });
+    // Check for Orders or Liquidity header (page is now titled "Orders" for limit orders)
+    const pageTitle = page.locator('h1:has-text("Orders"), h1:has-text("Liquidity")');
+    await expect(pageTitle.first()).toBeVisible({ timeout: 10000 });
   });
 
   test('should display add/remove liquidity options', async ({ page, waitForWalletConnected }) => {
     await waitForWalletConnected();
     await page.waitForTimeout(2000);
 
-    // Check for Add/Remove options or related content
-    const liquidityContent = page.locator('text=/Add Liquidity|Remove|LP|Position|Provide/i');
-    await expect(liquidityContent.first()).toBeVisible({ timeout: 10000 });
+    // Check for Place Orders / Cancel Orders tabs or related content
+    const ordersContent = page.locator('text=/Place Orders|Cancel Orders|Add Liquidity|Remove|LP|Position/i');
+    await expect(ordersContent.first()).toBeVisible({ timeout: 10000 });
   });
 
   test('should have action buttons', async ({ page, waitForWalletConnected }) => {
