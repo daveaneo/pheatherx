@@ -43,6 +43,18 @@ export const TOKEN_ADDRESSES: Record<number, { token0: `0x${string}`; token1: `0
   },
 };
 
+// Uniswap v4 PoolManager addresses
+export const POOL_MANAGER_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: (process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  11155111: (process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS_ETH_SEPOLIA as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  421614: (process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS_ARB_SEPOLIA as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  8008135: (process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+};
+
 // Pool configuration
 export const POOL_FEE = Number(process.env.NEXT_PUBLIC_POOL_FEE) || 3000;
 export const TICK_SPACING = Number(process.env.NEXT_PUBLIC_TICK_SPACING) || 60;
+
+// Default sqrtPriceX96 for 1:1 price ratio
+// sqrt(1) * 2^96 = 79228162514264337593543950336
+export const SQRT_PRICE_1_1 = BigInt('79228162514264337593543950336');

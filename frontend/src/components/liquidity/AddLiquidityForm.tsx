@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { parseUnits, formatUnits } from 'viem';
-import { useChainId } from 'wagmi';
+import { useChainId, useAccount, useBalance } from 'wagmi';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -24,9 +24,10 @@ const addLiquiditySchema = z.object({
   (data) => {
     const a0 = parseFloat(data.amount0 || '0');
     const a1 = parseFloat(data.amount1 || '0');
-    return a0 > 0 || a1 > 0;
+    // Contract requires BOTH amounts to be > 0
+    return a0 > 0 && a1 > 0;
   },
-  { message: 'Enter at least one amount', path: ['amount0'] }
+  { message: 'Enter both token amounts', path: ['amount0'] }
 );
 
 type AddLiquidityFormValues = z.infer<typeof addLiquiditySchema>;
@@ -39,12 +40,7 @@ interface AddLiquidityFormProps {
 
 export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFormProps) {
   const chainId = useChainId();
-  const pools = usePoolStore(state => state.pools);
-  const poolsLoaded = usePoolStore(state => state.poolsLoaded);
   const tokens = useMemo(() => getTokensForChain(chainId), [chainId]);
-
-  // Get hook address from first available pool (all pools use the same v5 hook)
-  const hookAddress = pools.length > 0 ? pools[0].hook : undefined;
 
   // Token pair state - default to first two tokens if available
   const [token0, setToken0] = useState<Token | undefined>(
@@ -54,8 +50,24 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
     tokens.length >= 2 ? sortTokens(tokens[0], tokens[1])[1] : undefined
   );
 
-  // Get pool info for selected pair
-  const { poolExists, reserve0, reserve1, totalLpSupply, isLoading: isLoadingPool } = usePoolInfo(token0, token1);
+  // Get user address for balance queries
+  const { address } = useAccount();
+
+  // Fetch user's token balances
+  const { data: balance0 } = useBalance({
+    address,
+    token: token0?.address,
+    query: { enabled: !!token0 && !!address }
+  });
+
+  const { data: balance1 } = useBalance({
+    address,
+    token: token1?.address,
+    query: { enabled: !!token1 && !!address }
+  });
+
+  // Get pool info for selected pair (includes hook address lookup with fallback)
+  const { poolExists, isInitialized, reserve0, reserve1, totalLpSupply, isLoading: isLoadingPool, hookAddress } = usePoolInfo(token0, token1);
 
   const {
     register,
@@ -63,6 +75,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
     formState: { errors },
     reset: resetForm,
     watch,
+    setValue,
   } = useForm<AddLiquidityFormValues>({
     resolver: zodResolver(addLiquiditySchema),
     defaultValues: {
@@ -114,13 +127,38 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
       ? parseUnits(data.amount1, token1.decimals)
       : 0n;
 
-    await addLiquidity(token0, token1, hookAddress, amount0, amount1);
+    // Pass isInitialized so the hook knows whether to initialize the pool first
+    await addLiquidity(token0, token1, hookAddress, amount0, amount1, isInitialized);
   };
 
   const handleReset = () => {
     resetForm();
     resetHook();
   };
+
+  // Handle percentage button clicks
+  const handlePercentageClick = (percent: number, isToken0: boolean) => {
+    const balance = isToken0 ? balance0 : balance1;
+    const token = isToken0 ? token0 : token1;
+    if (!balance || !token) return;
+
+    const amount = (balance.value * BigInt(percent)) / 100n;
+    const formatted = formatUnits(amount, token.decimals);
+    setValue(isToken0 ? 'amount0' : 'amount1', formatted);
+  };
+
+  // Calculate price ratio for new pools based on entered amounts
+  const priceRatioText = useMemo(() => {
+    if (!watchedAmount0 || !watchedAmount1 || !token0 || !token1) return null;
+
+    const a0 = parseFloat(watchedAmount0);
+    const a1 = parseFloat(watchedAmount1);
+
+    if (a0 <= 0 || a1 <= 0) return null;
+
+    const ratio = a1 / a0;
+    return `Creating pool at ${ratio.toFixed(4)} ${token1.symbol} per ${token0.symbol}`;
+  }, [watchedAmount0, watchedAmount1, token0, token1]);
 
   // Estimate pool share after adding liquidity
   const estimatedPoolShare = useMemo(() => {
@@ -152,6 +190,10 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
 
   const getButtonText = () => {
     switch (step) {
+      case 'checking-pool':
+        return 'Checking pool...';
+      case 'initializing-pool':
+        return 'Creating pool...';
       case 'checking-token0':
         return 'Checking allowance...';
       case 'approving-token0':
@@ -167,15 +209,21 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
       case 'error':
         return 'Try Again';
       default:
-        if (!poolExists) {
-          return 'Create Pool';
+        // If pool is not initialized, we'll create it automatically
+        if (!isInitialized) {
+          return 'Create Pool & Add Liquidity';
         }
         return 'Add Liquidity';
     }
   };
 
-  // Show loading state while pools are being discovered
-  if (!poolsLoaded) {
+  // Can add liquidity as long as we have a hook address (we'll auto-initialize if needed)
+  const canAddLiquidity = !!hookAddress;
+
+  // Show loading state while pools are being discovered (but only briefly)
+  const isLoadingPools = usePoolStore(state => state.isLoadingPools);
+
+  if (isLoadingPools) {
     return (
       <Card>
         <CardContent className="py-8">
@@ -188,13 +236,17 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
     );
   }
 
+  // If no hook address available, show error
   if (!hookAddress) {
     return (
       <Card>
+        <CardHeader>
+          <CardTitle>Add Liquidity</CardTitle>
+        </CardHeader>
         <CardContent className="py-8">
           <div className="text-center text-feather-white/60">
-            <p>No pools found on this network</p>
-            <p className="text-sm mt-2">Deploy contracts and refresh the page</p>
+            <p>No FheatherX contract deployed on this network</p>
+            <p className="text-sm mt-2">Switch to a supported network or deploy contracts</p>
           </div>
         </CardContent>
       </Card>
@@ -224,9 +276,16 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {/* Token 0 Input */}
             <div>
-              <label className="block text-sm font-medium mb-2">
-                {token0?.symbol || 'Token0'} Amount
-              </label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-sm font-medium">
+                  {token0?.symbol || 'Token0'} Amount
+                </label>
+                {balance0 && (
+                  <span className="text-xs text-feather-white/60">
+                    Balance: {parseFloat(formatUnits(balance0.value, balance0.decimals)).toFixed(4)} {token0?.symbol}
+                  </span>
+                )}
+              </div>
               <Input
                 {...register('amount0')}
                 type="text"
@@ -236,6 +295,19 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                 disabled={!token0 || isLoading}
                 data-testid="add-liquidity-amount0"
               />
+              <div className="flex gap-1 mt-1">
+                {[25, 50, 75, 100].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => handlePercentageClick(pct, true)}
+                    className="px-2 py-0.5 text-xs bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!balance0 || isLoading}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
               {errors.amount0 && (
                 <p className="text-deep-magenta text-sm mt-1">
                   {errors.amount0.message}
@@ -245,9 +317,16 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
 
             {/* Token 1 Input */}
             <div>
-              <label className="block text-sm font-medium mb-2">
-                {token1?.symbol || 'Token1'} Amount
-              </label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-sm font-medium">
+                  {token1?.symbol || 'Token1'} Amount
+                </label>
+                {balance1 && (
+                  <span className="text-xs text-feather-white/60">
+                    Balance: {parseFloat(formatUnits(balance1.value, balance1.decimals)).toFixed(4)} {token1?.symbol}
+                  </span>
+                )}
+              </div>
               <Input
                 {...register('amount1')}
                 type="text"
@@ -257,6 +336,19 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                 disabled={!token1 || isLoading}
                 data-testid="add-liquidity-amount1"
               />
+              <div className="flex gap-1 mt-1">
+                {[25, 50, 75, 100].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => handlePercentageClick(pct, false)}
+                    className="px-2 py-0.5 text-xs bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!balance1 || isLoading}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
               {errors.amount1 && (
                 <p className="text-deep-magenta text-sm mt-1">
                   {errors.amount1.message}
@@ -270,13 +362,20 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                 {/* Pool Status */}
                 <div className="flex justify-between">
                   <span className="text-feather-white/60">Pool Status</span>
-                  <span className={poolExists ? 'text-green-400' : 'text-blue-400'}>
-                    {isLoadingPool ? 'Loading...' : poolExists ? 'Active' : 'New Pool'}
+                  <span className={isInitialized ? 'text-green-400' : !isLoadingPool ? 'text-blue-400' : 'text-feather-white/60'}>
+                    {isLoadingPool ? 'Loading...' : isInitialized ? 'Active' : 'New Pool'}
                   </span>
                 </div>
 
+                {/* Info for new pool */}
+                {!isLoadingPool && !isInitialized && (
+                  <div className="text-blue-400 text-xs">
+                    {priceRatioText || 'Enter amounts to set initial price ratio'}
+                  </div>
+                )}
+
                 {/* Current Reserves (if pool exists) */}
-                {poolExists && reserve0 > 0n && (
+                {isInitialized && reserve0 > 0n && (
                   <div className="flex justify-between">
                     <span className="text-feather-white/60">Current Reserves</span>
                     <span>
@@ -317,7 +416,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
               <Button
                 type="submit"
                 loading={isLoading}
-                disabled={!token0 || !token1 || step === 'complete'}
+                disabled={!token0 || !token1 || !canAddLiquidity || step === 'complete'}
                 className="flex-1"
                 data-testid="add-liquidity-submit"
               >

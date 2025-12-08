@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useAccount, usePublicClient } from 'wagmi';
+import { useAccount, usePublicClient, useChainId } from 'wagmi';
 import { FHEATHERX_V5_ABI } from '@/lib/contracts/fheatherXv5Abi';
+import { POOL_MANAGER_ABI } from '@/lib/contracts/poolManagerAbi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSmartWriteContract } from './useTestWriteContract';
-import { getPoolIdFromTokens } from '@/lib/poolId';
+import { getPoolIdFromTokens, createPoolKey } from '@/lib/poolId';
+import { POOL_MANAGER_ADDRESSES, SQRT_PRICE_1_1 } from '@/lib/contracts/addresses';
 import type { Token } from '@/lib/tokens';
 
 // Debug logger for add liquidity flow
@@ -17,6 +19,8 @@ const debugLog = (stage: string, data?: unknown) => {
 
 type AddLiquidityStep =
   | 'idle'
+  | 'checking-pool'
+  | 'initializing-pool'
   | 'checking-token0'
   | 'approving-token0'
   | 'checking-token1'
@@ -31,7 +35,8 @@ interface UseAddLiquidityResult {
     token1: Token,
     hookAddress: `0x${string}`,
     amount0: bigint,
-    amount1: bigint
+    amount1: bigint,
+    isPoolInitialized?: boolean
   ) => Promise<void>;
   step: AddLiquidityStep;
   isLoading: boolean;
@@ -44,6 +49,7 @@ interface UseAddLiquidityResult {
 export function useAddLiquidity(): UseAddLiquidityResult {
   const { address } = useAccount();
   const publicClient = usePublicClient();
+  const chainId = useChainId();
   const { writeContractAsync } = useSmartWriteContract();
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
@@ -66,7 +72,8 @@ export function useAddLiquidity(): UseAddLiquidityResult {
     token1: Token,
     hookAddress: `0x${string}`,
     amount0: bigint,
-    amount1: bigint
+    amount1: bigint,
+    isPoolInitialized: boolean = true
   ): Promise<void> => {
     setError(null);
     setTxHash(null);
@@ -78,6 +85,7 @@ export function useAddLiquidity(): UseAddLiquidityResult {
       hookAddress,
       amount0: amount0.toString(),
       amount1: amount1.toString(),
+      isPoolInitialized,
     });
 
     // Validate wallet connection
@@ -97,9 +105,9 @@ export function useAddLiquidity(): UseAddLiquidityResult {
       return;
     }
 
-    // Validate amounts
-    if (amount0 === 0n && amount1 === 0n) {
-      const message = 'Enter at least one token amount';
+    // Validate amounts - contract requires BOTH to be > 0
+    if (amount0 === 0n || amount1 === 0n) {
+      const message = 'Both token amounts must be greater than 0';
       setError(message);
       setStep('error');
       errorToast('Invalid Input', message);
@@ -107,9 +115,49 @@ export function useAddLiquidity(): UseAddLiquidityResult {
     }
 
     try {
-      // Compute poolId
+      // Compute poolId and poolKey
       const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
+      const poolKey = createPoolKey(token0, token1, hookAddress);
       debugLog('Computed poolId', poolId);
+
+      // Initialize pool if needed
+      if (!isPoolInitialized) {
+        setStep('initializing-pool');
+        debugLog('Initializing pool via PoolManager');
+
+        const poolManagerAddress = POOL_MANAGER_ADDRESSES[chainId];
+        if (!poolManagerAddress || poolManagerAddress === '0x0000000000000000000000000000000000000000') {
+          throw new Error('PoolManager address not configured for this network');
+        }
+
+        const initHash = await writeContractAsync({
+          address: poolManagerAddress,
+          abi: POOL_MANAGER_ABI,
+          functionName: 'initialize',
+          args: [
+            {
+              currency0: poolKey.currency0,
+              currency1: poolKey.currency1,
+              fee: poolKey.fee,
+              tickSpacing: poolKey.tickSpacing,
+              hooks: poolKey.hooks,
+            },
+            SQRT_PRICE_1_1,
+          ],
+        });
+
+        debugLog('Pool initialization tx submitted', { hash: initHash });
+
+        addTransaction({
+          hash: initHash,
+          type: 'deposit',
+          description: `Initialize ${token0.symbol}/${token1.symbol} pool`,
+        });
+
+        await publicClient.waitForTransactionReceipt({ hash: initHash });
+        updateTransaction(initHash, { status: 'confirmed' });
+        debugLog('Pool initialized successfully');
+      }
 
       // Check and approve token0 if needed
       if (amount0 > 0n) {
@@ -235,27 +283,37 @@ export function useAddLiquidity(): UseAddLiquidityResult {
         error: err,
         name: err instanceof Error ? err.name : 'Unknown',
         message: err instanceof Error ? err.message : String(err),
+        cause: (err as { cause?: unknown })?.cause,
+        shortMessage: (err as { shortMessage?: string })?.shortMessage,
+        details: (err as { details?: string })?.details,
       });
 
       // Better error message parsing
       let message = 'Failed to add liquidity';
-      if (err instanceof Error) {
-        if (err.message.includes('User rejected') || err.message.includes('user rejected')) {
-          message = 'Transaction was cancelled';
-        } else if (err.message.includes('insufficient funds')) {
-          message = 'Insufficient funds for this transaction';
-        } else if (err.message.includes('insufficient balance')) {
-          message = 'Insufficient token balance';
-        } else {
-          message = err.message;
-        }
+      const errAny = err as { shortMessage?: string; message?: string };
+      const errString = errAny.shortMessage || errAny.message || String(err);
+
+      if (errString.includes('User rejected') || errString.includes('user rejected')) {
+        message = 'Transaction was cancelled';
+      } else if (errString.includes('insufficient funds')) {
+        message = 'Insufficient funds for this transaction';
+      } else if (errString.includes('insufficient balance')) {
+        message = 'Insufficient token balance';
+      } else if (errString.includes('ZeroAmount')) {
+        message = 'Both token amounts must be greater than 0';
+      } else if (errString.includes('PoolNotInitialized')) {
+        message = 'Pool not initialized. The pool must be created through Uniswap v4 PoolManager first.';
+      } else if (errString.includes('InsufficientLiquidity')) {
+        message = 'Insufficient liquidity in the pool';
+      } else {
+        message = errString;
       }
 
       setError(message);
       setStep('error');
       errorToast('Failed to add liquidity', message);
     }
-  }, [address, writeContractAsync, publicClient, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, writeContractAsync, publicClient, chainId, addTransaction, updateTransaction, successToast, errorToast]);
 
   const isLoading = step !== 'idle' && step !== 'complete' && step !== 'error';
 
