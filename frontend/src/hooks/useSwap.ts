@@ -43,7 +43,7 @@ export function useSwap(): UseSwapResult {
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
 
   // Get pool info from store
-  const getPoolByAddress = usePoolStore(state => state.getPoolByAddress);
+  const getPoolByKey = usePoolStore(state => state.getPoolByKey);
   const getSelectedPool = usePoolStore(state => state.getSelectedPool);
 
   const routerAddress = SWAP_ROUTER_ADDRESSES[chainId];
@@ -60,10 +60,10 @@ export function useSwap(): UseSwapResult {
     setQuote(null);
   }, []);
 
-  const getPoolKey = useCallback((hookAddress?: `0x${string}`): PoolKey | null => {
+  const buildPoolKey = useCallback((poolKeyString?: string): PoolKey | null => {
     // Get pool info from the store
-    const pool = hookAddress
-      ? getPoolByAddress(hookAddress)
+    const pool = poolKeyString
+      ? getPoolByKey(poolKeyString)
       : getSelectedPool();
 
     if (!pool) return null;
@@ -75,19 +75,18 @@ export function useSwap(): UseSwapResult {
       tickSpacing: TICK_SPACING,
       hooks: pool.hook,
     };
-  }, [getPoolByAddress, getSelectedPool]);
+  }, [getPoolByKey, getSelectedPool]);
 
   /**
    * Get a quote for a swap
    */
   const getQuote = useCallback(async (
     zeroForOne: boolean,
-    amountIn: bigint,
-    hookAddress?: `0x${string}`
+    amountIn: bigint
   ): Promise<SwapQuote | null> => {
     if (!publicClient || !routerAddress || !address) return null;
 
-    const poolKey = getPoolKey(hookAddress);
+    const poolKey = buildPoolKey();
     if (!poolKey) {
       console.error('No pool found for quote');
       return null;
@@ -141,7 +140,7 @@ export function useSwap(): UseSwapResult {
       setStep('error');
       return null;
     }
-  }, [publicClient, routerAddress, address, getPoolKey]);
+  }, [publicClient, routerAddress, address, buildPoolKey]);
 
   /**
    * Execute a swap
@@ -149,14 +148,13 @@ export function useSwap(): UseSwapResult {
   const swap = useCallback(async (
     zeroForOne: boolean,
     amountIn: bigint,
-    minAmountOut: bigint,
-    hookAddress?: `0x${string}`
+    minAmountOut: bigint
   ): Promise<`0x${string}`> => {
     if (!address || !routerAddress) {
       throw new Error('Wallet not connected');
     }
 
-    const poolKey = getPoolKey(hookAddress);
+    const poolKey = buildPoolKey();
     if (!poolKey) {
       throw new Error('No pool selected');
     }
@@ -206,7 +204,7 @@ export function useSwap(): UseSwapResult {
       errorToast('Swap failed', message);
       throw err;
     }
-  }, [address, routerAddress, publicClient, writeContractAsync, getPoolKey, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, routerAddress, publicClient, writeContractAsync, buildPoolKey, addTransaction, updateTransaction, successToast, errorToast]);
 
   return {
     getQuote,

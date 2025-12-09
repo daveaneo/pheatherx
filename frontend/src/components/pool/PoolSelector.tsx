@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { usePoolStore, useSelectedPool } from '@/stores/poolStore';
+import { usePoolStore, useSelectedPool, getPoolKey } from '@/stores/poolStore';
 import { cn } from '@/lib/utils';
 import type { Pool } from '@/types/pool';
 
@@ -43,7 +43,7 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
   });
 
   const handleSelect = (pool: Pool) => {
-    selectPool(pool.hook);
+    selectPool(getPoolKey(pool));
     setIsOpen(false);
     setSearch('');
   };
@@ -128,43 +128,47 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
             {filteredPools.length === 0 ? (
               <div className="p-4 text-center text-feather-white/50">No pools found</div>
             ) : (
-              filteredPools.map((pool, index) => (
-                <button
-                  key={pool.hook}
-                  onClick={() => handleSelect(pool)}
-                  className={cn(
-                    'w-full px-4 py-3 flex items-center gap-3 hover:bg-carbon-gray/50 transition-colors',
-                    pool.hook === selectedPool?.hook && 'bg-carbon-gray/30'
-                  )}
-                  data-testid={`pool-option-${index}`}
-                >
-                  {/* Token Pair */}
-                  <div className="flex-1 text-left">
-                    <div className="font-medium text-feather-white">
-                      {formatPoolLabel(pool)}
+              filteredPools.map((pool, index) => {
+                const poolKey = getPoolKey(pool);
+                const isSelected = selectedPool && getPoolKey(selectedPool) === poolKey;
+                return (
+                  <button
+                    key={poolKey}
+                    onClick={() => handleSelect(pool)}
+                    className={cn(
+                      'w-full px-4 py-3 flex items-center gap-3 hover:bg-carbon-gray/50 transition-colors',
+                      isSelected && 'bg-carbon-gray/30'
+                    )}
+                    data-testid={`pool-option-${index}`}
+                  >
+                    {/* Token Pair */}
+                    <div className="flex-1 text-left">
+                      <div className="font-medium text-feather-white">
+                        {formatPoolLabel(pool)}
+                      </div>
+                      <div className="text-xs text-feather-white/50">
+                        {truncateAddress(pool.hook)}
+                      </div>
                     </div>
-                    <div className="text-xs text-feather-white/50">
-                      {truncateAddress(pool.hook)}
-                    </div>
-                  </div>
 
-                  {/* Active indicator */}
-                  {pool.active && (
-                    <span className="w-2 h-2 rounded-full bg-green-500" title="Active" />
-                  )}
+                    {/* Active indicator */}
+                    {pool.active && (
+                      <span className="w-2 h-2 rounded-full bg-green-500" title="Active" />
+                    )}
 
-                  {/* Selected indicator */}
-                  {pool.hook === selectedPool?.hook && (
-                    <svg className="w-4 h-4 text-phoenix-ember" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  )}
-                </button>
-              ))
+                    {/* Selected indicator */}
+                    {isSelected && (
+                      <svg className="w-4 h-4 text-phoenix-ember" fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>

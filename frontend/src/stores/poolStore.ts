@@ -4,6 +4,14 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Pool, PoolInfo, Token } from '@/types/pool';
 
+/**
+ * Generate a unique pool key from hook + token addresses
+ * This is needed because multiple pools can share the same hook address
+ */
+export function getPoolKey(pool: Pool | { hook: `0x${string}`; token0: `0x${string}`; token1: `0x${string}` }): string {
+  return `${pool.hook}-${pool.token0}-${pool.token1}`.toLowerCase();
+}
+
 interface PoolState {
   // Pool data (keyed by chainId for multi-chain support)
   poolsByChain: Record<number, Pool[]>;
@@ -13,24 +21,25 @@ interface PoolState {
   // Track which chains have completed initial pool discovery
   poolsLoadedByChain: Record<number, boolean>;
 
-  // Selection state (per chain)
-  selectedPoolAddressByChain: Record<number, `0x${string}` | null>;
+  // Selection state (per chain) - now uses poolKey instead of just hookAddress
+  selectedPoolKeyByChain: Record<number, string | null>;
 
   // Actions
   setPools: (chainId: number, pools: Pool[]) => void;
   setCurrentChainId: (chainId: number) => void;
   setLoadingPools: (loading: boolean) => void;
   setPoolsError: (error: string | null) => void;
-  selectPool: (hookAddress: `0x${string}`) => void;
+  selectPool: (poolKey: string) => void;
+  selectPoolByTokens: (hook: `0x${string}`, token0: `0x${string}`, token1: `0x${string}`) => void;
   clearSelection: () => void;
   clearPoolsForChain: (chainId: number) => void;
 
   // Derived getters (use currentChainId)
   pools: Pool[];
-  selectedPoolAddress: `0x${string}` | null;
+  selectedPoolKey: string | null;
   poolsLoaded: boolean;
   getSelectedPool: () => Pool | undefined;
-  getPoolByAddress: (hookAddress: `0x${string}`) => Pool | undefined;
+  getPoolByKey: (poolKey: string) => Pool | undefined;
 }
 
 export const usePoolStore = create<PoolState>()(
@@ -42,7 +51,7 @@ export const usePoolStore = create<PoolState>()(
       isLoadingPools: false,
       poolsError: null,
       poolsLoadedByChain: {},
-      selectedPoolAddressByChain: {},
+      selectedPoolKeyByChain: {},
 
       // Computed properties
       get pools() {
@@ -50,9 +59,9 @@ export const usePoolStore = create<PoolState>()(
         return currentChainId ? (poolsByChain[currentChainId] || []) : [];
       },
 
-      get selectedPoolAddress() {
-        const { selectedPoolAddressByChain, currentChainId } = get();
-        return currentChainId ? (selectedPoolAddressByChain[currentChainId] || null) : null;
+      get selectedPoolKey() {
+        const { selectedPoolKeyByChain, currentChainId } = get();
+        return currentChainId ? (selectedPoolKeyByChain[currentChainId] || null) : null;
       },
 
       get poolsLoaded() {
@@ -62,8 +71,8 @@ export const usePoolStore = create<PoolState>()(
 
       // Actions
       setPools: (chainId, pools) => {
-        const currentSelection = get().selectedPoolAddressByChain[chainId];
-        const hasValidSelection = currentSelection && pools.some(p => p.hook === currentSelection);
+        const currentSelection = get().selectedPoolKeyByChain[chainId];
+        const hasValidSelection = currentSelection && pools.some(p => getPoolKey(p) === currentSelection);
 
         set(state => ({
           poolsByChain: {
@@ -76,12 +85,12 @@ export const usePoolStore = create<PoolState>()(
             [chainId]: true,
           },
           // Auto-select first pool if no valid selection for this chain
-          selectedPoolAddressByChain: {
-            ...state.selectedPoolAddressByChain,
+          selectedPoolKeyByChain: {
+            ...state.selectedPoolKeyByChain,
             [chainId]: hasValidSelection
               ? currentSelection
               : pools.length > 0
-                ? pools[0].hook
+                ? getPoolKey(pools[0])
                 : null,
           },
         }));
@@ -96,21 +105,27 @@ export const usePoolStore = create<PoolState>()(
 
       setPoolsError: error => set({ poolsError: error }),
 
-      selectPool: hookAddress => {
+      selectPool: poolKey => {
         const { currentChainId, poolsByChain } = get();
         if (!currentChainId) return;
 
         const pools = poolsByChain[currentChainId] || [];
-        const poolExists = pools.some(p => p.hook === hookAddress);
+        const poolExists = pools.some(p => getPoolKey(p) === poolKey);
 
         if (poolExists) {
+          console.log('[PoolStore] Selecting pool:', poolKey);
           set(state => ({
-            selectedPoolAddressByChain: {
-              ...state.selectedPoolAddressByChain,
-              [currentChainId]: hookAddress,
+            selectedPoolKeyByChain: {
+              ...state.selectedPoolKeyByChain,
+              [currentChainId]: poolKey,
             },
           }));
         }
+      },
+
+      selectPoolByTokens: (hook, token0, token1) => {
+        const poolKey = `${hook}-${token0}-${token1}`.toLowerCase();
+        get().selectPool(poolKey);
       },
 
       clearSelection: () => {
@@ -118,8 +133,8 @@ export const usePoolStore = create<PoolState>()(
         if (!currentChainId) return;
 
         set(state => ({
-          selectedPoolAddressByChain: {
-            ...state.selectedPoolAddressByChain,
+          selectedPoolKeyByChain: {
+            ...state.selectedPoolKeyByChain,
             [currentChainId]: null,
           },
         }));
@@ -132,8 +147,8 @@ export const usePoolStore = create<PoolState>()(
             ...state.poolsByChain,
             [chainId]: [],
           },
-          selectedPoolAddressByChain: {
-            ...state.selectedPoolAddressByChain,
+          selectedPoolKeyByChain: {
+            ...state.selectedPoolKeyByChain,
             [chainId]: null,
           },
         }));
@@ -141,24 +156,24 @@ export const usePoolStore = create<PoolState>()(
 
       // Getters
       getSelectedPool: () => {
-        const { poolsByChain, selectedPoolAddressByChain, currentChainId } = get();
+        const { poolsByChain, selectedPoolKeyByChain, currentChainId } = get();
         if (!currentChainId) return undefined;
         const pools = poolsByChain[currentChainId] || [];
-        const selectedAddress = selectedPoolAddressByChain[currentChainId];
-        return pools.find(p => p.hook === selectedAddress);
+        const selectedKey = selectedPoolKeyByChain[currentChainId];
+        return pools.find(p => getPoolKey(p) === selectedKey);
       },
 
-      getPoolByAddress: hookAddress => {
+      getPoolByKey: poolKey => {
         const { poolsByChain, currentChainId } = get();
         if (!currentChainId) return undefined;
         const pools = poolsByChain[currentChainId] || [];
-        return pools.find(p => p.hook === hookAddress);
+        return pools.find(p => getPoolKey(p) === poolKey);
       },
     }),
     {
-      name: 'fheatherx-pools',
+      name: 'fheatherx-pools-v2', // New key to avoid conflicts with old data
       partialize: state => ({
-        selectedPoolAddressByChain: state.selectedPoolAddressByChain,
+        selectedPoolKeyByChain: state.selectedPoolKeyByChain,
       }),
     }
   )
