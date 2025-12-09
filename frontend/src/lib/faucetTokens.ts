@@ -18,6 +18,7 @@ export interface FaucetConfig {
 }
 
 // Faucet tokens deployed on Ethereum Sepolia (Chain ID: 11155111)
+// Source: contracts/deployments/v6-eth-sepolia.json
 export const ETH_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
   {
     address: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56',
@@ -53,12 +54,54 @@ export const ETH_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
   },
 ];
 
+// Faucet tokens deployed on Arbitrum Sepolia (Chain ID: 421614)
+// Source: contracts/deployments/v6-arb-sepolia.json
+export const ARB_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
+  {
+    address: '0x83BC78029f3aC12D59d91B861E8Dc680090C7435',
+    symbol: 'USDC',
+    name: 'USDC',
+    decimals: 6,
+    type: 'erc20',
+    faucetAmount: 100,
+  },
+  {
+    address: '0x4b6ba4Bbfb4ffBcc916CAe8BA10E0bb0C5fEf23a',
+    symbol: 'WETH',
+    name: 'WETH',
+    decimals: 18,
+    type: 'erc20',
+    faucetAmount: 100,
+  },
+  {
+    address: '0x90A93499Ac71725864c3dc23c9AB26f46cb377dE',
+    symbol: 'fheUSDC',
+    name: 'FHE USDC',
+    decimals: 6,
+    type: 'fheerc20',
+    faucetAmount: 100,
+  },
+  {
+    address: '0x9fcAa2Fde62f5cbe756500B6a47383B84D862C86',
+    symbol: 'fheWETH',
+    name: 'FHE WETH',
+    decimals: 18,
+    type: 'fheerc20',
+    faucetAmount: 100,
+  },
+];
+
 // Faucet configuration by chain ID
 export const FAUCET_CONFIG: Record<number, FaucetConfig> = {
   // Ethereum Sepolia
   11155111: {
     tokens: ETH_SEPOLIA_FAUCET_TOKENS,
     ethFaucetAmount: '0.002',
+  },
+  // Arbitrum Sepolia (no public ETH faucet - bridge from ETH Sepolia or use funded account)
+  421614: {
+    tokens: ARB_SEPOLIA_FAUCET_TOKENS,
+    ethFaucetAmount: '0.001',
   },
   // Local Anvil (if needed in future)
   31337: {
