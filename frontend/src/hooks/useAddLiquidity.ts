@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient, useChainId } from 'wagmi';
-import { FHEATHERX_V5_ABI } from '@/lib/contracts/fheatherXv5Abi';
+import { FHEATHERX_V6_ABI, type InEuint128, V6_DEFAULTS } from '@/lib/contracts/fheatherXv6Abi';
+import { useFheSession } from './useFheSession';
 import { POOL_MANAGER_ABI } from '@/lib/contracts/poolManagerAbi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { useToast } from '@/stores/uiStore';
@@ -30,7 +31,17 @@ type AddLiquidityStep =
   | 'error';
 
 interface UseAddLiquidityResult {
+  // Plaintext liquidity (works with all pool types)
   addLiquidity: (
+    token0: Token,
+    token1: Token,
+    hookAddress: `0x${string}`,
+    amount0: bigint,
+    amount1: bigint,
+    isPoolInitialized?: boolean
+  ) => Promise<void>;
+  // Encrypted liquidity (requires both tokens to be FHERC20)
+  addLiquidityEncrypted: (
     token0: Token,
     token1: Token,
     hookAddress: `0x${string}`,
@@ -54,6 +65,7 @@ export function useAddLiquidity(): UseAddLiquidityResult {
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
+  const { encrypt, isReady: fheReady, isMock: fheMock } = useFheSession();
 
   const [step, setStep] = useState<AddLiquidityStep>('idle');
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
@@ -237,13 +249,13 @@ export function useAddLiquidity(): UseAddLiquidityResult {
         }
       }
 
-      // Add liquidity using v5 AMM function
+      // Add liquidity using v6 AMM function (plaintext)
       setStep('adding-liquidity');
       debugLog('Adding liquidity', { poolId, amount0: amount0.toString(), amount1: amount1.toString() });
 
       const addLiquidityHash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'addLiquidity',
         args: [poolId, amount0, amount1],
       });
@@ -315,10 +327,222 @@ export function useAddLiquidity(): UseAddLiquidityResult {
     }
   }, [address, writeContractAsync, publicClient, chainId, addTransaction, updateTransaction, successToast, errorToast]);
 
+  /**
+   * Add liquidity with encrypted amounts (requires both tokens to be FHERC20)
+   */
+  const addLiquidityEncrypted = useCallback(async (
+    token0: Token,
+    token1: Token,
+    hookAddress: `0x${string}`,
+    amount0: bigint,
+    amount1: bigint,
+    isPoolInitialized: boolean = true
+  ): Promise<void> => {
+    setError(null);
+    setTxHash(null);
+    setLpAmountReceived(null);
+
+    debugLog('Starting add liquidity encrypted', {
+      token0: token0.symbol,
+      token1: token1.symbol,
+      hookAddress,
+      amount0: amount0.toString(),
+      amount1: amount1.toString(),
+    });
+
+    if (!address) {
+      const message = 'Wallet not connected';
+      setError(message);
+      setStep('error');
+      errorToast('Connection Error', message);
+      return;
+    }
+
+    if (!publicClient) {
+      const message = 'Public client not available';
+      setError(message);
+      setStep('error');
+      errorToast('Connection Error', message);
+      return;
+    }
+
+    // Check FHE session
+    if (!fheMock && (!encrypt || !fheReady)) {
+      const message = 'FHE session not ready. Please initialize FHE first.';
+      setError(message);
+      setStep('error');
+      errorToast('FHE Error', message);
+      return;
+    }
+
+    // Validate amounts
+    if (amount0 === 0n || amount1 === 0n) {
+      const message = 'Both token amounts must be greater than 0';
+      setError(message);
+      setStep('error');
+      errorToast('Invalid Input', message);
+      return;
+    }
+
+    try {
+      // Compute poolId
+      const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
+      debugLog('Computed poolId for encrypted', poolId);
+
+      // TODO: Add pool initialization check similar to plaintext version
+
+      // Check and approve token0
+      if (amount0 > 0n) {
+        setStep('checking-token0');
+        const allowance0 = await publicClient.readContract({
+          address: token0.address,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [address, hookAddress],
+        }) as bigint;
+
+        if (allowance0 < amount0) {
+          setStep('approving-token0');
+          const approveHash = await writeContractAsync({
+            address: token0.address,
+            abi: ERC20_ABI,
+            functionName: 'approve',
+            args: [hookAddress, amount0],
+          });
+
+          addTransaction({
+            hash: approveHash,
+            type: 'approve',
+            description: `Approve ${token0.symbol} for encrypted liquidity`,
+          });
+
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          updateTransaction(approveHash, { status: 'confirmed' });
+        }
+      }
+
+      // Check and approve token1
+      if (amount1 > 0n) {
+        setStep('checking-token1');
+        const allowance1 = await publicClient.readContract({
+          address: token1.address,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [address, hookAddress],
+        }) as bigint;
+
+        if (allowance1 < amount1) {
+          setStep('approving-token1');
+          const approveHash = await writeContractAsync({
+            address: token1.address,
+            abi: ERC20_ABI,
+            functionName: 'approve',
+            args: [hookAddress, amount1],
+          });
+
+          addTransaction({
+            hash: approveHash,
+            type: 'approve',
+            description: `Approve ${token1.symbol} for encrypted liquidity`,
+          });
+
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          updateTransaction(approveHash, { status: 'confirmed' });
+        }
+      }
+
+      // Encrypt amounts
+      setStep('adding-liquidity');
+      debugLog('Encrypting amounts');
+
+      let encAmount0: InEuint128;
+      let encAmount1: InEuint128;
+
+      if (fheMock) {
+        // Mock encryption for testing
+        encAmount0 = {
+          ctHash: amount0,
+          securityZone: 0,
+          utype: 7, // euint128 type
+          signature: '0x' as `0x${string}`,
+        };
+        encAmount1 = {
+          ctHash: amount1,
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
+      } else {
+        // Real FHE encryption
+        const encrypted0 = await encrypt!(amount0);
+        const encrypted1 = await encrypt!(amount1);
+        // TODO: Parse actual encrypted response format
+        encAmount0 = {
+          ctHash: BigInt('0x' + Buffer.from(encrypted0).toString('hex')),
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
+        encAmount1 = {
+          ctHash: BigInt('0x' + Buffer.from(encrypted1).toString('hex')),
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
+      }
+
+      debugLog('Calling addLiquidityEncrypted', { poolId, encAmount0, encAmount1 });
+
+      const addLiquidityHash = await writeContractAsync({
+        address: hookAddress,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'addLiquidityEncrypted',
+        args: [poolId, encAmount0, encAmount1],
+      });
+
+      debugLog('Add liquidity encrypted tx submitted', { hash: addLiquidityHash });
+      setTxHash(addLiquidityHash);
+
+      addTransaction({
+        hash: addLiquidityHash,
+        type: 'deposit',
+        description: `Add ${token0.symbol}/${token1.symbol} encrypted liquidity`,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash: addLiquidityHash });
+      updateTransaction(addLiquidityHash, { status: 'confirmed' });
+
+      setStep('complete');
+      successToast('Encrypted liquidity added successfully');
+
+    } catch (err: unknown) {
+      debugLog('ERROR in add liquidity encrypted flow', err);
+
+      let message = 'Failed to add encrypted liquidity';
+      const errAny = err as { shortMessage?: string; message?: string };
+      const errString = errAny.shortMessage || errAny.message || String(err);
+
+      if (errString.includes('User rejected') || errString.includes('user rejected')) {
+        message = 'Transaction was cancelled';
+      } else if (errString.includes('BothTokensMustBeFherc20')) {
+        message = 'Encrypted liquidity requires both tokens to be FHERC20. Use plaintext addLiquidity instead.';
+      } else if (errString.includes('ZeroAmount')) {
+        message = 'Both token amounts must be greater than 0';
+      } else {
+        message = errString;
+      }
+
+      setError(message);
+      setStep('error');
+      errorToast('Failed to add encrypted liquidity', message);
+    }
+  }, [address, writeContractAsync, publicClient, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
+
   const isLoading = step !== 'idle' && step !== 'complete' && step !== 'error';
 
   return {
     addLiquidity,
+    addLiquidityEncrypted,
     step,
     isLoading,
     txHash,

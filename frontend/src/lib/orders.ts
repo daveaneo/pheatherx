@@ -26,17 +26,29 @@ export function deriveOrderType(isBuyOrder: boolean, isStopOrder: boolean): Orde
 
 /**
  * Convert order type to contract flags
+ *
+ * In v6:
+ * - BUY orders (side=0): User deposits token1 to buy token0 when price drops
+ * - SELL orders (side=1): User deposits token0 to sell for token1 when price rises
  */
-export function orderTypeToFlags(orderType: OrderType): { isBuyOrder: boolean; isStopOrder: boolean } {
+export function orderTypeToFlags(orderType: OrderType): {
+  isBuyOrder: boolean;
+  isStopOrder: boolean;
+  depositToken: 'token0' | 'token1';
+} {
   switch (orderType) {
     case 'limit-buy':
-      return { isBuyOrder: true, isStopOrder: false };
+      // Buy token0 when price drops → deposit token1
+      return { isBuyOrder: true, isStopOrder: false, depositToken: 'token1' };
     case 'limit-sell':
-      return { isBuyOrder: false, isStopOrder: false };
+      // Sell token0 when price rises → deposit token0
+      return { isBuyOrder: false, isStopOrder: false, depositToken: 'token0' };
     case 'stop-loss':
-      return { isBuyOrder: true, isStopOrder: true };
+      // Stop-loss: Sell token0 if price drops → deposit token0
+      return { isBuyOrder: false, isStopOrder: true, depositToken: 'token0' };
     case 'take-profit':
-      return { isBuyOrder: false, isStopOrder: true };
+      // Take-profit: Sell token0 when price rises → deposit token0
+      return { isBuyOrder: false, isStopOrder: true, depositToken: 'token0' };
   }
 }
 

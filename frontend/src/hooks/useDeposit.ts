@@ -1,27 +1,72 @@
 'use client';
 
+/**
+ * useDeposit - v6 Limit Order Deposit Hook
+ *
+ * In v6, deposit() is for placing LIMIT ORDERS, not AMM liquidity.
+ * For AMM liquidity, use useAddLiquidity instead.
+ *
+ * v6 deposit signature:
+ * deposit(PoolId poolId, int24 tick, BucketSide side, InEuint128 encryptedAmount, uint256 deadline, int24 maxTickDrift)
+ *
+ * Key constraints:
+ * - Input token must be FHERC20 (for MEV protection)
+ * - Amount is always encrypted
+ */
+
 import { useState, useCallback } from 'react';
-import { useAccount, useChainId, useWriteContract, usePublicClient, useWalletClient } from 'wagmi';
-import { FHEATHERX_ABI } from '@/lib/contracts/abi';
+import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
+import { FHEATHERX_V6_ABI, BucketSide, V6_DEFAULTS, type InEuint128, type BucketSideType } from '@/lib/contracts/fheatherXv6Abi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
-import { isNativeEth } from '@/lib/tokens';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSelectedPool } from '@/stores/poolStore';
+import { useFheSession } from './useFheSession';
+import { getPoolIdFromTokens } from '@/lib/poolId';
+import type { Token } from '@/lib/tokens';
 
-type DepositStep = 'idle' | 'checking' | 'approving' | 'depositing' | 'complete' | 'error';
+type DepositStep = 'idle' | 'checking' | 'approving' | 'encrypting' | 'depositing' | 'complete' | 'error';
 
 // Debug logger for deposit flow
 const debugLog = (stage: string, data?: unknown) => {
-  console.log(`[Deposit Debug] ${stage}`, data !== undefined ? data : '');
+  console.log(`[Deposit v6 Debug] ${stage}`, data !== undefined ? data : '');
 };
 
 interface UseDepositResult {
   // Actions
-  checkNeedsApproval: (isToken0: boolean, amount: bigint) => Promise<boolean>;
-  approve: (isToken0: boolean, amount: bigint) => Promise<`0x${string}`>;
-  deposit: (isToken0: boolean, amount: bigint) => Promise<`0x${string}`>;
-  approveAndDeposit: (isToken0: boolean, amount: bigint) => Promise<void>;
+  checkNeedsApproval: (token: Token, amount: bigint) => Promise<boolean>;
+  approve: (token: Token, amount: bigint) => Promise<`0x${string}`>;
+  /**
+   * Deposit tokens into a limit order bucket
+   * @param poolId - The pool ID (bytes32)
+   * @param tick - The trigger tick for the order
+   * @param side - BucketSide.BUY (0) or BucketSide.SELL (1)
+   * @param token - The token being deposited (must be FHERC20)
+   * @param amount - The amount to deposit (will be encrypted)
+   * @param deadline - Optional deadline timestamp (defaults to 1 hour from now)
+   * @param maxTickDrift - Optional max tick drift allowed (defaults to 10)
+   */
+  deposit: (
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType,
+    token: Token,
+    amount: bigint,
+    deadline?: bigint,
+    maxTickDrift?: number
+  ) => Promise<`0x${string}`>;
+  /**
+   * Combined approve and deposit flow
+   */
+  approveAndDeposit: (
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType,
+    token: Token,
+    amount: bigint,
+    deadline?: bigint,
+    maxTickDrift?: number
+  ) => Promise<void>;
 
   // State
   step: DepositStep;
@@ -37,28 +82,23 @@ export function useDeposit(): UseDepositResult {
   const { address, isConnected, connector } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
   const { writeContractAsync } = useWriteContract();
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
+  const { encrypt, isReady: fheReady, isMock: fheMock } = useFheSession();
 
   // Get addresses from selected pool (multi-pool support)
   const { hookAddress, token0, token1 } = useSelectedPool();
-  const token0Address = token0?.address;
-  const token1Address = token1?.address;
 
-  // Log connection state on mount
   debugLog('Hook initialized', {
     address,
     isConnected,
     connectorName: connector?.name,
     chainId,
     hookAddress,
-    token0Address,
-    token1Address,
-    hasWalletClient: !!walletClient,
-    hasPublicClient: !!publicClient,
+    fheReady,
+    fheMock,
   });
 
   const [step, setStep] = useState<DepositStep>('idle');
@@ -73,37 +113,23 @@ export function useDeposit(): UseDepositResult {
     setError(null);
   }, []);
 
-  const getTokenAddress = useCallback((isToken0: boolean): `0x${string}` | undefined => {
-    return isToken0 ? token0Address : token1Address;
-  }, [token0Address, token1Address]);
-
   /**
    * Check if approval is needed for the deposit
    */
   const checkNeedsApproval = useCallback(async (
-    isToken0: boolean,
+    token: Token,
     amount: bigint
   ): Promise<boolean> => {
-    debugLog('checkNeedsApproval called', { isToken0, amount: amount.toString() });
+    debugLog('checkNeedsApproval called', { token: token.symbol, amount: amount.toString() });
 
-    const tokenAddress = getTokenAddress(isToken0);
-    if (!address || !hookAddress || !publicClient || !tokenAddress) {
-      debugLog('checkNeedsApproval: missing deps', { address, hookAddress, hasPublicClient: !!publicClient, tokenAddress });
-      return false;
-    }
-
-    debugLog('checkNeedsApproval: token address', { tokenAddress, isToken0 });
-
-    // Native ETH doesn't need approval
-    if (isNativeEth(tokenAddress)) {
-      debugLog('checkNeedsApproval: native ETH, no approval needed');
+    if (!address || !hookAddress || !publicClient) {
+      debugLog('checkNeedsApproval: missing deps');
       return false;
     }
 
     try {
-      debugLog('checkNeedsApproval: reading allowance from chain');
       const allowance = await publicClient.readContract({
-        address: tokenAddress,
+        address: token.address,
         abi: ERC20_ABI,
         functionName: 'allowance',
         args: [address, hookAddress],
@@ -118,45 +144,29 @@ export function useDeposit(): UseDepositResult {
       return needsApproval;
     } catch (err) {
       debugLog('checkNeedsApproval: ERROR', err);
-      console.error('Failed to check allowance:', err);
-      return true; // Assume approval needed if check fails
+      return true;
     }
-  }, [address, hookAddress, publicClient, getTokenAddress]);
+  }, [address, hookAddress, publicClient]);
 
   /**
    * Approve ERC20 token spending
    */
   const approve = useCallback(async (
-    isToken0: boolean,
+    token: Token,
     amount: bigint
   ): Promise<`0x${string}`> => {
-    debugLog('approve called', { isToken0, amount: amount.toString() });
+    debugLog('approve called', { token: token.symbol, amount: amount.toString() });
 
-    const tokenAddress = getTokenAddress(isToken0);
-    if (!address || !hookAddress || !tokenAddress) {
-      debugLog('approve: missing deps', { address, hookAddress, tokenAddress });
+    if (!address || !hookAddress) {
       throw new Error('Wallet not connected or no pool selected');
-    }
-
-    debugLog('approve: token address', { tokenAddress });
-
-    if (isNativeEth(tokenAddress)) {
-      debugLog('approve: native ETH, skipping');
-      throw new Error('Native ETH does not require approval');
     }
 
     setStep('approving');
     setError(null);
 
     try {
-      debugLog('approve: calling writeContractAsync', {
-        tokenAddress,
-        spender: hookAddress,
-        amount: amount.toString()
-      });
-
       const hash = await writeContractAsync({
-        address: tokenAddress,
+        address: token.address,
         abi: ERC20_ABI,
         functionName: 'approve',
         args: [hookAddress, amount],
@@ -168,11 +178,9 @@ export function useDeposit(): UseDepositResult {
       addTransaction({
         hash,
         type: 'approve',
-        description: `Approve ${isToken0 ? 'Token0' : 'Token1'} for deposit`,
+        description: `Approve ${token.symbol} for limit order`,
       });
 
-      debugLog('approve: waiting for receipt');
-      // Wait for confirmation
       await publicClient?.waitForTransactionReceipt({ hash });
 
       debugLog('approve: confirmed');
@@ -180,57 +188,95 @@ export function useDeposit(): UseDepositResult {
       successToast('Approval confirmed');
       return hash;
     } catch (err: unknown) {
-      debugLog('approve: ERROR', {
-        error: err,
-        name: err instanceof Error ? err.name : 'Unknown',
-        message: err instanceof Error ? err.message : String(err),
-        // Check for specific wallet errors
-        code: (err as { code?: number })?.code,
-        details: (err as { details?: string })?.details,
-      });
+      debugLog('approve: ERROR', err);
       const message = err instanceof Error ? err.message : 'Approval failed';
       setError(message);
       setStep('error');
       errorToast('Approval failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast, getTokenAddress]);
+  }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
-   * Deposit tokens into the hook
+   * Deposit tokens into a limit order bucket
    */
   const deposit = useCallback(async (
-    isToken0: boolean,
-    amount: bigint
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType,
+    token: Token,
+    amount: bigint,
+    deadline?: bigint,
+    maxTickDrift?: number
   ): Promise<`0x${string}`> => {
-    debugLog('deposit called', { isToken0, amount: amount.toString() });
+    debugLog('deposit called', {
+      poolId,
+      tick,
+      side,
+      token: token.symbol,
+      amount: amount.toString(),
+      deadline: deadline?.toString(),
+      maxTickDrift
+    });
 
-    const tokenAddress = getTokenAddress(isToken0);
-    if (!address || !hookAddress || !tokenAddress) {
-      debugLog('deposit: missing deps', { address, hookAddress, tokenAddress });
+    if (!address || !hookAddress) {
       throw new Error('Wallet not connected or no pool selected');
     }
 
-    const isNative = isNativeEth(tokenAddress);
-    debugLog('deposit: token info', { tokenAddress, isNative });
+    // Check FHE session
+    if (!fheMock && (!encrypt || !fheReady)) {
+      throw new Error('FHE session not ready. Please initialize FHE first.');
+    }
 
-    setStep('depositing');
+    setStep('encrypting');
     setError(null);
 
     try {
-      debugLog('deposit: calling writeContractAsync', {
-        hookAddress,
-        isToken0,
-        amount: amount.toString(),
+      // Encrypt the amount
+      let encryptedAmount: InEuint128;
+
+      if (fheMock) {
+        // Mock encryption for testing
+        encryptedAmount = {
+          ctHash: amount,
+          securityZone: 0,
+          utype: 7, // euint128 type
+          signature: '0x' as `0x${string}`,
+        };
+        debugLog('deposit: using mock encryption');
+      } else {
+        // Real FHE encryption
+        const encrypted = await encrypt!(amount);
+        // TODO: Parse actual encrypted response format from CoFHE
+        encryptedAmount = {
+          ctHash: BigInt('0x' + Buffer.from(encrypted).toString('hex')),
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
+        debugLog('deposit: encrypted amount');
+      }
+
+      setStep('depositing');
+
+      // Calculate deadline if not provided (1 hour from now)
+      const effectiveDeadline = deadline ?? BigInt(Math.floor(Date.now() / 1000) + V6_DEFAULTS.DEADLINE_OFFSET);
+      const effectiveMaxTickDrift = maxTickDrift ?? V6_DEFAULTS.MAX_TICK_DRIFT;
+
+      debugLog('deposit: calling contract', {
+        poolId,
+        tick,
+        side,
+        encryptedAmount,
+        deadline: effectiveDeadline.toString(),
+        maxTickDrift: effectiveMaxTickDrift
       });
 
-      // Note: deposit function is nonpayable, so no value is sent
-      // Native ETH support would require a different contract function (depositETH)
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_ABI,
-        functionName: 'deposit' as const,
-        args: [isToken0, amount] as const,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'deposit',
+        args: [poolId, tick, side, encryptedAmount, effectiveDeadline, effectiveMaxTickDrift],
       });
 
       debugLog('deposit: tx submitted', { hash });
@@ -239,38 +285,31 @@ export function useDeposit(): UseDepositResult {
       addTransaction({
         hash,
         type: 'deposit',
-        description: `Deposit ${isToken0 ? 'Token0' : 'Token1'}`,
+        description: `Place ${side === BucketSide.BUY ? 'buy' : 'sell'} limit order at tick ${tick}`,
       });
 
-      debugLog('deposit: waiting for receipt');
-      // Wait for confirmation
       await publicClient?.waitForTransactionReceipt({ hash });
 
       debugLog('deposit: confirmed');
       updateTransaction(hash, { status: 'confirmed' });
       setStep('complete');
-      successToast('Deposit confirmed');
+      successToast('Limit order placed');
       return hash;
     } catch (err: unknown) {
-      debugLog('deposit: ERROR', {
-        error: err,
-        name: err instanceof Error ? err.name : 'Unknown',
-        message: err instanceof Error ? err.message : String(err),
-        // Check for specific wallet errors
-        code: (err as { code?: number })?.code,
-        details: (err as { details?: string })?.details,
-        cause: (err as { cause?: unknown })?.cause,
-        shortMessage: (err as { shortMessage?: string })?.shortMessage,
-      });
+      debugLog('deposit: ERROR', err);
 
-      // Better error message parsing
       let message = 'Deposit failed';
       if (err instanceof Error) {
-        // Check for common wallet rejection patterns
         if (err.message.includes('User rejected') || err.message.includes('user rejected')) {
-          message = 'Transaction was not signed. Please check your wallet - it may need you to approve the request.';
-        } else if (err.message.includes('insufficient funds')) {
-          message = 'Insufficient funds for this transaction';
+          message = 'Transaction was cancelled';
+        } else if (err.message.includes('InputTokenMustBeFherc20')) {
+          message = 'Limit orders require FHERC20 tokens for MEV protection';
+        } else if (err.message.includes('DeadlineExpired')) {
+          message = 'Transaction deadline expired';
+        } else if (err.message.includes('PriceMoved')) {
+          message = 'Price moved beyond maxTickDrift. Try again with a higher drift tolerance.';
+        } else if (err.message.includes('InvalidTick')) {
+          message = 'Invalid tick value. Tick must be a multiple of tick spacing.';
         } else {
           message = err.message;
         }
@@ -278,41 +317,38 @@ export function useDeposit(): UseDepositResult {
 
       setError(message);
       setStep('error');
-      errorToast('Deposit failed', message);
+      errorToast('Limit order failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast, getTokenAddress]);
+  }, [address, hookAddress, publicClient, writeContractAsync, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
    * Combined approve and deposit flow
    */
   const approveAndDeposit = useCallback(async (
-    isToken0: boolean,
-    amount: bigint
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType,
+    token: Token,
+    amount: bigint,
+    deadline?: bigint,
+    maxTickDrift?: number
   ): Promise<void> => {
-    debugLog('approveAndDeposit called', { isToken0, amount: amount.toString() });
+    debugLog('approveAndDeposit called');
     setStep('checking');
     setError(null);
 
     try {
-      // Check if approval needed
-      debugLog('approveAndDeposit: checking approval');
-      const needsApproval = await checkNeedsApproval(isToken0, amount);
+      const needsApproval = await checkNeedsApproval(token, amount);
       debugLog('approveAndDeposit: needsApproval =', needsApproval);
 
       if (needsApproval) {
-        debugLog('approveAndDeposit: starting approval');
-        await approve(isToken0, amount);
-        debugLog('approveAndDeposit: approval complete');
+        await approve(token, amount);
       }
 
-      debugLog('approveAndDeposit: starting deposit');
-      await deposit(isToken0, amount);
-      debugLog('approveAndDeposit: deposit complete');
+      await deposit(poolId, tick, side, token, amount, deadline, maxTickDrift);
     } catch (err) {
-      // Error already handled in individual functions
       debugLog('approveAndDeposit: ERROR in flow', err);
-      console.error('Approve and deposit failed:', err);
     }
   }, [checkNeedsApproval, approve, deposit]);
 
@@ -323,10 +359,13 @@ export function useDeposit(): UseDepositResult {
     approveAndDeposit,
     step,
     isApproving: step === 'approving',
-    isDepositing: step === 'depositing',
+    isDepositing: step === 'encrypting' || step === 'depositing',
     approvalHash,
     depositHash,
     error,
     reset,
   };
 }
+
+// Re-export BucketSide for convenience
+export { BucketSide };

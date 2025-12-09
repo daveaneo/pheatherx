@@ -59,7 +59,8 @@ export function SwapCard() {
       const zeroForOne = tokenIn.address === token0?.address;
       const parsedAmount = parseUnits(amountIn, tokenIn.decimals);
 
-      const newQuote = await getQuote(zeroForOne, parsedAmount, hookAddress);
+      // v6 getQuote uses defaultPoolId, no hookAddress needed
+      const newQuote = await getQuote(zeroForOne, parsedAmount);
       if (newQuote) {
         setAmountOut(formatUnits(newQuote.amountOut, tokenOut.decimals));
       }
@@ -87,7 +88,8 @@ export function SwapCard() {
     const slippageMultiplier = BigInt(Math.floor((100 - slippage) * 100));
     const minAmountOut = (quote.amountOut * slippageMultiplier) / BigInt(10000);
 
-    await swap(zeroForOne, parsedAmountIn, minAmountOut, hookAddress);
+    // v6 swap uses defaultPoolId, so no hookAddress param needed
+    await swap(zeroForOne, parsedAmountIn, minAmountOut);
   };
 
   const isValidInput = hookAddress && tokenIn && tokenOut && amountIn && parseFloat(amountIn) > 0;

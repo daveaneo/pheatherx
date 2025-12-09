@@ -1,18 +1,41 @@
 'use client';
 
+/**
+ * usePlaceOrder - v6 Limit Order Hook
+ *
+ * In v6, limit orders are placed via deposit() function:
+ * deposit(PoolId poolId, int24 tick, BucketSide side, InEuint128 encryptedAmount, uint256 deadline, int24 maxTickDrift)
+ *
+ * This hook provides a user-friendly API that wraps the v6 deposit function
+ * for placing limit orders.
+ */
+
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
-import { FHEATHERX_ABI } from '@/lib/contracts/abi';
-import { PROTOCOL_FEE_WEI } from '@/lib/constants';
+import { FHEATHERX_V6_ABI, BucketSide, V6_DEFAULTS, type InEuint128, type BucketSideType } from '@/lib/contracts/fheatherXv6Abi';
+import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { orderTypeToFlags, type OrderType } from '@/lib/orders';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSelectedPool } from '@/stores/poolStore';
 import { useFheSession } from './useFheSession';
+import { getPoolIdFromTokens } from '@/lib/poolId';
 
-type PlaceOrderStep = 'idle' | 'encrypting' | 'submitting' | 'complete' | 'error';
+type PlaceOrderStep = 'idle' | 'checking' | 'approving' | 'encrypting' | 'submitting' | 'complete' | 'error';
+
+// Debug logger
+const debugLog = (stage: string, data?: unknown) => {
+  console.log(`[PlaceOrder v6 Debug] ${stage}`, data !== undefined ? data : '');
+};
 
 interface UsePlaceOrderResult {
+  /**
+   * Place a limit order
+   * @param orderType - The type of order (limit-buy, limit-sell, stop-loss, take-profit)
+   * @param triggerTick - The tick at which the order triggers
+   * @param amount - The amount to deposit (will be encrypted)
+   * @param slippageBps - Slippage in basis points (used for maxTickDrift calculation)
+   */
   placeOrder: (
     orderType: OrderType,
     triggerTick: number,
@@ -34,10 +57,10 @@ export function usePlaceOrder(): UsePlaceOrderResult {
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
-  const { encrypt, encryptBool, isReady, isMock } = useFheSession();
+  const { encrypt, isReady, isMock } = useFheSession();
 
-  // Get hook address from selected pool (multi-pool support)
-  const { hookAddress } = useSelectedPool();
+  // Get pool info from selected pool (multi-pool support)
+  const { hookAddress, token0, token1 } = useSelectedPool();
 
   const [step, setStep] = useState<PlaceOrderStep>('idle');
   const [orderHash, setOrderHash] = useState<`0x${string}` | null>(null);
@@ -50,7 +73,7 @@ export function usePlaceOrder(): UsePlaceOrderResult {
   }, []);
 
   /**
-   * Place a new order
+   * Place a new limit order via v6 deposit()
    */
   const placeOrder = useCallback(async (
     orderType: OrderType,
@@ -58,73 +81,128 @@ export function usePlaceOrder(): UsePlaceOrderResult {
     amount: bigint,
     slippageBps: number
   ): Promise<`0x${string}`> => {
-    if (!address || !hookAddress) {
-      throw new Error('Wallet not connected');
+    debugLog('placeOrder called', { orderType, triggerTick, amount: amount.toString(), slippageBps });
+
+    if (!address || !hookAddress || !token0 || !token1) {
+      throw new Error('Wallet not connected or no pool selected');
     }
 
-    if (!isMock && (!encrypt || !encryptBool || !isReady)) {
-      throw new Error('FHE session not ready');
+    if (!isMock && (!encrypt || !isReady)) {
+      throw new Error('FHE session not ready. Please initialize FHE first.');
     }
 
-    setStep('encrypting');
+    setStep('checking');
     setError(null);
 
     try {
-      // Get order type flags
-      const { isBuyOrder } = orderTypeToFlags(orderType);
+      // Get order type flags to determine side and deposit token
+      const { isBuyOrder, depositToken: depositTokenType } = orderTypeToFlags(orderType);
 
-      // Encrypt the order parameters
-      let encryptedDirection: Uint8Array;
-      let encryptedAmount: Uint8Array;
-      let encryptedMinOutput: Uint8Array;
+      // v6 BucketSide: BUY=0, SELL=1
+      const side: BucketSideType = isBuyOrder ? BucketSide.BUY : BucketSide.SELL;
+
+      // Determine which token is being deposited
+      // BUY orders deposit token1 (to buy token0)
+      // SELL orders deposit token0 (to sell for token1)
+      const depositToken = depositTokenType === 'token0' ? token0 : token1;
+
+      debugLog('Order details', {
+        orderType,
+        side,
+        depositToken: depositToken.symbol,
+        isBuyOrder,
+      });
+
+      // Compute poolId
+      const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
+      debugLog('Computed poolId', poolId);
+
+      // Check and approve token if needed
+      const allowance = await publicClient?.readContract({
+        address: depositToken.address,
+        abi: ERC20_ABI,
+        functionName: 'allowance',
+        args: [address, hookAddress],
+      }) as bigint;
+
+      debugLog('Allowance check', { allowance: allowance?.toString(), amount: amount.toString() });
+
+      if (allowance === undefined || allowance < amount) {
+        setStep('approving');
+        debugLog('Approving token', { token: depositToken.symbol, amount: amount.toString() });
+
+        const approveHash = await writeContractAsync({
+          address: depositToken.address,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [hookAddress, amount],
+        });
+
+        addTransaction({
+          hash: approveHash,
+          type: 'approve',
+          description: `Approve ${depositToken.symbol} for limit order`,
+        });
+
+        await publicClient?.waitForTransactionReceipt({ hash: approveHash });
+        updateTransaction(approveHash, { status: 'confirmed' });
+      }
+
+      // Encrypt the amount
+      setStep('encrypting');
+      debugLog('Encrypting amount');
+
+      let encryptedAmount: InEuint128;
 
       if (isMock) {
-        // Mock: just convert to bytes for testing
-        encryptedDirection = new Uint8Array([isBuyOrder ? 1 : 0]);
-
-        encryptedAmount = new Uint8Array(16);
-        let v = amount;
-        for (let i = 15; i >= 0; i--) {
-          encryptedAmount[i] = Number(v & 0xffn);
-          v >>= 8n;
-        }
-
-        // Calculate minOutput with slippage (100% - slippage%)
-        const minOutput = (amount * BigInt(10000 - slippageBps)) / BigInt(10000);
-        encryptedMinOutput = new Uint8Array(16);
-        let m = minOutput;
-        for (let i = 15; i >= 0; i--) {
-          encryptedMinOutput[i] = Number(m & 0xffn);
-          m >>= 8n;
-        }
+        // Mock encryption for testing
+        encryptedAmount = {
+          ctHash: amount,
+          securityZone: 0,
+          utype: 7, // euint128 type
+          signature: '0x' as `0x${string}`,
+        };
       } else {
-        encryptedDirection = await encryptBool!(isBuyOrder);
-        encryptedAmount = await encrypt!(amount);
-        // Calculate minOutput with slippage
-        const minOutput = (amount * BigInt(10000 - slippageBps)) / BigInt(10000);
-        encryptedMinOutput = await encrypt!(minOutput);
+        // Real FHE encryption
+        const encrypted = await encrypt!(amount);
+        encryptedAmount = {
+          ctHash: BigInt('0x' + Buffer.from(encrypted).toString('hex')),
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
       }
+
+      // Calculate deadline (1 hour from now) and maxTickDrift
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + V6_DEFAULTS.DEADLINE_OFFSET);
+      // Convert slippage to tick drift (rough approximation)
+      const maxTickDrift = Math.max(V6_DEFAULTS.MAX_TICK_DRIFT, Math.floor(slippageBps / 10));
 
       setStep('submitting');
 
-      // Convert Uint8Arrays to hex strings for contract call
-      const toHex = (arr: Uint8Array): `0x${string}` =>
-        `0x${Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('')}`;
+      debugLog('Calling deposit', {
+        poolId,
+        tick: triggerTick,
+        side,
+        encryptedAmount,
+        deadline: deadline.toString(),
+        maxTickDrift,
+      });
 
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_ABI,
-        functionName: 'placeOrder',
-        args: [triggerTick, toHex(encryptedDirection), toHex(encryptedAmount), toHex(encryptedMinOutput)],
-        value: PROTOCOL_FEE_WEI,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'deposit',
+        args: [poolId, triggerTick, side, encryptedAmount, deadline, maxTickDrift],
       });
 
+      debugLog('Deposit tx submitted', { hash });
       setOrderHash(hash);
 
       addTransaction({
         hash,
-        type: 'placeOrder',
-        description: `Place ${orderType} order`,
+        type: 'deposit',
+        description: `Place ${orderType} order at tick ${triggerTick}`,
       });
 
       // Wait for confirmation
@@ -134,19 +212,38 @@ export function usePlaceOrder(): UsePlaceOrderResult {
       setStep('complete');
       successToast('Order placed successfully');
       return hash;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to place order';
+    } catch (err: unknown) {
+      debugLog('placeOrder ERROR', err);
+
+      let message = 'Failed to place order';
+      const errAny = err as { shortMessage?: string; message?: string };
+      const errString = errAny.shortMessage || errAny.message || String(err);
+
+      if (errString.includes('User rejected') || errString.includes('user rejected')) {
+        message = 'Transaction was cancelled';
+      } else if (errString.includes('InputTokenMustBeFherc20')) {
+        message = 'Limit orders require FHERC20 tokens for MEV protection';
+      } else if (errString.includes('DeadlineExpired')) {
+        message = 'Transaction deadline expired';
+      } else if (errString.includes('PriceMoved')) {
+        message = 'Price moved beyond maxTickDrift. Try again with higher slippage.';
+      } else if (errString.includes('InvalidTick')) {
+        message = 'Invalid tick value. Tick must be a multiple of tick spacing.';
+      } else {
+        message = errString;
+      }
+
       setError(message);
       setStep('error');
       errorToast('Order failed', message);
       throw err;
     }
-  }, [address, hookAddress, encrypt, encryptBool, isReady, isMock, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, token0, token1, publicClient, writeContractAsync, encrypt, isReady, isMock, addTransaction, updateTransaction, successToast, errorToast]);
 
   return {
     placeOrder,
     step,
-    isSubmitting: step === 'encrypting' || step === 'submitting',
+    isSubmitting: step === 'checking' || step === 'approving' || step === 'encrypting' || step === 'submitting',
     orderHash,
     error,
     reset,

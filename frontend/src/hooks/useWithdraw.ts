@@ -1,16 +1,72 @@
 'use client';
 
+/**
+ * useWithdraw - v6 Limit Order Withdrawal Hook
+ *
+ * In v6, withdraw() is for withdrawing UNFILLED limit orders.
+ * For AMM liquidity, use useRemoveLiquidity instead.
+ *
+ * v6 withdraw signature:
+ * withdraw(PoolId poolId, int24 tick, BucketSide side, InEuint128 encryptedAmount)
+ *
+ * Key behavior:
+ * - Withdraws unfilled portion of a limit order
+ * - Amount is encrypted for privacy
+ * - Use claim() to get filled proceeds
+ * - Use exit() to do both withdraw + claim
+ */
+
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
-import { FHEATHERX_ABI } from '@/lib/contracts/abi';
-import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_V6_ABI, BucketSide, type InEuint128, type BucketSideType } from '@/lib/contracts/fheatherXv6Abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
+import { useSelectedPool } from '@/stores/poolStore';
+import { useFheSession } from './useFheSession';
 
-type WithdrawStep = 'idle' | 'withdrawing' | 'complete' | 'error';
+type WithdrawStep = 'idle' | 'encrypting' | 'withdrawing' | 'complete' | 'error';
+
+// Debug logger
+const debugLog = (stage: string, data?: unknown) => {
+  console.log(`[Withdraw v6 Debug] ${stage}`, data !== undefined ? data : '');
+};
 
 interface UseWithdrawResult {
-  withdraw: (isToken0: boolean, amount: bigint) => Promise<`0x${string}`>;
+  /**
+   * Withdraw unfilled tokens from a limit order bucket
+   * @param poolId - The pool ID (bytes32)
+   * @param tick - The tick of the order
+   * @param side - BucketSide.BUY (0) or BucketSide.SELL (1)
+   * @param amount - The amount to withdraw (will be encrypted)
+   */
+  withdraw: (
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType,
+    amount: bigint
+  ) => Promise<`0x${string}`>;
+  /**
+   * Claim filled proceeds from a limit order
+   * @param poolId - The pool ID (bytes32)
+   * @param tick - The tick of the order
+   * @param side - BucketSide.BUY (0) or BucketSide.SELL (1)
+   */
+  claim: (
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType
+  ) => Promise<`0x${string}`>;
+  /**
+   * Exit completely - withdraw all unfilled + claim all proceeds
+   * @param poolId - The pool ID (bytes32)
+   * @param tick - The tick of the order
+   * @param side - BucketSide.BUY (0) or BucketSide.SELL (1)
+   */
+  exit: (
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType
+  ) => Promise<`0x${string}`>;
   step: WithdrawStep;
   isWithdrawing: boolean;
   withdrawHash: `0x${string}` | null;
@@ -26,8 +82,10 @@ export function useWithdraw(): UseWithdrawResult {
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
+  const { encrypt, isReady: fheReady, isMock: fheMock } = useFheSession();
 
-  const hookAddress = FHEATHERX_ADDRESSES[chainId];
+  // Get hook address from selected pool
+  const { hookAddress } = useSelectedPool();
 
   const [step, setStep] = useState<WithdrawStep>('idle');
   const [withdrawHash, setWithdrawHash] = useState<`0x${string}` | null>(null);
@@ -40,15 +98,98 @@ export function useWithdraw(): UseWithdrawResult {
   }, []);
 
   /**
-   * Withdraw tokens from the hook
-   * Note: Withdraw amount is public (uint256) - only balances are encrypted
+   * Withdraw unfilled tokens from a limit order bucket
    */
   const withdraw = useCallback(async (
-    isToken0: boolean,
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType,
     amount: bigint
   ): Promise<`0x${string}`> => {
+    debugLog('withdraw called', { poolId, tick, side, amount: amount.toString() });
+
     if (!address || !hookAddress) {
-      throw new Error('Wallet not connected');
+      throw new Error('Wallet not connected or no pool selected');
+    }
+
+    // Check FHE session
+    if (!fheMock && (!encrypt || !fheReady)) {
+      throw new Error('FHE session not ready. Please initialize FHE first.');
+    }
+
+    setStep('encrypting');
+    setError(null);
+
+    try {
+      // Encrypt the amount
+      let encryptedAmount: InEuint128;
+
+      if (fheMock) {
+        // Mock encryption for testing
+        encryptedAmount = {
+          ctHash: amount,
+          securityZone: 0,
+          utype: 7, // euint128 type
+          signature: '0x' as `0x${string}`,
+        };
+      } else {
+        // Real FHE encryption
+        const encrypted = await encrypt!(amount);
+        encryptedAmount = {
+          ctHash: BigInt('0x' + Buffer.from(encrypted).toString('hex')),
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
+      }
+
+      setStep('withdrawing');
+
+      const hash = await writeContractAsync({
+        address: hookAddress,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'withdraw',
+        args: [poolId, tick, side, encryptedAmount],
+      });
+
+      debugLog('withdraw: tx submitted', { hash });
+      setWithdrawHash(hash);
+
+      addTransaction({
+        hash,
+        type: 'withdraw',
+        description: `Withdraw ${side === BucketSide.BUY ? 'buy' : 'sell'} order at tick ${tick}`,
+      });
+
+      await publicClient?.waitForTransactionReceipt({ hash });
+
+      updateTransaction(hash, { status: 'confirmed' });
+      setStep('complete');
+      successToast('Withdrawal confirmed');
+      return hash;
+    } catch (err: unknown) {
+      debugLog('withdraw: ERROR', err);
+      const message = err instanceof Error ? err.message : 'Withdrawal failed';
+      setError(message);
+      setStep('error');
+      errorToast('Withdrawal failed', message);
+      throw err;
+    }
+  }, [address, hookAddress, publicClient, writeContractAsync, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
+
+  /**
+   * Claim filled proceeds from a limit order
+   * Note: claim() does NOT require encrypted amount - it claims all available proceeds
+   */
+  const claim = useCallback(async (
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType
+  ): Promise<`0x${string}`> => {
+    debugLog('claim called', { poolId, tick, side });
+
+    if (!address || !hookAddress) {
+      throw new Error('Wallet not connected or no pool selected');
     }
 
     setStep('withdrawing');
@@ -57,41 +198,97 @@ export function useWithdraw(): UseWithdrawResult {
     try {
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_ABI,
-        functionName: 'withdraw',
-        args: [isToken0, amount],
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'claim',
+        args: [poolId, tick, side],
       });
 
+      debugLog('claim: tx submitted', { hash });
       setWithdrawHash(hash);
 
       addTransaction({
         hash,
         type: 'withdraw',
-        description: `Withdraw ${isToken0 ? 'Token0' : 'Token1'}`,
+        description: `Claim ${side === BucketSide.BUY ? 'buy' : 'sell'} order proceeds at tick ${tick}`,
       });
 
-      // Wait for confirmation
       await publicClient?.waitForTransactionReceipt({ hash });
 
       updateTransaction(hash, { status: 'confirmed' });
       setStep('complete');
-      successToast('Withdrawal confirmed');
+      successToast('Proceeds claimed');
       return hash;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Withdrawal failed';
+    } catch (err: unknown) {
+      debugLog('claim: ERROR', err);
+      const message = err instanceof Error ? err.message : 'Claim failed';
       setError(message);
       setStep('error');
-      errorToast('Withdrawal failed', message);
+      errorToast('Claim failed', message);
+      throw err;
+    }
+  }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
+
+  /**
+   * Exit completely - withdraw all unfilled + claim all proceeds
+   */
+  const exit = useCallback(async (
+    poolId: `0x${string}`,
+    tick: number,
+    side: BucketSideType
+  ): Promise<`0x${string}`> => {
+    debugLog('exit called', { poolId, tick, side });
+
+    if (!address || !hookAddress) {
+      throw new Error('Wallet not connected or no pool selected');
+    }
+
+    setStep('withdrawing');
+    setError(null);
+
+    try {
+      const hash = await writeContractAsync({
+        address: hookAddress,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'exit',
+        args: [poolId, tick, side],
+      });
+
+      debugLog('exit: tx submitted', { hash });
+      setWithdrawHash(hash);
+
+      addTransaction({
+        hash,
+        type: 'withdraw',
+        description: `Exit ${side === BucketSide.BUY ? 'buy' : 'sell'} order at tick ${tick}`,
+      });
+
+      await publicClient?.waitForTransactionReceipt({ hash });
+
+      updateTransaction(hash, { status: 'confirmed' });
+      setStep('complete');
+      successToast('Order closed');
+      return hash;
+    } catch (err: unknown) {
+      debugLog('exit: ERROR', err);
+      const message = err instanceof Error ? err.message : 'Exit failed';
+      setError(message);
+      setStep('error');
+      errorToast('Exit failed', message);
       throw err;
     }
   }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
 
   return {
     withdraw,
+    claim,
+    exit,
     step,
-    isWithdrawing: step === 'withdrawing',
+    isWithdrawing: step === 'encrypting' || step === 'withdrawing',
     withdrawHash,
     error,
     reset,
   };
 }
+
+// Re-export BucketSide for convenience
+export { BucketSide };

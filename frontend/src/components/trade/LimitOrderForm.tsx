@@ -277,7 +277,9 @@ export function LimitOrderForm({
         {isSubmitting ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {step === 'encrypting' ? 'Encrypting...' :
+            {step === 'checking' ? 'Checking...' :
+             step === 'approving' ? 'Approving...' :
+             step === 'encrypting' ? 'Encrypting...' :
              step === 'submitting' ? 'Placing Order...' : 'Processing...'}
           </>
         ) : (

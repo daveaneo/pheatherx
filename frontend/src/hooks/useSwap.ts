@@ -1,17 +1,37 @@
 'use client';
 
+/**
+ * useSwap - v6 Multi-Mode Swap Hook
+ *
+ * v6 swap functions:
+ * - swap(bool zeroForOne, uint256 amountIn, uint256 minAmountOut) - uses defaultPoolId
+ * - swapForPool(PoolId poolId, bool zeroForOne, uint256 amountIn, uint256 minAmountOut)
+ * - swapEncrypted(PoolId poolId, InEbool direction, InEuint128 amountIn, InEuint128 minOutput)
+ *
+ * This hook also maintains support for router-based swaps for backward compatibility
+ */
+
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
 import { erc20Abi } from 'viem';
+import { FHEATHERX_V6_ABI, type InEuint128, type InEbool } from '@/lib/contracts/fheatherXv6Abi';
 import { SWAP_ROUTER_ABI, type PoolKey, type SwapParams } from '@/lib/contracts/router';
 import { encodeSwapHookData } from '@/lib/contracts/encoding';
 import { SWAP_ROUTER_ADDRESSES, POOL_FEE, TICK_SPACING } from '@/lib/contracts/addresses';
 import { MIN_SQRT_RATIO, MAX_SQRT_RATIO } from '@/lib/constants';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
-import { usePoolStore } from '@/stores/poolStore';
+import { usePoolStore, useSelectedPool } from '@/stores/poolStore';
+import { useFheSession } from './useFheSession';
+import { getPoolIdFromTokens } from '@/lib/poolId';
+import type { Token } from '@/lib/tokens';
 
-type SwapStep = 'idle' | 'simulating' | 'approving' | 'swapping' | 'complete' | 'error';
+type SwapStep = 'idle' | 'simulating' | 'approving' | 'encrypting' | 'swapping' | 'complete' | 'error';
+
+// Debug logger
+const debugLog = (stage: string, data?: unknown) => {
+  console.log(`[Swap v6 Debug] ${stage}`, data !== undefined ? data : '');
+};
 
 interface SwapQuote {
   amountIn: bigint;
@@ -21,9 +41,36 @@ interface SwapQuote {
 }
 
 interface UseSwapResult {
-  // Actions
-  getQuote: (zeroForOne: boolean, amountIn: bigint, hookAddress?: `0x${string}`) => Promise<SwapQuote | null>;
-  swap: (zeroForOne: boolean, amountIn: bigint, minAmountOut: bigint, hookAddress?: `0x${string}`) => Promise<`0x${string}`>;
+  // Quote
+  getQuote: (zeroForOne: boolean, amountIn: bigint) => Promise<SwapQuote | null>;
+
+  // Swap methods
+  /**
+   * Direct plaintext swap using hook's defaultPoolId
+   */
+  swap: (zeroForOne: boolean, amountIn: bigint, minAmountOut: bigint) => Promise<`0x${string}`>;
+  /**
+   * Direct plaintext swap for specific pool
+   */
+  swapForPool: (
+    poolId: `0x${string}`,
+    zeroForOne: boolean,
+    amountIn: bigint,
+    minAmountOut: bigint
+  ) => Promise<`0x${string}`>;
+  /**
+   * Encrypted swap - hides direction, amount, and minOutput
+   */
+  swapEncrypted: (
+    poolId: `0x${string}`,
+    zeroForOne: boolean,
+    amountIn: bigint,
+    minAmountOut: bigint
+  ) => Promise<`0x${string}`>;
+  /**
+   * Router-based swap (legacy, uses V4 PoolSwapTest router)
+   */
+  swapViaRouter: (zeroForOne: boolean, amountIn: bigint, minAmountOut: bigint) => Promise<`0x${string}`>;
 
   // State
   step: SwapStep;
@@ -42,8 +89,10 @@ export function useSwap(): UseSwapResult {
   const { success: successToast, error: errorToast } = useToast();
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
+  const { encrypt, encryptBool, isReady: fheReady, isMock: fheMock } = useFheSession();
 
-  // Get pool info from store
+  // Get pool info
+  const { hookAddress, token0, token1 } = useSelectedPool();
   const getPoolByKey = usePoolStore(state => state.getPoolByKey);
   const getSelectedPool = usePoolStore(state => state.getSelectedPool);
 
@@ -61,75 +110,68 @@ export function useSwap(): UseSwapResult {
     setQuote(null);
   }, []);
 
-  const buildPoolKey = useCallback((poolKeyString?: string): PoolKey | null => {
-    // Get pool info from the store
-    const pool = poolKeyString
-      ? getPoolByKey(poolKeyString)
-      : getSelectedPool();
+  /**
+   * Check and approve token spending for the hook
+   */
+  const checkAndApproveToken = useCallback(async (
+    tokenAddress: `0x${string}`,
+    spender: `0x${string}`,
+    amount: bigint
+  ): Promise<void> => {
+    if (!address || !publicClient) return;
 
-    if (!pool) return null;
+    const allowance = await publicClient.readContract({
+      address: tokenAddress,
+      abi: erc20Abi,
+      functionName: 'allowance',
+      args: [address, spender],
+    });
 
-    return {
-      currency0: pool.token0,
-      currency1: pool.token1,
-      fee: POOL_FEE,
-      tickSpacing: TICK_SPACING,
-      hooks: pool.hook,
-    };
-  }, [getPoolByKey, getSelectedPool]);
+    if (allowance < amount) {
+      setStep('approving');
+      debugLog('Approving token', { tokenAddress, spender, amount: amount.toString() });
+
+      const approveHash = await writeContractAsync({
+        address: tokenAddress,
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [spender, amount],
+        gas: 100000n,
+      });
+
+      addTransaction({
+        hash: approveHash,
+        type: 'approve',
+        description: 'Approve token for swap',
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+      updateTransaction(approveHash, { status: 'confirmed' });
+    }
+  }, [address, publicClient, writeContractAsync, addTransaction, updateTransaction]);
 
   /**
-   * Get a quote for a swap
+   * Get a quote using the hook's getQuote function
    */
   const getQuote = useCallback(async (
     zeroForOne: boolean,
     amountIn: bigint
   ): Promise<SwapQuote | null> => {
-    if (!publicClient || !routerAddress || !address) return null;
-
-    const poolKey = buildPoolKey();
-    if (!poolKey) {
-      console.error('No pool found for quote');
-      return null;
-    }
+    if (!publicClient || !hookAddress || amountIn === 0n) return null;
 
     setStep('simulating');
     setError(null);
 
     try {
-      const sqrtPriceLimit = zeroForOne ? MIN_SQRT_RATIO + 1n : MAX_SQRT_RATIO - 1n;
+      // Use hook's getQuote function
+      const amountOut = await publicClient.readContract({
+        address: hookAddress,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'getQuote',
+        args: [zeroForOne, amountIn],
+      }) as bigint;
 
-      // In Uniswap v4, negative amountSpecified = exact input, positive = exact output
-      const swapParams: SwapParams = {
-        zeroForOne,
-        amountSpecified: -amountIn, // Negative for exact input swap
-        sqrtPriceLimitX96: sqrtPriceLimit,
-      };
-
-      const hookData = encodeSwapHookData(address);
-
-      // TestSettings for PoolSwapTest router
-      const testSettings = {
-        takeClaims: false,
-        settleUsingBurn: false,
-      };
-
-      // Simulate the swap
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await publicClient.simulateContract({
-        address: routerAddress,
-        abi: SWAP_ROUTER_ABI,
-        functionName: 'swap',
-        // Type assertion needed due to complex tuple type inference
-        args: [poolKey, swapParams, testSettings, hookData] as any,
-        account: address,
-      });
-
-      // Calculate output from delta
-      const delta = result.result as bigint;
-      const amountOut = delta < 0n ? -delta : delta;
-
-      // Simple price impact calculation
+      // Calculate price impact
       const priceImpact = Number(amountIn > 0n ? (amountIn - amountOut) * 10000n / amountIn : 0n) / 100;
 
       const swapQuote: SwapQuote = {
@@ -143,243 +185,323 @@ export function useSwap(): UseSwapResult {
       setStep('idle');
       return swapQuote;
     } catch (err) {
-      console.error('Quote failed:', err);
+      debugLog('Quote failed', err);
       setError(err instanceof Error ? err.message : 'Failed to get quote');
       setStep('error');
       return null;
     }
-  }, [publicClient, routerAddress, address, buildPoolKey]);
+  }, [publicClient, hookAddress]);
 
   /**
-   * Execute a swap
+   * Direct plaintext swap using hook's defaultPoolId
    */
   const swap = useCallback(async (
     zeroForOne: boolean,
     amountIn: bigint,
     minAmountOut: bigint
   ): Promise<`0x${string}`> => {
-    if (!address || !routerAddress || !publicClient) {
-      throw new Error('Wallet not connected');
-    }
+    debugLog('swap called', { zeroForOne, amountIn: amountIn.toString(), minAmountOut: minAmountOut.toString() });
 
-    const poolKey = buildPoolKey();
-    if (!poolKey) {
-      throw new Error('No pool selected');
+    if (!address || !hookAddress || !publicClient || !token0 || !token1) {
+      throw new Error('Wallet not connected or no pool selected');
     }
 
     setError(null);
 
     try {
-      // Determine which token we're selling
-      const tokenIn = zeroForOne ? poolKey.currency0 : poolKey.currency1;
+      // Get token to approve (input token)
+      const tokenIn = zeroForOne ? token0.address : token1.address;
 
-      // Check user's token balance first
-      const userBalance = await publicClient.readContract({
-        address: tokenIn,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [address],
+      // Check and approve token
+      await checkAndApproveToken(tokenIn, hookAddress, amountIn);
+
+      setStep('swapping');
+
+      const hash = await writeContractAsync({
+        address: hookAddress,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'swap',
+        args: [zeroForOne, amountIn, minAmountOut],
       });
 
-      console.log('=== BALANCE CHECK ===');
-      console.log('Token:', tokenIn);
-      console.log('User balance:', userBalance.toString());
-      console.log('Required amount:', amountIn.toString());
+      debugLog('swap: tx submitted', { hash });
+      setSwapHash(hash);
 
-      if (userBalance < amountIn) {
-        const errorMsg = `Insufficient balance. You have ${userBalance.toString()} but need ${amountIn.toString()}. Use the faucet to get more tokens.`;
-        setError(errorMsg);
-        setStep('error');
-        errorToast('Insufficient balance', 'Use the faucet to get more tokens');
-        throw new Error(errorMsg);
-      }
-
-      // Check current allowance
-      const allowance = await publicClient.readContract({
-        address: tokenIn,
-        abi: erc20Abi,
-        functionName: 'allowance',
-        args: [address, routerAddress],
+      addTransaction({
+        hash,
+        type: 'swap',
+        description: zeroForOne ? `Swap ${token0.symbol} for ${token1.symbol}` : `Swap ${token1.symbol} for ${token0.symbol}`,
       });
 
-      console.log('=== APPROVAL CHECK ===');
-      console.log('Token:', tokenIn);
-      console.log('Current allowance:', allowance.toString());
-      console.log('Required amount:', amountIn.toString());
+      await publicClient.waitForTransactionReceipt({ hash });
 
-      // If allowance is insufficient, request approval
-      if (allowance < amountIn) {
-        setStep('approving');
-        console.log('Requesting approval...');
-        console.log('Token address:', tokenIn);
-        console.log('Spender (router):', routerAddress);
-        console.log('Amount to approve:', amountIn.toString());
+      updateTransaction(hash, { status: 'confirmed' });
+      setStep('complete');
+      successToast('Swap confirmed');
+      return hash;
+    } catch (err: unknown) {
+      debugLog('swap: ERROR', err);
+      const message = err instanceof Error ? err.message : 'Swap failed';
+      setError(message);
+      setStep('error');
+      errorToast('Swap failed', message);
+      throw err;
+    }
+  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
 
-        try {
-          console.log('Calling writeContractAsync for approve...');
-          console.log('Approve call params:', {
-            address: tokenIn,
-            functionName: 'approve',
-            args: [routerAddress, amountIn.toString()],
-          });
+  /**
+   * Direct plaintext swap for specific pool
+   */
+  const swapForPool = useCallback(async (
+    poolId: `0x${string}`,
+    zeroForOne: boolean,
+    amountIn: bigint,
+    minAmountOut: bigint
+  ): Promise<`0x${string}`> => {
+    debugLog('swapForPool called', { poolId, zeroForOne, amountIn: amountIn.toString() });
 
-          // Create a timeout promise to detect if wallet interaction hangs
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => {
-              reject(new Error('Wallet interaction timed out after 60 seconds. Please check your wallet for pending requests.'));
-            }, 60000);
-          });
+    if (!address || !hookAddress || !publicClient || !token0 || !token1) {
+      throw new Error('Wallet not connected or no pool selected');
+    }
 
-          const approvePromise = writeContractAsync({
-            address: tokenIn,
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [routerAddress, amountIn],
-            // Explicitly set gas to avoid MetaMask simulation issues
-            // ERC20 approve typically uses ~46k gas, we set 100k to be safe
-            gas: 100000n,
-          });
+    setError(null);
 
-          console.log('Waiting for wallet confirmation...');
-          const approveHash = await Promise.race([approvePromise, timeoutPromise]);
-          console.log('writeContractAsync returned:', approveHash);
+    try {
+      const tokenIn = zeroForOne ? token0.address : token1.address;
+      await checkAndApproveToken(tokenIn, hookAddress, amountIn);
 
-          console.log('Approval tx:', approveHash);
-          addTransaction({
-            hash: approveHash,
-            type: 'approve',
-            description: `Approve router to spend tokens`,
-          });
+      setStep('swapping');
 
-          // Wait for approval confirmation
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
-          updateTransaction(approveHash, { status: 'confirmed' });
-          console.log('Approval confirmed');
-        } catch (approveErr: unknown) {
-          console.error('=== APPROVAL ERROR ===');
-          console.error('Full error:', approveErr);
-          console.error('Error details:', {
-            name: approveErr instanceof Error ? approveErr.name : 'Unknown',
-            message: approveErr instanceof Error ? approveErr.message : String(approveErr),
-            code: (approveErr as { code?: number })?.code,
-            details: (approveErr as { details?: string })?.details,
-            cause: (approveErr as { cause?: unknown })?.cause,
-            shortMessage: (approveErr as { shortMessage?: string })?.shortMessage,
-            stack: approveErr instanceof Error ? approveErr.stack : undefined,
-          });
+      const hash = await writeContractAsync({
+        address: hookAddress,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'swapForPool',
+        args: [poolId, zeroForOne, amountIn, minAmountOut],
+      });
 
-          let message = 'Approval failed';
-          if (approveErr instanceof Error) {
-            if (approveErr.message.includes('User rejected') || approveErr.message.includes('user rejected')) {
-              message = 'Approval rejected by user';
-            } else if ((approveErr as unknown as { shortMessage?: string }).shortMessage) {
-              message = (approveErr as unknown as { shortMessage: string }).shortMessage;
-            } else {
-              message = approveErr.message;
-            }
-          }
+      debugLog('swapForPool: tx submitted', { hash });
+      setSwapHash(hash);
 
-          setError(message);
-          setStep('error');
-          errorToast('Approval failed', message);
-          throw approveErr;
-        }
+      addTransaction({
+        hash,
+        type: 'swap',
+        description: `Swap in pool ${poolId.slice(0, 10)}...`,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      updateTransaction(hash, { status: 'confirmed' });
+      setStep('complete');
+      successToast('Swap confirmed');
+      return hash;
+    } catch (err: unknown) {
+      debugLog('swapForPool: ERROR', err);
+      const message = err instanceof Error ? err.message : 'Swap failed';
+      setError(message);
+      setStep('error');
+      errorToast('Swap failed', message);
+      throw err;
+    }
+  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
+
+  /**
+   * Encrypted swap - hides direction, amount, and minOutput
+   */
+  const swapEncrypted = useCallback(async (
+    poolId: `0x${string}`,
+    zeroForOne: boolean,
+    amountIn: bigint,
+    minAmountOut: bigint
+  ): Promise<`0x${string}`> => {
+    debugLog('swapEncrypted called', { poolId, zeroForOne, amountIn: amountIn.toString() });
+
+    if (!address || !hookAddress || !publicClient || !token0 || !token1) {
+      throw new Error('Wallet not connected or no pool selected');
+    }
+
+    if (!fheMock && (!encrypt || !encryptBool || !fheReady)) {
+      throw new Error('FHE session not ready. Please initialize FHE first.');
+    }
+
+    setError(null);
+
+    try {
+      const tokenIn = zeroForOne ? token0.address : token1.address;
+      await checkAndApproveToken(tokenIn, hookAddress, amountIn);
+
+      setStep('encrypting');
+      debugLog('Encrypting swap parameters');
+
+      let encDirection: InEbool;
+      let encAmountIn: InEuint128;
+      let encMinOutput: InEuint128;
+
+      if (fheMock) {
+        // Mock encryption for testing
+        encDirection = {
+          ctHash: zeroForOne ? 1n : 0n,
+          securityZone: 0,
+          utype: 0, // ebool type
+          signature: '0x' as `0x${string}`,
+        };
+        encAmountIn = {
+          ctHash: amountIn,
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
+        encMinOutput = {
+          ctHash: minAmountOut,
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
+      } else {
+        // Real FHE encryption
+        const encDir = await encryptBool!(zeroForOne);
+        const encAmt = await encrypt!(amountIn);
+        const encMin = await encrypt!(minAmountOut);
+
+        encDirection = {
+          ctHash: BigInt('0x' + Buffer.from(encDir).toString('hex')),
+          securityZone: 0,
+          utype: 0,
+          signature: '0x' as `0x${string}`,
+        };
+        encAmountIn = {
+          ctHash: BigInt('0x' + Buffer.from(encAmt).toString('hex')),
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
+        encMinOutput = {
+          ctHash: BigInt('0x' + Buffer.from(encMin).toString('hex')),
+          securityZone: 0,
+          utype: 7,
+          signature: '0x' as `0x${string}`,
+        };
       }
 
       setStep('swapping');
 
+      const hash = await writeContractAsync({
+        address: hookAddress,
+        abi: FHEATHERX_V6_ABI,
+        functionName: 'swapEncrypted',
+        args: [poolId, encDirection, encAmountIn, encMinOutput],
+      });
+
+      debugLog('swapEncrypted: tx submitted', { hash });
+      setSwapHash(hash);
+
+      addTransaction({
+        hash,
+        type: 'swap',
+        description: 'Encrypted swap',
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      updateTransaction(hash, { status: 'confirmed' });
+      setStep('complete');
+      successToast('Encrypted swap confirmed');
+      return hash;
+    } catch (err: unknown) {
+      debugLog('swapEncrypted: ERROR', err);
+      const message = err instanceof Error ? err.message : 'Encrypted swap failed';
+      setError(message);
+      setStep('error');
+      errorToast('Encrypted swap failed', message);
+      throw err;
+    }
+  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, checkAndApproveToken, encrypt, encryptBool, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
+
+  /**
+   * Router-based swap (legacy, uses V4 PoolSwapTest router)
+   */
+  const swapViaRouter = useCallback(async (
+    zeroForOne: boolean,
+    amountIn: bigint,
+    minAmountOut: bigint
+  ): Promise<`0x${string}`> => {
+    debugLog('swapViaRouter called', { zeroForOne, amountIn: amountIn.toString() });
+
+    if (!address || !routerAddress || !publicClient || !hookAddress || !token0 || !token1) {
+      throw new Error('Wallet not connected');
+    }
+
+    setError(null);
+
+    try {
+      const tokenIn = zeroForOne ? token0.address : token1.address;
+      await checkAndApproveToken(tokenIn, routerAddress, amountIn);
+
+      setStep('swapping');
+
+      const poolKey: PoolKey = {
+        currency0: token0.address,
+        currency1: token1.address,
+        fee: POOL_FEE,
+        tickSpacing: TICK_SPACING,
+        hooks: hookAddress,
+      };
+
       const sqrtPriceLimit = zeroForOne ? MIN_SQRT_RATIO + 1n : MAX_SQRT_RATIO - 1n;
 
-      // In Uniswap v4, negative amountSpecified = exact input, positive = exact output
       const swapParams: SwapParams = {
         zeroForOne,
-        amountSpecified: -amountIn, // Negative for exact input swap
+        amountSpecified: -amountIn, // Negative for exact input
         sqrtPriceLimitX96: sqrtPriceLimit,
       };
 
       const hookData = encodeSwapHookData(address);
 
-      // TestSettings for PoolSwapTest router
-      // takeClaims: false = receive tokens directly (not ERC6909 claims)
-      // settleUsingBurn: false = use token transfers (not burn)
       const testSettings = {
         takeClaims: false,
         settleUsingBurn: false,
       };
-
-      // Debug logging
-      console.log('=== SWAP DEBUG ===');
-      console.log('Router address:', routerAddress);
-      console.log('Pool key:', JSON.stringify(poolKey, (_, v) => typeof v === 'bigint' ? v.toString() : v));
-      console.log('Swap params:', JSON.stringify(swapParams, (_, v) => typeof v === 'bigint' ? v.toString() : v));
-      console.log('Test settings:', testSettings);
-      console.log('Hook data:', hookData);
-      console.log('User address:', address);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const hash = await writeContractAsync({
         address: routerAddress,
         abi: SWAP_ROUTER_ABI,
         functionName: 'swap',
-        // Type assertion needed due to complex tuple type inference
         args: [poolKey, swapParams, testSettings, hookData] as any,
       });
 
+      debugLog('swapViaRouter: tx submitted', { hash });
       setSwapHash(hash);
 
       addTransaction({
         hash,
         type: 'swap',
-        description: zeroForOne ? 'Swap Token0 for Token1' : 'Swap Token1 for Token0',
+        description: zeroForOne ? `Swap ${token0.symbol} for ${token1.symbol} (router)` : `Swap ${token1.symbol} for ${token0.symbol} (router)`,
       });
 
-      // Wait for confirmation
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await publicClient.waitForTransactionReceipt({ hash });
 
       updateTransaction(hash, { status: 'confirmed' });
       setStep('complete');
       successToast('Swap confirmed');
       return hash;
-    } catch (err) {
-      console.error('=== SWAP ERROR ===');
-      console.error('Full error:', err);
-
-      // Extract more detailed error message
-      let message = 'Swap failed';
-      if (err instanceof Error) {
-        message = err.message;
-        // Check for common error patterns
-        if (message.includes('User rejected') || message.includes('user rejected')) {
-          message = 'Transaction rejected by user';
-        } else if (message.includes('insufficient funds')) {
-          message = 'Insufficient funds for gas';
-        } else if (message.includes('ERC20InsufficientBalance')) {
-          message = 'Insufficient token balance. Use the faucet to get more tokens.';
-        } else if (message.includes('InsufficientLiquidity')) {
-          message = 'Insufficient liquidity in the pool for this swap';
-        } else if (message.includes('Simulation failed') || message.includes('simulation failed')) {
-          message = 'Transaction simulation failed. Check your balance and try again.';
-        } else if (message.includes('execution reverted')) {
-          // Try to extract revert reason
-          const revertMatch = message.match(/execution reverted:?\s*(.+?)(?:\n|$)/i);
-          if (revertMatch) {
-            message = `Contract reverted: ${revertMatch[1]}`;
-          }
-        }
-      }
-
+    } catch (err: unknown) {
+      debugLog('swapViaRouter: ERROR', err);
+      const message = err instanceof Error ? err.message : 'Swap failed';
       setError(message);
       setStep('error');
       errorToast('Swap failed', message);
       throw err;
     }
-  }, [address, routerAddress, publicClient, writeContractAsync, buildPoolKey, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, routerAddress, publicClient, hookAddress, token0, token1, writeContractAsync, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
 
   return {
     getQuote,
     swap,
+    swapForPool,
+    swapEncrypted,
+    swapViaRouter,
     step,
-    isSwapping: step === 'simulating' || step === 'approving' || step === 'swapping',
+    isSwapping: step === 'simulating' || step === 'approving' || step === 'encrypting' || step === 'swapping',
     swapHash,
     error,
     quote,
