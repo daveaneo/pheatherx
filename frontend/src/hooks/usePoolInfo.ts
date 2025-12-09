@@ -1,7 +1,7 @@
 'use client';
 
 import { useReadContracts, useChainId } from 'wagmi';
-import { FHEATHERX_V5_ABI } from '@/lib/contracts/fheatherXv5Abi';
+import { FHEATHERX_V6_ABI } from '@/lib/contracts/fheatherXv6Abi';
 import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { getPoolIdFromTokens } from '@/lib/poolId';
 import { usePoolStore } from '@/stores/poolStore';
@@ -56,19 +56,19 @@ export function usePoolInfo(
     contracts: [
       {
         address: hookAddress,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'getPoolState',
         args: poolId ? [poolId] : undefined,
       },
       {
         address: hookAddress,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'getPoolReserves',
         args: poolId ? [poolId] : undefined,
       },
       {
         address: hookAddress,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'totalLpSupply',
         args: poolId ? [poolId] : undefined,
       },

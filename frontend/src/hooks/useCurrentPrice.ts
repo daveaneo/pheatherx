@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePublicClient, useAccount } from 'wagmi';
-import { FHEATHERX_V5_ABI } from '@/lib/contracts/fheatherXv5Abi';
+import { FHEATHERX_V6_ABI } from '@/lib/contracts/fheatherXv6Abi';
 import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useBucketStore } from '@/stores/bucketStore';
 import { useSelectedPool } from '@/stores/poolStore';
@@ -144,10 +144,10 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
     setError(null);
 
     try {
-      // Fetch reserves from contract using v5 API: getPoolReserves(poolId)
+      // Fetch reserves from contract using v6 API: getPoolReserves(poolId)
       const result = await publicClient.readContract({
         address: hookAddress,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'getPoolReserves',
         args: [poolId],
       }) as [bigint, bigint, bigint]; // [reserve0, reserve1, lpSupply]

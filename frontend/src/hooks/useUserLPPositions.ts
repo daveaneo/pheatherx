@@ -1,7 +1,7 @@
 'use client';
 
 import { useAccount, useReadContracts } from 'wagmi';
-import { FHEATHERX_V5_ABI } from '@/lib/contracts/fheatherXv5Abi';
+import { FHEATHERX_V6_ABI } from '@/lib/contracts/fheatherXv6Abi';
 import { usePoolStore } from '@/stores/poolStore';
 import { getPoolIdFromTokens } from '@/lib/poolId';
 import type { Pool } from '@/types/pool';
@@ -61,28 +61,28 @@ export function useUserLPPositions(): UseUserLPPositionsResult {
       // LP balance (plaintext cache)
       {
         address: pool.hook,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'lpBalances',
         args: address ? [poolId, address] : undefined,
       },
       // Encrypted LP balance
       {
         address: pool.hook,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'encLpBalances',
         args: address ? [poolId, address] : undefined,
       },
       // Pool reserves
       {
         address: pool.hook,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'getPoolReserves',
         args: [poolId],
       },
       // Total LP supply
       {
         address: pool.hook,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'totalLpSupply',
         args: [poolId],
       },

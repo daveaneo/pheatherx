@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
-import { FHEATHERX_V5_ABI, BucketSide, type BucketSideType } from '@/lib/contracts/fheatherXv5Abi';
+import { FHEATHERX_V6_ABI, BucketSide, type BucketSideType } from '@/lib/contracts/fheatherXv6Abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSelectedPool } from '@/stores/poolStore';
@@ -76,7 +76,7 @@ export function useClosePosition(): UseClosePositionResult {
 
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V5_ABI,
+        abi: FHEATHERX_V6_ABI,
         functionName: 'exit',
         args: [poolId, tick, side],
       });
