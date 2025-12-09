@@ -1,0 +1,55 @@
+{
+  "version": "v6",
+  "chainId": 11155111,
+  "deployedAt": "1765310892",
+  "contracts": {
+    "hook": "0xb51A06F8Ef84bB0Ae77414D866e90f778b77D0C8",
+    "poolManager": "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+    "swapRouter": "0x9B6b46e2c869aa39918Db7f52f5557FE577B6eEe",
+    "positionManager": "0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4"
+  },
+  "tokens": {
+    "WETH": { "address": "0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E", "decimals": 18, "type": "ERC20" },
+    "USDC": { "address": "0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56", "decimals": 6, "type": "ERC20" },
+    "fheWETH": { "address": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F", "decimals": 18, "type": "FHERC20" },
+    "fheUSDC": { "address": "0x1D77eE754b2080B354733299A5aC678539a0D740", "decimals": 6, "type": "FHERC20" }
+  },
+  "pools": {
+    "WETH_USDC": {
+      "poolId": "0x33f4ec0700ff50c13a41b15f0964c68d329fb9c6c58906c2ec082f7d7e22da15",
+      "token0": "0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E",
+      "token1": "0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56",
+      "type": "ERC:ERC"
+    },
+    "fheWETH_fheUSDC": {
+      "poolId": "0x3e67cf0265fa29de6d4d8734c361145a0a320ca437f69e7249e2851211865a12",
+      "token0": "0x1D77eE754b2080B354733299A5aC678539a0D740",
+      "token1": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
+      "type": "FHE:FHE"
+    },
+    "WETH_fheUSDC": {
+      "poolId": "0x5b1c30ab68a3f1a41280415e2ea6d7539febca413468f02c05fbbca2872ff62c",
+      "token0": "0x1D77eE754b2080B354733299A5aC678539a0D740",
+      "token1": "0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E",
+      "type": "FHE:ERC"
+    },
+    "fheWETH_USDC": {
+      "poolId": "0x54761b13ab196b3a828922c00d8f0ed8b249531a0a2f65f0c87196a3d0b35df8",
+      "token0": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
+      "token1": "0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56",
+      "type": "FHE:ERC"
+    }
+  },
+  "poolConfig": {
+    "fee": 3000,
+    "tickSpacing": 60,
+    "swapFeeBps": 30
+  },
+  "features": {
+    "multiPool": true,
+    "encryptedAMM": true,
+    "limitOrders": true,
+    "mixedPairs": true,
+    "v4Settlement": true
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "version": "v6",
+  "network": "arb-sepolia",
+  "chainId": 421614,
+  "deployedAt": "1765312596",
+  "contracts": {
+    "hook": "0x59CA6d351a3080fa690147F02e0e8DE70b9D10C8",
+    "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
+    "swapRouter": "0xf3A39C86dbd13C45365E57FB90fe413371F65AF8",
+    "positionManager": "0xAc631556d3d4019C95769033B5E719dD77124BAc"
+  },
+  "tokens": {
+    "WETH": { "address": "0x4b6ba4Bbfb4ffBcc916CAe8BA10E0bb0C5fEf23a", "decimals": 18, "type": "ERC20" },
+    "USDC": { "address": "0x83BC78029f3aC12D59d91B861E8Dc680090C7435", "decimals": 6, "type": "ERC20" },
+    "fheWETH": { "address": "0x9fcAa2Fde62f5cbe756500B6a47383B84D862C86", "decimals": 18, "type": "FHERC20" },
+    "fheUSDC": { "address": "0x90A93499Ac71725864c3dc23c9AB26f46cb377dE", "decimals": 6, "type": "FHERC20" }
+  },
+  "pools": {
+    "WETH_USDC": {
+      "poolId": "0xc40996a5d6af54854e3cf0d8f14b036735f0115d785dbd237b00184865c84972",
+      "token0": "0x4b6ba4Bbfb4ffBcc916CAe8BA10E0bb0C5fEf23a",
+      "token1": "0x83BC78029f3aC12D59d91B861E8Dc680090C7435",
+      "type": "ERC:ERC"
+    },
+    "fheWETH_fheUSDC": {
+      "poolId": "0x3d29e2b7b90cb2af0b2693351855082b1005010bfdc5aef1951e3640707a0674",
+      "token0": "0x90A93499Ac71725864c3dc23c9AB26f46cb377dE",
+      "token1": "0x9fcAa2Fde62f5cbe756500B6a47383B84D862C86",
+      "type": "FHE:FHE"
+    },
+    "WETH_fheUSDC": {
+      "poolId": "0x698c357aa7ff31875f0a6cb6a4de7d19b42fc47c6b5904a81b4d2329b7262b02",
+      "token0": "0x4b6ba4Bbfb4ffBcc916CAe8BA10E0bb0C5fEf23a",
+      "token1": "0x90A93499Ac71725864c3dc23c9AB26f46cb377dE",
+      "type": "ERC:FHE"
+    },
+    "fheWETH_USDC": {
+      "poolId": "0x5fd2a7f7105fc0a47d1080d5d99e14ba971aee20aea0f4cf89c8b8fe90ba7d3a",
+      "token0": "0x83BC78029f3aC12D59d91B861E8Dc680090C7435",
+      "token1": "0x9fcAa2Fde62f5cbe756500B6a47383B84D862C86",
+      "type": "FHE:ERC"
+    }
+  },
+  "poolConfig": {
+    "fee": 3000,
+    "tickSpacing": 60,
+    "swapFeeBps": 30
+  },
+  "features": {
+    "multiPool": true,
+    "encryptedAMM": true,
+    "limitOrders": true,
+    "mixedPairs": true,
+    "v4Settlement": true
+  }
+}

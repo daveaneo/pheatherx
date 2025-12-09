@@ -14,31 +14,31 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 // Local Imports
-import {FheatherX} from "../../src/FheatherX.sol";
-import {IFheatherX} from "../../src/interface/IFheatherX.sol";
+import {FheatherX} from "../../../src/FheatherX.sol";
+import {IFheatherX} from "../../../src/interface/IFheatherX.sol";
 
-// FHE Imports - Real FHE on Eth Sepolia (no mocks!)
+// FHE Imports - Real FHE on Arb Sepolia (no mocks!)
 import {FHE, euint128, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 // OpenZeppelin Imports
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// @title EthSepoliaIntegration
-/// @notice Integration tests for FheatherX using REAL FHE on Ethereum Sepolia
-/// @dev Run with: source .env && forge test --match-path test/integration/EthSepolia* --fork-url $ETH_SEPOLIA_RPC -vvv
+/// @title ArbSepoliaIntegration
+/// @notice Integration tests for FheatherX using REAL FHE on Arbitrum Sepolia
+/// @dev Run with: source .env && forge test --match-path test/integration/* --fork-url $ARB_SEPOLIA_RPC -vvv
 ///
 /// IMPORTANT: This test requires:
-/// 1. Deploy contracts first: npm run deploy:eth-sepolia
-/// 2. Have ETH_SEPOLIA_RPC and PRIVATE_KEY in .env
-/// 3. Have testnet ETH on Ethereum Sepolia for gas
+/// 1. Deploy contracts first: npm run deploy:arb-sepolia
+/// 2. Have ARB_SEPOLIA_RPC and PRIVATE_KEY in .env
+/// 3. Have testnet ETH on Arb Sepolia for gas
 ///
 /// These tests use the REAL CoFHE coprocessor - FHE operations may take a few seconds
-contract EthSepoliaIntegration is Test {
+contract ArbSepoliaIntegration is Test {
     using stdJson for string;
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
-    // Loaded from deployments/eth-sepolia.json
+    // Loaded from deployments/arb-sepolia.json
     address token0;
     address token1;
     address hookAddress;
@@ -61,7 +61,7 @@ contract EthSepoliaIntegration is Test {
 
     function setUp() public {
         // Load deployment addresses
-        string memory json = vm.readFile("deployments/eth-sepolia.json");
+        string memory json = vm.readFile("deployments/arb-sepolia.json");
 
         token0 = json.readAddress(".contracts.token0");
         token1 = json.readAddress(".contracts.token1");
@@ -86,7 +86,7 @@ contract EthSepoliaIntegration is Test {
         user = vm.addr(userPrivateKey);
 
         console.log("===========================================");
-        console.log("  Ethereum Sepolia Integration Test");
+        console.log("  Arb Sepolia Integration Test");
         console.log("===========================================");
         console.log("User:", user);
         console.log("Token0:", token0);
@@ -127,7 +127,7 @@ contract EthSepoliaIntegration is Test {
         vm.startPrank(user);
 
         // Create encrypted order parameters using real FHE
-        // On Eth Sepolia, these are REAL encrypted values processed by CoFHE coprocessor
+        // On Arb Sepolia, these are REAL encrypted values processed by CoFHE coprocessor
         ebool direction = FHE.asEbool(true); // zeroForOne
         euint128 amount = FHE.asEuint128(uint128(ORDER_AMOUNT));
         euint128 minOutput = FHE.asEuint128(uint128(MIN_OUTPUT));
