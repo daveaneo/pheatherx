@@ -2,10 +2,12 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useChainId, usePublicClient, useWatchContractEvent } from 'wagmi';
-import { FHEATHERX_FACTORY_ADDRESSES, FHEATHERX_ADDRESSES, TOKEN_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_FACTORY_ADDRESSES, FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { FHEATHERX_FACTORY_ABI } from '@/lib/contracts/factoryAbi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { usePoolStore } from '@/stores/poolStore';
+import { getTokensForChain, type Token as LibToken } from '@/lib/tokens';
+import { sortTokens } from '@/lib/pairs';
 import type { Pool, PoolInfo, Token } from '@/types/pool';
 
 /**
@@ -86,60 +88,94 @@ export function usePoolDiscovery() {
   );
 
   /**
-   * Create a fallback pool from legacy env var addresses when factory is not available
-   * This supports deployments like MockFheatherX that don't use a factory
+   * Create fallback pools for all token pairs when factory is not available
+   * Uses tokens from tokens.ts to generate all possible trading pairs
    */
-  const createFallbackPool = useCallback(async (): Promise<Pool | null> => {
+  const createFallbackPools = useCallback(async (): Promise<Pool[]> => {
     const hookAddress = FHEATHERX_ADDRESSES[chainId];
-    const tokens = TOKEN_ADDRESSES[chainId];
 
-    if (!hookAddress || hookAddress === '0x0000000000000000000000000000000000000000' ||
-        !tokens?.token0 || tokens.token0 === '0x0000000000000000000000000000000000000000' ||
-        !tokens?.token1 || tokens.token1 === '0x0000000000000000000000000000000000000000') {
-      return null;
+    if (!hookAddress || hookAddress === '0x0000000000000000000000000000000000000000') {
+      console.log('[usePoolDiscovery] No hook address configured for chain', chainId);
+      return [];
     }
 
-    console.log('[usePoolDiscovery] Creating fallback pool from legacy addresses for chain', chainId);
+    // Get all tokens from tokens.ts for this chain
+    const configTokens = getTokensForChain(chainId);
+    if (configTokens.length < 2) {
+      console.log('[usePoolDiscovery] Not enough tokens configured for chain', chainId);
+      return [];
+    }
 
-    // Fetch token metadata
-    const [token0Meta, token1Meta] = await Promise.all([
-      fetchTokenMetadata(tokens.token0),
-      fetchTokenMetadata(tokens.token1),
-    ]);
+    console.log('[usePoolDiscovery] Creating fallback pools from tokens.ts for chain', chainId);
+    console.log('[usePoolDiscovery] Available tokens:', configTokens.map(t => t.symbol));
 
-    return {
-      hook: hookAddress,
-      token0: tokens.token0,
-      token1: tokens.token1,
-      createdAt: 0n, // Legacy pools don't have creation time
-      active: true,
-      token0Meta,
-      token1Meta,
-    };
-  }, [chainId, fetchTokenMetadata]);
+    // Generate all unique token pairs (combinations, not permutations)
+    const pools: Pool[] = [];
+
+    for (let i = 0; i < configTokens.length; i++) {
+      for (let j = i + 1; j < configTokens.length; j++) {
+        const tokenA = configTokens[i];
+        const tokenB = configTokens[j];
+
+        // Sort tokens to ensure proper ordering (token0 < token1 by address)
+        const [sorted0, sorted1] = sortTokens(tokenA, tokenB);
+
+        // Convert from lib/tokens Token type to pool Token type
+        const token0Meta: Token = {
+          address: sorted0.address,
+          symbol: sorted0.symbol,
+          name: sorted0.name,
+          decimals: sorted0.decimals,
+        };
+        const token1Meta: Token = {
+          address: sorted1.address,
+          symbol: sorted1.symbol,
+          name: sorted1.name,
+          decimals: sorted1.decimals,
+        };
+
+        pools.push({
+          hook: hookAddress,
+          token0: sorted0.address,
+          token1: sorted1.address,
+          createdAt: 0n,
+          active: true,
+          token0Meta,
+          token1Meta,
+        });
+
+        console.log(`[usePoolDiscovery] Created pool: ${sorted0.symbol}/${sorted1.symbol}`);
+      }
+    }
+
+    console.log(`[usePoolDiscovery] Created ${pools.length} fallback pools`);
+    return pools;
+  }, [chainId]);
 
   /**
    * Fetch all pools from the factory
    */
   const fetchPools = useCallback(async () => {
-    // If no factory configured, try fallback to legacy addresses
+    // If no factory configured, create fallback pools from tokens.ts
     if (!factoryAddress || factoryAddress === '0x0000000000000000000000000000000000000000') {
       console.log('[usePoolDiscovery] No factory address configured for chain', chainId);
 
-      // Try to create a fallback pool from legacy addresses
-      if (publicClient) {
-        setLoadingPools(true);
-        try {
-          const fallbackPool = await createFallbackPool();
-          if (fallbackPool) {
-            console.log('[usePoolDiscovery] Using fallback pool from legacy addresses:', fallbackPool);
-            setPools(chainId, [fallbackPool]);
-          }
-        } catch (error) {
-          console.error('[usePoolDiscovery] Error creating fallback pool:', error);
-        } finally {
-          setLoadingPools(false);
+      // Create fallback pools for all token pairs from tokens.ts
+      setLoadingPools(true);
+      try {
+        const fallbackPools = await createFallbackPools();
+        if (fallbackPools.length > 0) {
+          console.log('[usePoolDiscovery] Using fallback pools from tokens.ts:', fallbackPools.length);
+          setPools(chainId, fallbackPools);
+        } else {
+          console.log('[usePoolDiscovery] No fallback pools created');
+          setPools(chainId, []);
         }
+      } catch (error) {
+        console.error('[usePoolDiscovery] Error creating fallback pools:', error);
+        setPools(chainId, []);
+      } finally {
+        setLoadingPools(false);
       }
       return;
     }
@@ -193,7 +229,7 @@ export function usePoolDiscovery() {
     } finally {
       setLoadingPools(false);
     }
-  }, [publicClient, factoryAddress, chainId, fetchTokenMetadata, createFallbackPool, setPools, setLoadingPools, setPoolsError]);
+  }, [publicClient, factoryAddress, chainId, fetchTokenMetadata, createFallbackPools, setPools, setLoadingPools, setPoolsError]);
 
   // Fetch pools on mount and when chain changes
   useEffect(() => {

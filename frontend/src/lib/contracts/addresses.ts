@@ -24,14 +24,20 @@ export const SWAP_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
   8008135: (process.env.NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
 };
 
+// Token addresses are primarily defined in lib/tokens.ts
+// This is a LEGACY fallback for pool discovery when no factory is configured
+// For Sepolia, we default to WETH/USDC from the faucet tokens
 export const TOKEN_ADDRESSES: Record<number, { token0: `0x${string}`; token1: `0x${string}` }> = {
   31337: {
     token0: (process.env.NEXT_PUBLIC_TOKEN0_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
     token1: (process.env.NEXT_PUBLIC_TOKEN1_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
   },
+  // Sepolia: Use faucet tokens (WETH < USDC by address, so WETH is token0)
+  // WETH: 0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E (0xe9... < 0xf7...)
+  // USDC: 0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56
   11155111: {
-    token0: (process.env.NEXT_PUBLIC_TOKEN0_ADDRESS_ETH_SEPOLIA as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-    token1: (process.env.NEXT_PUBLIC_TOKEN1_ADDRESS_ETH_SEPOLIA as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+    token0: '0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E',  // WETH (lower address = token0)
+    token1: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56',  // USDC
   },
   421614: {
     token0: (process.env.NEXT_PUBLIC_TOKEN0_ADDRESS_ARB_SEPOLIA as `0x${string}`) || '0x0000000000000000000000000000000000000000',
