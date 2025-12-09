@@ -73,9 +73,10 @@ export default defineConfig({
   webServer: {
     command: 'NEXT_PUBLIC_TEST_MODE=true npm run dev',
     url: 'http://localhost:3000',
-    // Never reuse existing server - always start fresh with TEST_MODE
-    // This prevents issues where a stale dev server without TEST_MODE is running
-    reuseExistingServer: false,
+    // Reuse existing server for faster test runs
+    // Set PLAYWRIGHT_REUSE_SERVER=true when running with existing server
+    // For CI or fresh runs, set to false
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === 'true' || !process.env.CI,
     timeout: 120000,
     env: {
       NEXT_PUBLIC_TEST_MODE: 'true',
