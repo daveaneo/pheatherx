@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Button, Input, Select, Badge } from '@/components/ui';
 import { Loader2, Lock, AlertTriangle, ArrowRight } from 'lucide-react';
 import { usePlaceOrder } from '@/hooks/usePlaceOrder';
@@ -15,9 +15,16 @@ import Link from 'next/link';
 interface LimitOrderFormProps {
   currentTick: number;
   currentPrice: CurrentPrice | null;
+  prefill?: { tick: number; isBuy: boolean } | null;
+  onPrefillUsed?: () => void;
 }
 
-export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProps) {
+export function LimitOrderForm({
+  currentTick,
+  currentPrice,
+  prefill,
+  onPrefillUsed,
+}: LimitOrderFormProps) {
   const [orderType, setOrderType] = useState<OrderType>('limit-buy');
   const [amount, setAmount] = useState('');
   const [targetTick, setTargetTick] = useState<string>('');
@@ -26,6 +33,36 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
   const { placeOrder, step, isSubmitting, error, reset } = usePlaceOrder();
   const { address } = useAccount();
   const { token0, token1 } = useSelectedPool();
+
+  // Handle prefill from Quick Limit Order panel
+  useEffect(() => {
+    if (prefill) {
+      // Set the target tick
+      setTargetTick(prefill.tick.toString());
+
+      // Determine order type based on isBuy and tick position relative to current
+      if (prefill.isBuy) {
+        // Buying: if tick is below current, it's a limit-buy; if above, it's a take-profit
+        if (prefill.tick < currentTick) {
+          setOrderType('limit-buy');
+        } else {
+          setOrderType('take-profit');
+        }
+      } else {
+        // Selling: if tick is above current, it's a limit-sell; if below, it's a stop-loss
+        if (prefill.tick > currentTick) {
+          setOrderType('limit-sell');
+        } else {
+          setOrderType('stop-loss');
+        }
+      }
+
+      // Clear prefill after using
+      if (onPrefillUsed) {
+        onPrefillUsed();
+      }
+    }
+  }, [prefill, currentTick, onPrefillUsed]);
 
   const config = ORDER_TYPE_CONFIG[orderType];
 

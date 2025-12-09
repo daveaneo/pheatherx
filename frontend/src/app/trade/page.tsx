@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { PriceChartPanel } from '@/components/trade/PriceChartPanel';
 import { OrderBookPanel } from '@/components/trade/OrderBookPanel';
 import { ExecutionPanel } from '@/components/trade/ExecutionPanel';
@@ -46,6 +46,22 @@ function PoolTypeBadge() {
 export default function TradePage() {
   const { currentPrice, currentTick, isLoading } = useCurrentPrice();
 
+  // State for limit order prefill from Quick Limit Order panel
+  const [limitOrderPrefill, setLimitOrderPrefill] = useState<{
+    tick: number;
+    isBuy: boolean;
+  } | null>(null);
+
+  // Handle quick limit order creation from the panel
+  const handleCreateOrder = useCallback((tick: number, isBuy: boolean) => {
+    setLimitOrderPrefill({ tick, isBuy });
+  }, []);
+
+  // Clear prefill after it's been used
+  const clearPrefill = useCallback(() => {
+    setLimitOrderPrefill(null);
+  }, []);
+
   return (
     <div className="container mx-auto px-4 py-6">
       {/* Header */}
@@ -73,11 +89,13 @@ export default function TradePage() {
           />
         </div>
 
-        {/* Middle Column: Order Book */}
+        {/* Middle Column: Quick Limit Order */}
         <div className="lg:col-span-4">
           <OrderBookPanel
             currentTick={currentTick}
+            currentPrice={currentPrice}
             isLoading={isLoading}
+            onCreateOrder={handleCreateOrder}
           />
         </div>
 
@@ -86,6 +104,8 @@ export default function TradePage() {
           <ExecutionPanel
             currentTick={currentTick}
             currentPrice={currentPrice}
+            limitOrderPrefill={limitOrderPrefill}
+            onPrefillUsed={clearPrefill}
           />
         </div>
       </div>

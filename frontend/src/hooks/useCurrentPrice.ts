@@ -38,18 +38,61 @@ export interface UseCurrentPriceReturn {
 /**
  * Calculate current tick from reserves
  * tick = log(reserve1/reserve0) / log(1.0001)
+ *
+ * Important: reserves must be normalized by their token decimals before calculating ratio
  */
-function reservesToTick(reserve0: bigint, reserve1: bigint): number {
+function reservesToTick(
+  reserve0: bigint,
+  reserve1: bigint,
+  decimals0: number,
+  decimals1: number
+): number {
   if (reserve0 === 0n || reserve1 === 0n) return 0;
 
-  // Calculate price ratio
-  const ratio = Number(reserve1) / Number(reserve0);
+  // Normalize reserves to their actual token amounts (divide by 10^decimals)
+  const normalized0 = Number(reserve0) / Math.pow(10, decimals0);
+  const normalized1 = Number(reserve1) / Math.pow(10, decimals1);
+
+  if (normalized0 === 0) return 0;
+
+  // Calculate price ratio (token1 per token0)
+  const ratio = normalized1 / normalized0;
 
   // Convert to tick: tick = log(ratio) / log(1.0001)
   const tick = Math.log(ratio) / Math.log(1.0001);
 
   // Round to nearest TICK_SPACING
   return Math.round(tick / TICK_SPACING) * TICK_SPACING;
+}
+
+/**
+ * Calculate formatted price from reserves with decimal normalization
+ */
+function reservesToPrice(
+  reserve0: bigint,
+  reserve1: bigint,
+  decimals0: number,
+  decimals1: number
+): string {
+  if (reserve0 === 0n) return '0.0000';
+
+  // Normalize reserves to their actual token amounts
+  const normalized0 = Number(reserve0) / Math.pow(10, decimals0);
+  const normalized1 = Number(reserve1) / Math.pow(10, decimals1);
+
+  if (normalized0 === 0) return '0.0000';
+
+  // Price = token1 amount / token0 amount
+  const price = normalized1 / normalized0;
+
+  // Format with appropriate precision
+  if (price >= 1000) {
+    return price.toFixed(2);
+  } else if (price >= 1) {
+    return price.toFixed(4);
+  } else {
+    return price.toFixed(6);
+  }
 }
 
 // ============================================================================
@@ -95,7 +138,7 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
    * Fetch current reserves and calculate price
    */
   const refresh = useCallback(async () => {
-    if (!chainId || !publicClient || !hookAddress || !poolId) return;
+    if (!chainId || !publicClient || !hookAddress || !poolId || !token0 || !token1) return;
 
     setIsLoading(true);
     setError(null);
@@ -111,11 +154,14 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
 
       const [reserve0, reserve1] = result;
 
-      // Calculate current tick from reserves
-      const tick = reservesToTick(reserve0, reserve1);
+      // Calculate current tick from reserves (with decimal normalization)
+      const tick = reservesToTick(reserve0, reserve1, token0.decimals, token1.decimals);
 
       // Calculate price at current tick
       const price = tickToPrice(tick);
+
+      // Calculate formatted price directly from reserves (more accurate than tick-based)
+      const priceFormatted = reservesToPrice(reserve0, reserve1, token0.decimals, token1.decimals);
 
       // Update store
       setReserves(reserve0, reserve1);
@@ -125,12 +171,12 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
       setCurrentPrice({
         currentTick: tick,
         price,
-        priceFormatted: formatPrice(price),
+        priceFormatted,
         reserve0,
         reserve1,
       });
 
-      console.log('[CurrentPrice] Updated:', { poolId, tick, price: formatPrice(price), reserve0: reserve0.toString(), reserve1: reserve1.toString() });
+      console.log('[CurrentPrice] Updated:', { poolId, tick, priceFormatted, reserve0: reserve0.toString(), reserve1: reserve1.toString() });
     } catch (err) {
       // Don't log errors for uninitialized pools (reserves will be 0)
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -150,7 +196,7 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [chainId, publicClient, hookAddress, poolId, setReserves, setCurrentTick]);
+  }, [chainId, publicClient, hookAddress, poolId, token0, token1, setReserves, setCurrentTick]);
 
   // Auto-refresh on mount and chain change
   useEffect(() => {

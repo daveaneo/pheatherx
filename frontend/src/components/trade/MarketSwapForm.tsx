@@ -26,19 +26,28 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   const sellDecimals = zeroForOne ? (token0?.decimals ?? 18) : (token1?.decimals ?? 18);
   const buyDecimals = zeroForOne ? (token1?.decimals ?? 18) : (token0?.decimals ?? 18);
 
-  // Calculate estimated output
+  // Calculate estimated output using AMM constant product formula
+  // Formula: amountOut = (amountIn * reserveOut) / (reserveIn + amountIn)
   const estimatedOutput = (() => {
     if (!sellAmount || !currentPrice || parseFloat(sellAmount) === 0) return '0';
+    if (currentPrice.reserve0 === 0n || currentPrice.reserve1 === 0n) return '0';
 
     const inputAmount = parseFloat(sellAmount);
-    const price = Number(currentPrice.price) / 1e18;
+
+    // Normalize reserves to actual token amounts
+    const reserve0Normalized = Number(currentPrice.reserve0) / Math.pow(10, sellDecimals);
+    const reserve1Normalized = Number(currentPrice.reserve1) / Math.pow(10, buyDecimals);
 
     if (zeroForOne) {
-      // Selling token0 for token1: output = input * price
-      return (inputAmount * price).toFixed(4);
+      // Selling token0 for token1
+      // reserveIn = reserve0, reserveOut = reserve1
+      const amountOut = (inputAmount * reserve1Normalized) / (reserve0Normalized + inputAmount);
+      return amountOut.toFixed(4);
     } else {
-      // Selling token1 for token0: output = input / price
-      return (inputAmount / price).toFixed(4);
+      // Selling token1 for token0
+      // reserveIn = reserve1, reserveOut = reserve0
+      const amountOut = (inputAmount * reserve0Normalized) / (reserve1Normalized + inputAmount);
+      return amountOut.toFixed(4);
     }
   })();
 
@@ -139,7 +148,12 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
       <div className="p-3 bg-ash-gray/30 rounded-lg text-sm space-y-1">
         <div className="flex justify-between">
           <span className="text-feather-white/60">Rate</span>
-          <span>1 {sellToken} = {zeroForOne ? currentPrice?.priceFormatted : (1 / (Number(currentPrice?.price ?? 1n) / 1e18)).toFixed(4)} {buyToken}</span>
+          <span>1 {sellToken} = {(() => {
+            if (!currentPrice || currentPrice.reserve0 === 0n || currentPrice.reserve1 === 0n) return '0.0000';
+            const r0 = Number(currentPrice.reserve0) / Math.pow(10, zeroForOne ? (token0?.decimals ?? 18) : (token1?.decimals ?? 18));
+            const r1 = Number(currentPrice.reserve1) / Math.pow(10, zeroForOne ? (token1?.decimals ?? 18) : (token0?.decimals ?? 18));
+            return zeroForOne ? (r1 / r0).toFixed(4) : (r0 / r1).toFixed(4);
+          })()} {buyToken}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-feather-white/60">Min Received</span>
