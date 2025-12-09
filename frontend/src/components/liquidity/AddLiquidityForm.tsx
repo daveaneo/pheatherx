@@ -97,11 +97,42 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
   const watchedAmount0 = watch('amount0');
   const watchedAmount1 = watch('amount1');
 
+  // Track which input the user is actively editing (to avoid circular updates)
+  const [activeInput, setActiveInput] = useState<'amount0' | 'amount1' | null>(null);
+
   // Reset form when token pair changes
   useEffect(() => {
     resetForm();
     resetHook();
+    setActiveInput(null);
   }, [token0?.address, token1?.address, resetForm, resetHook]);
+
+  // Auto-calculate paired amount based on reserve ratio (for initialized pools)
+  useEffect(() => {
+    if (!isInitialized || !token0 || !token1 || reserve0 === 0n || reserve1 === 0n) return;
+
+    if (activeInput === 'amount0' && watchedAmount0) {
+      const amount0 = parseFloat(watchedAmount0);
+      if (amount0 > 0) {
+        // Calculate amount1 = amount0 * (reserve1 / reserve0), accounting for decimals
+        const reserve0Normalized = Number(formatUnits(reserve0, token0.decimals));
+        const reserve1Normalized = Number(formatUnits(reserve1, token1.decimals));
+        const ratio = reserve1Normalized / reserve0Normalized;
+        const calculatedAmount1 = (amount0 * ratio).toFixed(token1.decimals > 6 ? 6 : token1.decimals);
+        setValue('amount1', calculatedAmount1, { shouldValidate: false });
+      }
+    } else if (activeInput === 'amount1' && watchedAmount1) {
+      const amount1 = parseFloat(watchedAmount1);
+      if (amount1 > 0) {
+        // Calculate amount0 = amount1 * (reserve0 / reserve1), accounting for decimals
+        const reserve0Normalized = Number(formatUnits(reserve0, token0.decimals));
+        const reserve1Normalized = Number(formatUnits(reserve1, token1.decimals));
+        const ratio = reserve0Normalized / reserve1Normalized;
+        const calculatedAmount0 = (amount1 * ratio).toFixed(token0.decimals > 6 ? 6 : token0.decimals);
+        setValue('amount0', calculatedAmount0, { shouldValidate: false });
+      }
+    }
+  }, [activeInput, watchedAmount0, watchedAmount1, isInitialized, reserve0, reserve1, token0, token1, setValue]);
 
   // Handle success
   useEffect(() => {
@@ -144,6 +175,8 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
 
     const amount = (balance.value * BigInt(percent)) / 100n;
     const formatted = formatUnits(amount, token.decimals);
+    // Set active input first so the ratio calculation triggers
+    setActiveInput(isToken0 ? 'amount0' : 'amount1');
     setValue(isToken0 ? 'amount0' : 'amount1', formatted);
   };
 
@@ -293,6 +326,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                 placeholder="0.0"
                 error={!!errors.amount0}
                 disabled={!token0 || isLoading}
+                onFocus={() => setActiveInput('amount0')}
                 data-testid="add-liquidity-amount0"
               />
               <div className="flex gap-1 mt-1">
@@ -334,6 +368,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                 placeholder="0.0"
                 error={!!errors.amount1}
                 disabled={!token1 || isLoading}
+                onFocus={() => setActiveInput('amount1')}
                 data-testid="add-liquidity-amount1"
               />
               <div className="flex gap-1 mt-1">
@@ -371,6 +406,16 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                 {!isLoadingPool && !isInitialized && (
                   <div className="text-blue-400 text-xs">
                     {priceRatioText || 'Enter amounts to set initial price ratio'}
+                  </div>
+                )}
+
+                {/* Current Price (if pool exists) */}
+                {isInitialized && reserve0 > 0n && reserve1 > 0n && (
+                  <div className="flex justify-between">
+                    <span className="text-feather-white/60">Current Price</span>
+                    <span>
+                      1 {token0.symbol} = {(Number(formatUnits(reserve1, token1.decimals)) / Number(formatUnits(reserve0, token0.decimals))).toFixed(4)} {token1.symbol}
+                    </span>
                   </div>
                 )}
 
