@@ -80,9 +80,9 @@ export function usePoolInfo(
   });
 
   // Parse pool state from contract response
-  // getPoolState returns (token0, token1, initialized, maxBucketsPerSwap, protocolFeeBps)
-  const stateData = data?.[0]?.result as [string, string, boolean, bigint, bigint] | undefined;
-  const isInitialized = stateData?.[2] ?? false;
+  // v6 getPoolState returns (token0, token1, token0IsFherc20, token1IsFherc20, initialized, maxBucketsPerSwap, protocolFeeBps)
+  const stateData = data?.[0]?.result as [string, string, boolean, boolean, boolean, bigint, bigint] | undefined;
+  const isInitialized = stateData?.[4] ?? false;
 
   // Parse reserves from contract response
   // getPoolReserves returns (reserve0, reserve1, lpSupply)
