@@ -96,18 +96,85 @@ forge script script/DeployEthSepolia.s.sol --rpc-url $ETH_SEPOLIA_RPC --broadcas
 fheatherx/
 ├── contracts/
 │   ├── src/
-│   │   ├── FheatherXv4.sol      # Uniswap v4 Hook
-│   │   ├── FheatherXv3.sol      # Standalone private DEX
+│   │   ├── FheatherXv6.sol      # Current Uniswap v4 Hook (Hybrid AMM + Limit Orders)
+│   │   ├── FheatherXv5.sol      # Previous version
 │   │   └── tokens/              # FHERC20 implementations
+│   ├── deployments/             # Deployment tracking (source of truth)
+│   │   ├── v6-eth-sepolia.json  # Ethereum Sepolia addresses
+│   │   └── v6-arb-sepolia.json  # Arbitrum Sepolia addresses
 │   └── test/
 ├── frontend/
 │   ├── src/
 │   │   ├── app/                 # Next.js pages
 │   │   ├── components/          # React components
-│   │   └── hooks/               # Contract interaction hooks
+│   │   ├── hooks/               # Contract interaction hooks
+│   │   └── lib/
+│   │       └── tokens.ts        # Token configuration per chain
 │   └── e2e/                     # Playwright E2E tests
 └── docs/
 ```
+
+## Deployment Configuration
+
+### Source of Truth
+
+The `contracts/deployments/*.json` files are the **source of truth** for all deployed addresses:
+
+```json
+{
+  "version": "v6",
+  "chainId": 11155111,
+  "contracts": {
+    "hook": "0x...",
+    "poolManager": "0x...",
+    "swapRouter": "0x..."
+  },
+  "tokens": {
+    "WETH": { "address": "0x...", "decimals": 18, "type": "ERC20" },
+    "fheWETH": { "address": "0x...", "decimals": 18, "type": "FHERC20" }
+  },
+  "pools": { ... }
+}
+```
+
+### Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `contracts/deployments/v6-*.json` | Complete deployment info (tokens, pools, poolIds) |
+| `frontend/.env` | Contract addresses for frontend |
+| `frontend/src/lib/tokens.ts` | Token metadata per chain |
+
+### Environment Variables
+
+```bash
+# Ethereum Sepolia (Chain ID: 11155111)
+NEXT_PUBLIC_POOL_MANAGER_ADDRESS_ETH_SEPOLIA=0x...
+NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_ETH_SEPOLIA=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_ETH_SEPOLIA=0x...
+
+# Arbitrum Sepolia (Chain ID: 421614)
+NEXT_PUBLIC_POOL_MANAGER_ADDRESS_ARB_SEPOLIA=0x...
+NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_ARB_SEPOLIA=0x...
+NEXT_PUBLIC_FHEATHERX_ADDRESS_ARB_SEPOLIA=0x...
+```
+
+### Supported Tokens
+
+Each chain supports 4 tokens (2 ERC20 + 2 FHERC20):
+
+| Token | Symbol | Type | Decimals |
+|-------|--------|------|----------|
+| Wrapped Ether | WETH | ERC20 | 18 |
+| USD Coin | USDC | ERC20 | 6 |
+| FHE Wrapped Ether | fheWETH | FHERC20 | 18 |
+| FHE USD Coin | fheUSDC | FHERC20 | 6 |
+
+### After Deployment Workflow
+
+1. Deploy contracts → script creates `contracts/deployments/v6-{chain}.json`
+2. Update `frontend/src/lib/tokens.ts` with token addresses
+3. Update `frontend/.env` with hook/router addresses
 
 ## Demo
 

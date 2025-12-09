@@ -28,12 +28,20 @@ export function isNativeEth(address: string): boolean {
 //                      TOKEN ADDRESSES BY CHAIN
 // ═══════════════════════════════════════════════════════════════════════
 
-// Ethereum Sepolia Token Addresses (matching faucetTokens.ts)
-const SEPOLIA_TOKENS = {
+// Ethereum Sepolia Token Addresses (from contracts/deployments/v6-eth-sepolia.json)
+const ETH_SEPOLIA_TOKENS = {
   WETH: '0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E' as `0x${string}`,
   USDC: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56' as `0x${string}`,
   fheWETH: '0xf0F8f49b4065A1B01050Fa358d287106B676a25F' as `0x${string}`,
   fheUSDC: '0x1D77eE754b2080B354733299A5aC678539a0D740' as `0x${string}`,
+} as const;
+
+// Arbitrum Sepolia Token Addresses (from contracts/deployments/v6-arb-sepolia.json)
+const ARB_SEPOLIA_TOKENS = {
+  WETH: '0x4b6ba4Bbfb4ffBcc916CAe8BA10E0bb0C5fEf23a' as `0x${string}`,
+  USDC: '0x83BC78029f3aC12D59d91B861E8Dc680090C7435' as `0x${string}`,
+  fheWETH: '0x9fcAa2Fde62f5cbe756500B6a47383B84D862C86' as `0x${string}`,
+  fheUSDC: '0x90A93499Ac71725864c3dc23c9AB26f46cb377dE' as `0x${string}`,
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -66,28 +74,28 @@ export const ALL_TOKENS: Record<number, Token[]> = {
   // Ethereum Sepolia - 4 tokens (2 ERC20 + 2 FHERC20)
   11155111: [
     {
-      address: SEPOLIA_TOKENS.WETH,
+      address: ETH_SEPOLIA_TOKENS.WETH,
       symbol: 'WETH',
       name: 'Wrapped Ether',
       decimals: 18,
       type: 'erc20',
     },
     {
-      address: SEPOLIA_TOKENS.USDC,
+      address: ETH_SEPOLIA_TOKENS.USDC,
       symbol: 'USDC',
       name: 'USD Coin',
       decimals: 6,
       type: 'erc20',
     },
     {
-      address: SEPOLIA_TOKENS.fheWETH,
+      address: ETH_SEPOLIA_TOKENS.fheWETH,
       symbol: 'fheWETH',
       name: 'FHE Wrapped Ether',
       decimals: 18,
       type: 'fherc20',
     },
     {
-      address: SEPOLIA_TOKENS.fheUSDC,
+      address: ETH_SEPOLIA_TOKENS.fheUSDC,
       symbol: 'fheUSDC',
       name: 'FHE USD Coin',
       decimals: 6,
@@ -95,21 +103,35 @@ export const ALL_TOKENS: Record<number, Token[]> = {
     },
   ],
 
-  // Arbitrum Sepolia - placeholder
+  // Arbitrum Sepolia - 4 tokens (2 ERC20 + 2 FHERC20)
   421614: [
     {
-      address: '0x0000000000000000000000000000000000000000',
-      symbol: 'TKA',
-      name: 'Test Token A',
+      address: ARB_SEPOLIA_TOKENS.WETH,
+      symbol: 'WETH',
+      name: 'Wrapped Ether',
       decimals: 18,
       type: 'erc20',
     },
     {
-      address: '0x0000000000000000000000000000000000000000',
-      symbol: 'TKB',
-      name: 'Test Token B',
-      decimals: 18,
+      address: ARB_SEPOLIA_TOKENS.USDC,
+      symbol: 'USDC',
+      name: 'USD Coin',
+      decimals: 6,
       type: 'erc20',
+    },
+    {
+      address: ARB_SEPOLIA_TOKENS.fheWETH,
+      symbol: 'fheWETH',
+      name: 'FHE Wrapped Ether',
+      decimals: 18,
+      type: 'fherc20',
+    },
+    {
+      address: ARB_SEPOLIA_TOKENS.fheUSDC,
+      symbol: 'fheUSDC',
+      name: 'FHE USD Coin',
+      decimals: 6,
+      type: 'fherc20',
     },
   ],
 
