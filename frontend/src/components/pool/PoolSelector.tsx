@@ -73,7 +73,7 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
   }
 
   return (
-    <div ref={dropdownRef} className={cn('relative', className)}>
+    <div ref={dropdownRef} className={cn('relative', className)} data-testid="pool-selector">
       {/* Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -83,6 +83,7 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
           'text-feather-white font-medium',
           isOpen && 'ring-2 ring-phoenix-ember/50'
         )}
+        data-testid="pool-selector-button"
       >
         {selectedPool ? (
           <>
@@ -108,7 +109,7 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute z-50 top-full left-0 mt-2 w-72 bg-obsidian-black border border-carbon-gray rounded-lg shadow-xl overflow-hidden">
+        <div className="absolute z-50 top-full left-0 mt-2 w-72 bg-obsidian-black border border-carbon-gray rounded-lg shadow-xl overflow-hidden" data-testid="pool-dropdown">
           {/* Search */}
           <div className="p-2 border-b border-carbon-gray">
             <input
@@ -118,15 +119,16 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
               onChange={e => setSearch(e.target.value)}
               className="w-full px-3 py-2 bg-carbon-gray/50 border border-carbon-gray rounded-lg text-feather-white placeholder-feather-white/30 focus:outline-none focus:ring-2 focus:ring-phoenix-ember/50"
               autoFocus
+              data-testid="pool-search-input"
             />
           </div>
 
           {/* Pool List */}
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-64 overflow-y-auto" data-testid="pool-list">
             {filteredPools.length === 0 ? (
               <div className="p-4 text-center text-feather-white/50">No pools found</div>
             ) : (
-              filteredPools.map(pool => (
+              filteredPools.map((pool, index) => (
                 <button
                   key={pool.hook}
                   onClick={() => handleSelect(pool)}
@@ -134,6 +136,7 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
                     'w-full px-4 py-3 flex items-center gap-3 hover:bg-carbon-gray/50 transition-colors',
                     pool.hook === selectedPool?.hook && 'bg-carbon-gray/30'
                   )}
+                  data-testid={`pool-option-${index}`}
                 >
                   {/* Token Pair */}
                   <div className="flex-1 text-left">

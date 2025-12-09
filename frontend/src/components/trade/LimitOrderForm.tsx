@@ -122,7 +122,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
   const selectedTick = parseInt(targetTick) || currentTick;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="limit-form">
       {/* Order Type Selection */}
       <div className="space-y-2">
         <label className="text-sm text-feather-white/60">Order Type</label>
@@ -130,6 +130,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
           value={orderType}
           onChange={(v) => setOrderType(v as OrderType)}
           options={orderTypeOptions}
+          data-testid="order-type-select"
         />
         <p className="text-xs text-feather-white/40">{config.description}</p>
       </div>
@@ -142,6 +143,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
           onChange={setTargetTick}
           options={tickOptions}
           placeholder="Select target price..."
+          data-testid="target-tick-select"
         />
       </div>
 
@@ -156,6 +158,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
             onChange={(e) => setAmount(e.target.value)}
             className="pr-20 text-lg"
             disabled={isSubmitting}
+            data-testid="order-amount-input"
           />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-feather-white/60 font-medium">
             {depositTokenSymbol}
@@ -232,6 +235,7 @@ export function LimitOrderForm({ currentTick, currentPrice }: LimitOrderFormProp
         size="lg"
         onClick={handlePlaceOrder}
         disabled={isSubmitting || !amount || parseFloat(amount) === 0}
+        data-testid="place-order-button"
       >
         {isSubmitting ? (
           <>

@@ -12,15 +12,15 @@ interface ExecutionPanelProps {
 
 export function ExecutionPanel({ currentTick, currentPrice }: ExecutionPanelProps) {
   return (
-    <Card className="h-full">
+    <Card className="h-full" data-testid="execution-panel">
       <CardHeader className="pb-2">
         <CardTitle>Execute Trade</CardTitle>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="market" className="space-y-4">
           <TabsList className="w-full">
-            <TabsTrigger value="market">Market</TabsTrigger>
-            <TabsTrigger value="limit">Limit</TabsTrigger>
+            <TabsTrigger value="market" data-testid="market-tab">Market</TabsTrigger>
+            <TabsTrigger value="limit" data-testid="limit-tab">Limit</TabsTrigger>
           </TabsList>
 
           <TabsContent value="market">

@@ -38,49 +38,289 @@ export const TOKENS = {
 export type TokenSymbol = keyof typeof TOKENS;
 
 /**
- * Connect wallet to dApp if not already connected
+ * Wait for RainbowKit connect modal to close
+ */
+async function waitForConnectModalClosed(page: Page, timeout: number = 10000): Promise<void> {
+  console.log('[Helper] Waiting for connect modal to close...');
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeout) {
+    const modal = page.locator('[data-rk][role="dialog"]');
+    if (!(await modal.isVisible().catch(() => false))) {
+      console.log('[Helper] Connect modal closed');
+      return;
+    }
+    await page.waitForTimeout(500);
+  }
+
+  console.log('[Helper] Connect modal did not close within timeout');
+}
+
+/**
+ * Get MetaMask extension ID from browser context
+ */
+export async function getMetaMaskExtensionId(context: import('playwright-core').BrowserContext): Promise<string> {
+  const allPages = context.pages();
+  for (const p of allPages) {
+    const url = p.url();
+    const match = url.match(/chrome-extension:\/\/([^\/]+)/);
+    if (match) {
+      return match[1];
+    }
+  }
+  return '';
+}
+
+/**
+ * Open MetaMask notification page and click a button
+ * MetaMask v12 MV3 has a two-step connection flow:
+ * Step 1: Click "Next" to confirm accounts
+ * Step 2: Click "Connect" to complete connection
+ */
+async function handleMetaMaskConnectionPopup(
+  context: import('playwright-core').BrowserContext,
+  extensionId: string
+): Promise<boolean> {
+  const notificationUrl = `chrome-extension://${extensionId}/notification.html`;
+
+  // Step 1: Open notification and click Next
+  console.log('[Helper] Opening MetaMask notification for Step 1...');
+  let notificationPage = await context.newPage();
+  try {
+    await notificationPage.goto(notificationUrl, { timeout: 5000 });
+    await notificationPage.waitForTimeout(1500);
+
+    // Look for Next button first (account selection step)
+    const nextBtn = notificationPage.locator('button:has-text("Next")').first();
+    if (await nextBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[Helper] Step 1: Clicking "Next" button...');
+      await nextBtn.click();
+      await notificationPage.waitForTimeout(1500);
+
+      // After clicking Next, the page content changes to show Connect button
+      // Look for Connect button on same page
+      const connectBtn = notificationPage.locator('button:has-text("Connect")').first();
+      if (await connectBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        console.log('[Helper] Step 2: Clicking "Connect" button...');
+        await connectBtn.click();
+        await notificationPage.waitForTimeout(2000);
+        console.log('[Helper] Connection flow completed!');
+        await notificationPage.close().catch(() => {});
+        return true;
+      }
+    }
+
+    // Alternative: Look for Connect button directly (single step)
+    const connectBtnDirect = notificationPage.locator('button:has-text("Connect")').first();
+    if (await connectBtnDirect.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[Helper] Found direct "Connect" button, clicking...');
+      await connectBtnDirect.click();
+      console.log('[Helper] Clicked Connect button, waiting for connection...');
+      await notificationPage.waitForTimeout(3000);
+      // Page might close after connect - that's OK
+      await notificationPage.close().catch(() => {});
+      return true;
+    }
+
+    // Check for Confirm button
+    const confirmBtn = notificationPage.locator('button:has-text("Confirm")').first();
+    if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[Helper] Found "Confirm" button, clicking...');
+      await confirmBtn.click();
+      await notificationPage.waitForTimeout(2000);
+      await notificationPage.close().catch(() => {});
+      return true;
+    }
+
+    console.log('[Helper] No actionable buttons found in notification page');
+
+    // Debug: Log all buttons on page
+    const buttons = notificationPage.locator('button');
+    const buttonCount = await buttons.count();
+    console.log(`[Helper] Found ${buttonCount} buttons on notification page`);
+    for (let i = 0; i < Math.min(buttonCount, 5); i++) {
+      const text = await buttons.nth(i).textContent().catch(() => '');
+      console.log(`[Helper] Button ${i}: "${text?.substring(0, 30)}"`);
+    }
+
+    await notificationPage.close().catch(() => {});
+    return false;
+  } catch (error) {
+    console.log('[Helper] Error in notification page:', (error as Error).message?.substring(0, 50));
+    await notificationPage.close().catch(() => {});
+    return false;
+  }
+}
+
+/**
+ * Connect wallet to dApp if not already connected.
+ * Handles MetaMask v12 MV3 two-step connection flow.
  */
 export async function connectWalletIfNeeded(page: Page, wallet: Dappwright): Promise<boolean> {
   console.log('[Helper] Checking wallet connection...');
 
-  // Check if already connected (look for wallet address on page)
-  const pageContent = await page.content();
-  if (pageContent.toLowerCase().includes('0x60b9')) {
-    console.log('[Helper] Wallet already connected');
+  // Ensure we're on the dApp page
+  await page.bringToFront();
+
+  // Wait for app to fully hydrate (loading spinner to disappear)
+  console.log('[Helper] Waiting for app to hydrate...');
+  const loadingText = page.locator('text=Loading FheatherX');
+  try {
+    await loadingText.waitFor({ state: 'hidden', timeout: 30000 });
+    console.log('[Helper] App hydrated successfully');
+  } catch {
+    console.log('[Helper] App still loading after 30s - continuing anyway');
+  }
+
+  // Wait a bit more for React to render
+  await page.waitForTimeout(2000);
+
+  // Helper to check if wallet is connected
+  const isWalletConnected = async (): Promise<boolean> => {
+    const content = await page.content();
+    // Check for our test wallet address (partial matches for various display formats)
+    // Full: 0x60B9be2A29a02F49e8D6ba535303caD1Ddcb9659
+    // Truncated: 0x60B9...b9659 or 0x60...9659
+    const hasFullAddress = content.toLowerCase().includes('0x60b9be2a29a02f49e8d6ba535303cad1ddcb9659');
+    const hasTruncatedStart = content.toLowerCase().includes('0x60b9');
+    const hasTruncatedEnd = content.toLowerCase().includes('9659');
+    const hasMiddleTruncation = content.includes('0x60') && content.includes('9659');
+
+    const connected = hasFullAddress || hasTruncatedStart || (hasTruncatedEnd && hasMiddleTruncation);
+    if (connected) {
+      console.log('[Helper] Wallet address detected in page content');
+    }
+    return connected;
+  };
+
+  // Check if already connected
+  if (await isWalletConnected()) {
+    console.log('[Helper] Wallet already connected (address found in page)');
+    // Dismiss any open modal
+    const rkModal = page.locator('[data-rk][role="dialog"]');
+    if (await rkModal.isVisible().catch(() => false)) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    }
     return true;
   }
 
-  // Find connect button
-  const connectButton = page.locator('button:has-text("Connect")').first();
-  if (!(await connectButton.isVisible().catch(() => false))) {
-    console.log('[Helper] No Connect button found - might already be connected');
-    return true;
+  const context = page.context();
+
+  // Get MetaMask extension ID early
+  const extensionId = await getMetaMaskExtensionId(context);
+  console.log(`[Helper] MetaMask extension ID: ${extensionId || 'not found'}`);
+
+  // Check if connect modal is already open
+  const rkModal = page.locator('[data-rk][role="dialog"]');
+  const modalAlreadyOpen = await rkModal.isVisible().catch(() => false);
+  console.log(`[Helper] Modal already open: ${modalAlreadyOpen}`);
+
+  if (!modalAlreadyOpen) {
+    // Find connect button
+    let connectButton = page.locator('[data-testid="wallet-connection"] button').first();
+
+    if (!(await connectButton.isVisible().catch(() => false))) {
+      connectButton = page.locator('button:has-text("Connect Wallet")').first();
+    }
+
+    if (!(await connectButton.isVisible().catch(() => false))) {
+      connectButton = page.locator('button:has-text("Connect")').first();
+    }
+
+    if (!(await connectButton.isVisible().catch(() => false))) {
+      console.log('[Helper] No Connect button found');
+      if (await isWalletConnected()) {
+        return true;
+      }
+      return false;
+    }
+
+    // Click connect
+    console.log('[Helper] Found Connect button, clicking...');
+    await connectButton.click();
+    await page.waitForTimeout(1500);
   }
 
-  // Click connect
-  console.log('[Helper] Clicking Connect button...');
-  await connectButton.click();
+  // Wait for modal to fully render
   await page.waitForTimeout(1000);
 
   // Click MetaMask in wallet modal
   const metamaskOption = page.locator('button:has-text("MetaMask")').first();
+
   if (await metamaskOption.isVisible().catch(() => false)) {
-    console.log('[Helper] Selecting MetaMask...');
+    console.log('[Helper] Found MetaMask option, clicking...');
     await metamaskOption.click();
+    await page.waitForTimeout(2000);
+  }
+
+  // Handle MetaMask connection popup
+  if (extensionId) {
+    const connected = await handleMetaMaskConnectionPopup(context, extensionId);
+    if (connected) {
+      console.log('[Helper] MetaMask popup handled, waiting for connection to propagate...');
+      await page.bringToFront();
+
+      // Wait longer for connection to propagate from MetaMask to dApp
+      await page.waitForTimeout(5000);
+
+      // Check connection multiple times with delays
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (await isWalletConnected()) {
+          console.log(`[Helper] Wallet connected (attempt ${attempt + 1})`);
+          // Dismiss any remaining modals
+          if (await rkModal.isVisible().catch(() => false)) {
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(500);
+          }
+          return true;
+        }
+        console.log(`[Helper] Connection not detected yet (attempt ${attempt + 1}/5)`);
+        await page.waitForTimeout(2000);
+      }
+
+      console.log('[Helper] Connection not detected after 5 attempts');
+    }
+
+    await page.bringToFront();
+  }
+
+  // Wait and check connection
+  await page.waitForTimeout(2000);
+
+  // Dismiss any remaining modals
+  if (await rkModal.isVisible().catch(() => false)) {
+    await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
   }
 
-  // Approve connection in MetaMask
-  console.log('[Helper] Approving MetaMask connection...');
-  try {
-    await wallet.approve();
-    console.log('[Helper] Connection approved');
-    await page.waitForTimeout(2000);
+  // Check if connected
+  if (await isWalletConnected()) {
+    console.log('[Helper] Wallet successfully connected');
     return true;
-  } catch (error) {
-    console.log('[Helper] Connection approval failed:', error);
-    return false;
   }
+
+  // Try Dappwright's approve() as fallback
+  console.log('[Helper] Trying wallet.approve() as fallback...');
+  try {
+    await Promise.race([
+      wallet.approve(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+    ]);
+    console.log('[Helper] wallet.approve() succeeded');
+  } catch {
+    console.log('[Helper] wallet.approve() timed out');
+  }
+
+  await page.waitForTimeout(3000);
+
+  if (await isWalletConnected()) {
+    console.log('[Helper] Connected via wallet.approve()');
+    return true;
+  }
+
+  console.log('[Helper] Failed to connect wallet');
+  return false;
 }
 
 /**
@@ -115,6 +355,73 @@ export async function initializeFheSessionIfNeeded(page: Page, wallet: Dappwrigh
 }
 
 /**
+ * Confirm a MetaMask transaction by opening the notification.html page directly.
+ * This works around MetaMask v12 MV3 popup issues where Dappwright can't detect the notification.
+ */
+export async function confirmMetaMaskTransaction(
+  context: import('playwright-core').BrowserContext,
+  extensionId: string
+): Promise<boolean> {
+  const notificationUrl = `chrome-extension://${extensionId}/notification.html`;
+  console.log('[Helper] Opening MetaMask notification for transaction confirmation...');
+
+  let notificationPage = await context.newPage();
+  try {
+    await notificationPage.goto(notificationUrl, { timeout: 5000 });
+    await notificationPage.waitForTimeout(1500);
+
+    // Look for Confirm button (transaction confirmation)
+    const confirmBtn = notificationPage.locator('button:has-text("Confirm")').first();
+    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[Helper] Found "Confirm" button, clicking...');
+      await confirmBtn.click();
+      await notificationPage.waitForTimeout(2000);
+      await notificationPage.close().catch(() => {});
+      console.log('[Helper] Transaction confirmed via notification page');
+      return true;
+    }
+
+    // Alternative: Look for "Approve" button (for token approvals)
+    const approveBtn = notificationPage.locator('button:has-text("Approve")').first();
+    if (await approveBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[Helper] Found "Approve" button, clicking...');
+      await approveBtn.click();
+      await notificationPage.waitForTimeout(2000);
+      await notificationPage.close().catch(() => {});
+      console.log('[Helper] Approval confirmed via notification page');
+      return true;
+    }
+
+    // Alternative: Look for "Sign" button (for signing messages)
+    const signBtn = notificationPage.locator('button:has-text("Sign")').first();
+    if (await signBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[Helper] Found "Sign" button, clicking...');
+      await signBtn.click();
+      await notificationPage.waitForTimeout(2000);
+      await notificationPage.close().catch(() => {});
+      console.log('[Helper] Message signed via notification page');
+      return true;
+    }
+
+    // Debug: Log all buttons on page
+    const buttons = notificationPage.locator('button');
+    const buttonCount = await buttons.count();
+    console.log(`[Helper] No actionable buttons found. Button count: ${buttonCount}`);
+    for (let i = 0; i < Math.min(buttonCount, 5); i++) {
+      const text = await buttons.nth(i).textContent().catch(() => '');
+      console.log(`[Helper] Button ${i}: "${text?.substring(0, 30)}"`);
+    }
+
+    await notificationPage.close().catch(() => {});
+    return false;
+  } catch (error) {
+    console.log('[Helper] Error in transaction notification page:', (error as Error).message?.substring(0, 50));
+    await notificationPage.close().catch(() => {});
+    return false;
+  }
+}
+
+/**
  * Handle multiple MetaMask transaction confirmations
  * Returns the number of transactions confirmed
  */
@@ -125,17 +432,35 @@ export async function handleMetaMaskConfirmations(
 ): Promise<number> {
   console.log(`[Helper] Handling up to ${maxTransactions} MetaMask confirmations...`);
 
+  const context = page.context();
+  const extensionId = await getMetaMaskExtensionId(context);
+
   let confirmed = 0;
 
   for (let attempt = 0; attempt < maxTransactions; attempt++) {
     // Wait for potential transaction popup
     await page.waitForTimeout(2000);
 
+    // Try our notification page approach first
+    if (extensionId) {
+      const success = await confirmMetaMaskTransaction(context, extensionId);
+      if (success) {
+        confirmed++;
+        console.log(`[Helper] Transaction ${confirmed} confirmed via notification page`);
+        await page.waitForTimeout(3000); // Wait for next tx to appear
+        continue;
+      }
+    }
+
+    // Fallback to Dappwright's confirmTransaction
     try {
-      console.log(`[Helper] Attempting to confirm transaction ${attempt + 1}...`);
-      await wallet.confirmTransaction();
+      console.log(`[Helper] Attempting to confirm transaction ${attempt + 1} via Dappwright...`);
+      await Promise.race([
+        wallet.confirmTransaction(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+      ]);
       confirmed++;
-      console.log(`[Helper] Transaction ${confirmed} confirmed`);
+      console.log(`[Helper] Transaction ${confirmed} confirmed via Dappwright`);
       await page.waitForTimeout(3000); // Wait for next tx to appear
     } catch (error) {
       console.log(`[Helper] No more transactions to confirm (confirmed ${confirmed})`);
@@ -409,10 +734,14 @@ export async function callTokenFaucet(
 
 /**
  * Navigate to page and wait for load
+ * Note: App may stay in loading state until wallet is connected
  */
 export async function navigateAndWait(page: Page, path: string): Promise<void> {
   const url = `http://localhost:3000${path}`;
   console.log(`[Helper] Navigating to ${url}...`);
+
+  // Ensure we're on the dApp page (not MetaMask extension page)
+  await page.bringToFront();
 
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -422,7 +751,17 @@ export async function navigateAndWait(page: Page, path: string): Promise<void> {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   }
 
-  await page.waitForLoadState('networkidle');
+  // Don't wait for networkidle as app may be loading indefinitely until wallet connects
   await page.waitForTimeout(2000);
+
+  // Log what we see
+  const currentUrl = page.url();
+  console.log(`[Helper] Current URL: ${currentUrl}`);
+
+  // Check if we're on loading screen or if app loaded
+  const loadingText = page.locator('text=Loading FheatherX');
+  const isLoading = await loadingText.isVisible().catch(() => false);
+  console.log(`[Helper] App loading state: ${isLoading ? 'loading' : 'loaded'}`);
+
   console.log(`[Helper] Navigation complete: ${path}`);
 }

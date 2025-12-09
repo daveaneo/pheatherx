@@ -69,7 +69,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="swap-form">
       {/* Sell Input */}
       <div className="space-y-2">
         <label className="text-sm text-feather-white/60">You Pay</label>
@@ -81,6 +81,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
             onChange={(e) => setSellAmount(e.target.value)}
             className="pr-20 text-lg"
             disabled={isSwapping}
+            data-testid="sell-amount-input"
           />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-feather-white/60 font-medium">
             {sellToken}
@@ -95,6 +96,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
           onClick={handleFlip}
           disabled={isSwapping}
           className="rounded-full p-2"
+          data-testid="flip-direction-button"
         >
           <ArrowDownUp className="w-4 h-4" />
         </Button>
@@ -109,6 +111,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
             value={estimatedOutput}
             readOnly
             className="pr-20 text-lg bg-ash-gray/50"
+            data-testid="buy-amount-output"
           />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-feather-white/60 font-medium">
             {buyToken}
@@ -126,6 +129,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
             onChange={(e) => setSlippage(e.target.value)}
             className="w-16 h-8 text-right"
             disabled={isSwapping}
+            data-testid="slippage-input"
           />
           <span className="text-feather-white/60">%</span>
         </div>
@@ -156,6 +160,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
         size="lg"
         onClick={handleSwap}
         disabled={isSwapping || !sellAmount || parseFloat(sellAmount) === 0}
+        data-testid="swap-button"
       >
         {isSwapping ? (
           <>

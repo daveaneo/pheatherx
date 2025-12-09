@@ -31,6 +31,7 @@ export const test = base.extend<
     async ({}, use) => {
       // Bootstrap MetaMask with dappwright
       // Using v12.23.0 - Dappwright recommended version
+      // Note: MV3 has known popup issues, may need manual approval
       const [wallet, , context] = await dappwright.bootstrap('', {
         wallet: 'metamask',
         version: '12.23.0',

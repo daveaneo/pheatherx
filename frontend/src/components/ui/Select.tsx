@@ -10,7 +10,7 @@ interface SelectOption {
   disabled?: boolean;
 }
 
-interface SelectProps {
+interface SelectProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'onChange'> {
   value: string;
   onChange: (value: string) => void;
   options: SelectOption[];
@@ -26,12 +26,13 @@ export function Select({
   placeholder = 'Select...',
   error,
   className,
+  ...props
 }: SelectProps) {
   const selectedOption = options.find(opt => opt.value === value);
 
   return (
     <Listbox value={value} onChange={onChange}>
-      <div className={cn('relative', className)}>
+      <div className={cn('relative', className)} {...props}>
         <Listbox.Button
           className={cn(
             'input-field text-left flex items-center justify-between',

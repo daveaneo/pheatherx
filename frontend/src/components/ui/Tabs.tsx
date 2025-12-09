@@ -39,13 +39,13 @@ export function TabsList({ children, className }: TabsListProps) {
   );
 }
 
-interface TabsTriggerProps {
+interface TabsTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   value: string;
   children: ReactNode;
   className?: string;
 }
 
-export function TabsTrigger({ value, children, className }: TabsTriggerProps) {
+export function TabsTrigger({ value, children, className, ...props }: TabsTriggerProps) {
   const context = useContext(TabsContext);
   if (!context) throw new Error('TabsTrigger must be used within Tabs');
 
@@ -61,6 +61,8 @@ export function TabsTrigger({ value, children, className }: TabsTriggerProps) {
           : 'text-feather-white/60 hover:text-feather-white',
         className
       )}
+      data-state={isActive ? 'active' : 'inactive'}
+      {...props}
     >
       {children}
     </button>
