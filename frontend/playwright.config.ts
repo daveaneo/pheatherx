@@ -7,6 +7,10 @@ import { defineConfig, devices } from '@playwright/test';
  * - Uses a mock wallet connector instead of MetaMask/Rainbow
  * - Auto-connects the test wallet on page load
  * - Allows full automation without browser extensions
+ *
+ * Test types:
+ * - Smoke tests (01-06): Quick UI verification (~30s each)
+ * - Functional tests (07+): Full transaction flows (~2min each)
  */
 export default defineConfig({
   testDir: './e2e/tests',
@@ -24,11 +28,18 @@ export default defineConfig({
   // Reporter configuration
   reporter: process.env.CI ? 'github' : 'html',
 
+  // Output directory for screenshots and other artifacts
+  outputDir: './e2e/test-results',
+
   // Generous timeout for blockchain transactions
-  timeout: 120000, // 2 minutes per test
+  // Individual tests can override with test.setTimeout()
+  timeout: 120000, // 2 minutes per test (default)
   expect: {
     timeout: 30000, // 30 seconds for assertions
   },
+
+  // Global setup to create screenshot directory
+  globalSetup: undefined, // Can add global setup if needed
 
   use: {
     // Base URL for the dev server
