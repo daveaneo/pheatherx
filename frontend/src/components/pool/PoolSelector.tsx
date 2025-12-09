@@ -15,9 +15,34 @@ export function PoolSelector({ className, compact = false }: PoolSelectorProps) 
   const [search, setSearch] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const pools = usePoolStore(state => state.pools);
+  // Use selector functions to derive pools from poolsByChain and currentChainId
+  // (Zustand getters don't work reactively)
+  const currentChainId = usePoolStore(state => state.currentChainId);
+  const poolsByChain = usePoolStore(state => state.poolsByChain);
+  const poolsLoadedByChain = usePoolStore(state => state.poolsLoadedByChain);
   const selectPool = usePoolStore(state => state.selectPool);
-  const { pool: selectedPool, isLoading, poolsLoaded } = useSelectedPool();
+  const isLoading = usePoolStore(state => state.isLoadingPools);
+
+  // Derive pools for current chain
+  const pools = currentChainId ? (poolsByChain[currentChainId] || []) : [];
+  const poolsLoaded = currentChainId ? (poolsLoadedByChain[currentChainId] || false) : false;
+
+  // Get selected pool from the hook
+  const { pool: selectedPool } = useSelectedPool();
+
+  // Stage-by-stage debug logging
+  console.log('[PoolSelector] RENDER - isLoading:', isLoading, 'poolsLoaded:', poolsLoaded);
+  console.log('[PoolSelector] RENDER - pools.length:', pools.length);
+  console.log('[PoolSelector] RENDER - selectedPool:', selectedPool ? `${selectedPool.token0Meta?.symbol}/${selectedPool.token1Meta?.symbol}` : 'null');
+
+  // Log which branch we'll take
+  if (isLoading || !poolsLoaded) {
+    console.log('[PoolSelector] BRANCH: Showing LOADING state');
+  } else if (pools.length === 0) {
+    console.log('[PoolSelector] BRANCH: Showing NO POOLS state');
+  } else {
+    console.log('[PoolSelector] BRANCH: Showing SELECTOR with', pools.length, 'pools');
+  }
 
   // Close dropdown when clicking outside
   useEffect(() => {

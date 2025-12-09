@@ -29,7 +29,7 @@ export function usePoolDiscovery() {
   // Update current chain ID in store whenever it changes
   useEffect(() => {
     if (chainId && chainId !== prevChainIdRef.current) {
-      console.log('[usePoolDiscovery] Chain changed from', prevChainIdRef.current, 'to', chainId);
+      console.log('[PoolDiscovery] Chain:', chainId, '| Hook:', FHEATHERX_ADDRESSES[chainId]?.slice(0, 10) + '...');
       setCurrentChainId(chainId);
       prevChainIdRef.current = chainId;
     }
@@ -94,20 +94,19 @@ export function usePoolDiscovery() {
   const createFallbackPools = useCallback(async (): Promise<Pool[]> => {
     const hookAddress = FHEATHERX_ADDRESSES[chainId];
 
+    // Creating pools for chain
+
     if (!hookAddress || hookAddress === '0x0000000000000000000000000000000000000000') {
-      console.log('[usePoolDiscovery] No hook address configured for chain', chainId);
       return [];
     }
 
     // Get all tokens from tokens.ts for this chain
     const configTokens = getTokensForChain(chainId);
     if (configTokens.length < 2) {
-      console.log('[usePoolDiscovery] Not enough tokens configured for chain', chainId);
       return [];
     }
 
-    console.log('[usePoolDiscovery] Creating fallback pools from tokens.ts for chain', chainId);
-    console.log('[usePoolDiscovery] Available tokens:', configTokens.map(t => t.symbol));
+    // Creating fallback pools from tokens.ts
 
     // Generate all unique token pairs (combinations, not permutations)
     const pools: Pool[] = [];
@@ -144,11 +143,11 @@ export function usePoolDiscovery() {
           token1Meta,
         });
 
-        console.log(`[usePoolDiscovery] Created pool: ${sorted0.symbol}/${sorted1.symbol}`);
+        // Pool created: sorted0.symbol/sorted1.symbol
       }
     }
 
-    console.log(`[usePoolDiscovery] Created ${pools.length} fallback pools`);
+    console.log(`[PoolDiscovery] Created ${pools.length} pools for chain ${chainId}`);
     return pools;
   }, [chainId]);
 
@@ -158,21 +157,13 @@ export function usePoolDiscovery() {
   const fetchPools = useCallback(async () => {
     // If no factory configured, create fallback pools from tokens.ts
     if (!factoryAddress || factoryAddress === '0x0000000000000000000000000000000000000000') {
-      console.log('[usePoolDiscovery] No factory address configured for chain', chainId);
-
-      // Create fallback pools for all token pairs from tokens.ts
+      // No factory - use fallback pools from tokens.ts
       setLoadingPools(true);
       try {
         const fallbackPools = await createFallbackPools();
-        if (fallbackPools.length > 0) {
-          console.log('[usePoolDiscovery] Using fallback pools from tokens.ts:', fallbackPools.length);
-          setPools(chainId, fallbackPools);
-        } else {
-          console.log('[usePoolDiscovery] No fallback pools created');
-          setPools(chainId, []);
-        }
+        setPools(chainId, fallbackPools);
       } catch (error) {
-        console.error('[usePoolDiscovery] Error creating fallback pools:', error);
+        console.error('[PoolDiscovery] Error creating pools:', error);
         setPools(chainId, []);
       } finally {
         setLoadingPools(false);
@@ -188,16 +179,12 @@ export function usePoolDiscovery() {
     setPoolsError(null);
 
     try {
-      console.log('[usePoolDiscovery] Fetching pools from factory:', factoryAddress);
-
       // Get all pool info from factory
       const rawPools = (await publicClient.readContract({
         address: factoryAddress,
         abi: FHEATHERX_FACTORY_ABI,
         functionName: 'getAllPools',
       })) as PoolInfo[];
-
-      console.log('[usePoolDiscovery] Found', rawPools.length, 'pools');
 
       // Fetch token metadata for all unique tokens
       const tokenAddresses = new Set<`0x${string}`>();
@@ -221,10 +208,10 @@ export function usePoolDiscovery() {
         token1Meta: tokenMetadataMap.get(pool.token1)!,
       }));
 
-      console.log('[usePoolDiscovery] Enriched pools:', enrichedPools);
+      console.log(`[PoolDiscovery] Fetched ${enrichedPools.length} pools from factory`);
       setPools(chainId, enrichedPools);
     } catch (error) {
-      console.error('[usePoolDiscovery] Error fetching pools:', error);
+      console.error('[PoolDiscovery] Error fetching pools:', error);
       setPoolsError(error instanceof Error ? error.message : 'Failed to fetch pools');
     } finally {
       setLoadingPools(false);
@@ -241,8 +228,7 @@ export function usePoolDiscovery() {
     address: factoryAddress,
     abi: FHEATHERX_FACTORY_ABI,
     eventName: 'PoolCreated',
-    onLogs: logs => {
-      console.log('[usePoolDiscovery] PoolCreated event:', logs);
+    onLogs: () => {
       // Refetch all pools when a new one is created
       fetchPools();
     },

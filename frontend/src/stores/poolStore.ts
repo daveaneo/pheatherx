@@ -73,6 +73,12 @@ export const usePoolStore = create<PoolState>()(
       setPools: (chainId, pools) => {
         const currentSelection = get().selectedPoolKeyByChain[chainId];
         const hasValidSelection = currentSelection && pools.some(p => getPoolKey(p) === currentSelection);
+        const newSelection = hasValidSelection
+          ? currentSelection
+          : pools.length > 0
+            ? getPoolKey(pools[0])
+            : null;
+        console.log(`[PoolStore] setPools chain=${chainId} pools=${pools.length} selection=${newSelection?.slice(0, 30)}...`);
 
         set(state => ({
           poolsByChain: {
@@ -97,7 +103,6 @@ export const usePoolStore = create<PoolState>()(
       },
 
       setCurrentChainId: chainId => {
-        console.log('[PoolStore] Setting current chain ID:', chainId);
         set({ currentChainId: chainId });
       },
 
@@ -113,7 +118,6 @@ export const usePoolStore = create<PoolState>()(
         const poolExists = pools.some(p => getPoolKey(p) === poolKey);
 
         if (poolExists) {
-          console.log('[PoolStore] Selecting pool:', poolKey);
           set(state => ({
             selectedPoolKeyByChain: {
               ...state.selectedPoolKeyByChain,
@@ -141,7 +145,6 @@ export const usePoolStore = create<PoolState>()(
       },
 
       clearPoolsForChain: chainId => {
-        console.log('[PoolStore] Clearing pools for chain:', chainId);
         set(state => ({
           poolsByChain: {
             ...state.poolsByChain,

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePublicClient, useAccount } from 'wagmi';
 import { FHEATHERX_V5_ABI } from '@/lib/contracts/fheatherXv5Abi';
+import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
 import { useBucketStore } from '@/stores/bucketStore';
 import { useSelectedPool } from '@/stores/poolStore';
 import { tickToPrice, formatPrice, PRECISION, TICK_SPACING } from '@/lib/constants';
@@ -60,7 +61,19 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
   const publicClient = usePublicClient();
 
   // Get hook address and tokens from selected pool (multi-pool support)
-  const { hookAddress, token0, token1 } = useSelectedPool();
+  const { hookAddress: selectedHookAddress, token0, token1 } = useSelectedPool();
+
+  // Validate hook address matches current chain - prevents using stale data from wrong chain
+  const expectedHookAddress = chainId ? FHEATHERX_ADDRESSES[chainId] : undefined;
+  const hookAddress = useMemo(() => {
+    // Only use the selected hook if it matches the current chain's expected hook
+    if (selectedHookAddress && expectedHookAddress &&
+        selectedHookAddress.toLowerCase() === expectedHookAddress.toLowerCase()) {
+      return selectedHookAddress;
+    }
+    // Fall back to the chain's hook address
+    return expectedHookAddress;
+  }, [selectedHookAddress, expectedHookAddress]);
 
   // Compute pool ID from tokens and hook
   const poolId = useMemo(() => {
