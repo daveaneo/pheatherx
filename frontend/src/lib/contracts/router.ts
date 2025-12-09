@@ -1,4 +1,6 @@
-// Uniswap v4 Router ABI (minimal for swap)
+// Uniswap v4 PoolSwapTest Router ABI
+// Note: This is the test router, not a production router
+// The swap function takes 4 parameters: key, params, testSettings, hookData
 export const SWAP_ROUTER_ABI = [
   {
     name: 'swap',
@@ -23,6 +25,14 @@ export const SWAP_ROUTER_ABI = [
           { name: 'zeroForOne', type: 'bool' },
           { name: 'amountSpecified', type: 'int256' },
           { name: 'sqrtPriceLimitX96', type: 'uint160' },
+        ],
+      },
+      {
+        name: 'testSettings',
+        type: 'tuple',
+        components: [
+          { name: 'takeClaims', type: 'bool' },
+          { name: 'settleUsingBurn', type: 'bool' },
         ],
       },
       { name: 'hookData', type: 'bytes' },

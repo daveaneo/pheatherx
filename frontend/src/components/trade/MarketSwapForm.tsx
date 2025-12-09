@@ -67,7 +67,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
         setSellAmount('');
       }
     } catch (err) {
-      // Error is already handled by the hook
+      // Error is already handled by the hook - don't call reset() as it clears the error state
       console.error('Swap failed:', err);
     }
   };
@@ -179,7 +179,9 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
         {isSwapping ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {step === 'simulating' ? 'Simulating...' : step === 'swapping' ? 'Swapping...' : 'Processing...'}
+            {step === 'simulating' ? 'Simulating...' :
+             step === 'approving' ? 'Approving...' :
+             step === 'swapping' ? 'Swapping...' : 'Processing...'}
           </>
         ) : (
           `Swap ${sellToken} for ${buyToken}`
