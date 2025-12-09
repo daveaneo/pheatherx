@@ -2,8 +2,9 @@
 
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@/components/ui';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+import { useSelectedPool } from '@/stores/poolStore';
+import { formatUnits } from 'viem';
 import type { CurrentPrice } from '@/types/bucket';
-import { formatPrice, tickToPrice } from '@/lib/constants';
 
 interface PriceChartPanelProps {
   currentPrice: CurrentPrice | null;
@@ -16,6 +17,8 @@ export function PriceChartPanel({
   currentTick,
   isLoading,
 }: PriceChartPanelProps) {
+  const { token0, token1 } = useSelectedPool();
+  const pairLabel = token0 && token1 ? `${token0.symbol}/${token1.symbol}` : '';
   // Calculate price display
   const priceDisplay = currentPrice?.priceFormatted ?? '1.0000';
   const tickDisplay = currentTick ?? 0;
@@ -26,7 +29,7 @@ export function PriceChartPanel({
       <CardHeader className="pb-2">
         <CardTitle className="text-lg flex items-center justify-between">
           <span>Current Price</span>
-          <span className="text-xs text-muted-foreground">fheWETH/fheUSDC</span>
+          {pairLabel && <span className="text-xs text-muted-foreground">{pairLabel}</span>}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -75,18 +78,18 @@ export function PriceChartPanel({
         </div>
 
         {/* Reserve Info */}
-        {currentPrice && (
+        {currentPrice && token0 && token1 && (
           <div className="grid grid-cols-2 gap-4 pt-2 border-t">
             <div className="text-center">
-              <p className="text-xs text-muted-foreground">Reserve 0</p>
+              <p className="text-xs text-muted-foreground">{token0.symbol}</p>
               <p className="font-mono text-sm">
-                {Number(currentPrice.reserve0 / BigInt(1e14)) / 10000}
+                {parseFloat(formatUnits(currentPrice.reserve0, token0.decimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })}
               </p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-muted-foreground">Reserve 1</p>
+              <p className="text-xs text-muted-foreground">{token1.symbol}</p>
               <p className="font-mono text-sm">
-                {Number(currentPrice.reserve1 / BigInt(1e14)) / 10000}
+                {parseFloat(formatUnits(currentPrice.reserve1, token1.decimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })}
               </p>
             </div>
           </div>
