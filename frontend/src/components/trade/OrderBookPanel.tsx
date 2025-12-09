@@ -8,7 +8,8 @@ import {
   TICK_SPACING,
   tickToPrice,
   formatPrice,
-  isValidTick,
+  MIN_TICK,
+  MAX_TICK,
 } from '@/lib/constants';
 import type { CurrentPrice } from '@/types/bucket';
 
@@ -38,6 +39,9 @@ function percentageToTickDelta(pct: number): number {
   return Math.round(tickDelta / TICK_SPACING) * TICK_SPACING;
 }
 
+// Number of price levels to show above and below current price
+const LEVELS_PER_SIDE = 10;
+
 export function OrderBookPanel({
   currentTick,
   currentPrice,
@@ -48,65 +52,45 @@ export function OrderBookPanel({
   const { token0, token1 } = useSelectedPool();
 
   // Generate price levels based on granularity
+  // Always show LEVELS_PER_SIDE levels above and below current price
   const priceLevels = useMemo(() => {
-    const levels: PriceLevelRow[] = [];
-    const currentPriceBigInt = tickToPrice(currentTick);
+    const levelsAbove: PriceLevelRow[] = [];
+    const levelsBelow: PriceLevelRow[] = [];
 
-    // Generate percentage steps based on granularity
-    const getPercentages = (gran: GranularityOption): number[] => {
-      switch (gran) {
-        case 1:
-          return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        case 2:
-          return [2, 4, 6, 8, 10];
-        case 5:
-          return [5, 10, 15, 20, 25];
-        case 10:
-          return [10, 20, 30, 40, 50];
-        default:
-          return [2, 4, 6, 8, 10];
+    // Generate 10 levels above and 10 below, stepping by granularity %
+    for (let i = 1; i <= LEVELS_PER_SIDE; i++) {
+      const pct = i * granularity;
+      const tickDelta = percentageToTickDelta(pct);
+
+      // Level above current price
+      const tickAbove = currentTick + tickDelta;
+      if (tickAbove >= MIN_TICK && tickAbove <= MAX_TICK) {
+        levelsAbove.push({
+          tick: tickAbove,
+          price: formatPrice(tickToPrice(tickAbove)),
+          percentDiff: pct,
+          isAbove: true,
+        });
       }
-    };
 
-    const percentages = getPercentages(granularity);
-
-    // Add levels above current price (in descending order so highest is at top)
-    for (let i = percentages.length - 1; i >= 0; i--) {
-      const pct = percentages[i];
-      const tickDelta = percentageToTickDelta(pct);
-      const tick = currentTick + tickDelta;
-      if (!isValidTick(tick)) continue;
-
-      const price = tickToPrice(tick);
-      levels.push({
-        tick,
-        price: formatPrice(price),
-        percentDiff: pct,
-        isAbove: true,
-      });
+      // Level below current price
+      const tickBelow = currentTick - tickDelta;
+      if (tickBelow >= MIN_TICK && tickBelow <= MAX_TICK) {
+        levelsBelow.push({
+          tick: tickBelow,
+          price: formatPrice(tickToPrice(tickBelow)),
+          percentDiff: -pct,
+          isAbove: false,
+        });
+      }
     }
 
-    // Add levels below current price
-    for (const pct of percentages) {
-      const tickDelta = percentageToTickDelta(pct);
-      const tick = currentTick - tickDelta;
-      if (!isValidTick(tick)) continue;
-
-      const price = tickToPrice(tick);
-      levels.push({
-        tick,
-        price: formatPrice(price),
-        percentDiff: -pct,
-        isAbove: false,
-      });
-    }
-
-    return levels;
+    return { levelsAbove, levelsBelow };
   }, [currentTick, granularity]);
 
-  // Split into above and below current price
-  const levelsAbove = priceLevels.filter(l => l.isAbove);
-  const levelsBelow = priceLevels.filter(l => !l.isAbove);
+  // Reverse levelsAbove so highest is at top
+  const levelsAbove = [...priceLevels.levelsAbove].reverse();
+  const levelsBelow = priceLevels.levelsBelow;
 
   const handleOrderClick = (tick: number, isBuy: boolean) => {
     if (onCreateOrder) {
@@ -156,14 +140,15 @@ export function OrderBookPanel({
       </CardHeader>
       <CardContent className="p-0">
         {/* Header */}
-        <div className="grid grid-cols-[60px_1fr_60px] px-3 py-2 text-xs text-muted-foreground border-b">
+        <div className="grid grid-cols-[50px_1fr_70px_55px] px-3 py-2 text-xs text-muted-foreground border-b">
           <span className="text-center">Action</span>
           <span className="text-center">Price</span>
+          <span className="text-center">Tick</span>
           <span className="text-right">% Diff</span>
         </div>
 
         {/* Levels Above (sell territory) */}
-        <div className="max-h-40 overflow-auto">
+        <div className="max-h-[200px] overflow-auto">
           {levelsAbove.map((level) => (
             <PriceLevelRow
               key={`above-${level.tick}`}
@@ -175,20 +160,19 @@ export function OrderBookPanel({
         </div>
 
         {/* Current Price Divider */}
-        <div className="px-3 py-2 bg-muted/50 border-y">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Current</span>
-            <span className="font-mono font-bold text-sm">
-              ${currentPrice?.priceFormatted ?? formatPrice(tickToPrice(currentTick))}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              Tick {currentTick}
-            </span>
-          </div>
+        <div className="grid grid-cols-[50px_1fr_70px_55px] px-3 py-2 bg-muted/50 border-y items-center">
+          <span className="text-xs text-muted-foreground text-center">Current</span>
+          <span className="font-mono font-bold text-sm text-center">
+            ${currentPrice?.priceFormatted ?? formatPrice(tickToPrice(currentTick))}
+          </span>
+          <span className="text-xs text-muted-foreground text-center font-mono">
+            {currentTick}
+          </span>
+          <span className="text-xs text-right">0%</span>
         </div>
 
         {/* Levels Below (buy territory) */}
-        <div className="max-h-40 overflow-auto">
+        <div className="max-h-[200px] overflow-auto">
           {levelsBelow.map((level) => (
             <PriceLevelRow
               key={`below-${level.tick}`}
@@ -230,7 +214,7 @@ function PriceLevelRow({
 
   return (
     <div
-      className={`grid grid-cols-[60px_1fr_60px] px-3 py-1.5 text-sm hover:bg-muted/30 transition-colors items-center ${
+      className={`grid grid-cols-[50px_1fr_70px_55px] px-3 py-1.5 text-sm hover:bg-muted/30 transition-colors items-center ${
         isAbove ? 'text-red-400/80' : 'text-green-400/80'
       }`}
     >
@@ -238,14 +222,14 @@ function PriceLevelRow({
       <div className="flex gap-1 justify-center">
         <button
           onClick={onSell}
-          className="w-6 h-6 rounded flex items-center justify-center bg-red-500/20 hover:bg-red-500/40 text-red-500 transition-colors"
+          className="w-5 h-5 rounded flex items-center justify-center bg-red-500/20 hover:bg-red-500/40 text-red-500 transition-colors"
           title={`Sell at $${level.price}`}
         >
           <Minus className="w-3 h-3" />
         </button>
         <button
           onClick={onBuy}
-          className="w-6 h-6 rounded flex items-center justify-center bg-green-500/20 hover:bg-green-500/40 text-green-500 transition-colors"
+          className="w-5 h-5 rounded flex items-center justify-center bg-green-500/20 hover:bg-green-500/40 text-green-500 transition-colors"
           title={`Buy at $${level.price}`}
         >
           <Plus className="w-3 h-3" />
@@ -253,10 +237,13 @@ function PriceLevelRow({
       </div>
 
       {/* Price */}
-      <span className="font-mono text-center text-feather-white">${level.price}</span>
+      <span className="font-mono text-center text-feather-white text-xs">${level.price}</span>
+
+      {/* Tick */}
+      <span className="font-mono text-center text-muted-foreground text-xs">{level.tick}</span>
 
       {/* Percent Diff */}
-      <span className="text-right">
+      <span className="text-right text-xs">
         {level.percentDiff > 0 ? '+' : ''}{level.percentDiff}%
       </span>
     </div>
