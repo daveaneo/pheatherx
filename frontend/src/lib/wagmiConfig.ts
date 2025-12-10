@@ -1,15 +1,29 @@
 'use client';
 
 import { http, createConfig, createStorage } from 'wagmi';
-import { getDefaultConfig } from '@rainbow-me/rainbowkit';
+import { connectorsForWallets } from '@rainbow-me/rainbowkit';
+import {
+  metaMaskWallet,
+  rainbowWallet,
+  coinbaseWallet,
+  walletConnectWallet,
+  injectedWallet,
+} from '@rainbow-me/rainbowkit/wallets';
+import type { Wallet } from '@rainbow-me/rainbowkit';
 import { mock } from 'wagmi/connectors';
 import { privateKeyToAccount } from 'viem/accounts';
 import { localAnvil, ethereumSepolia, arbSepolia, fhenixTestnet, supportedChains, testSupportedChains } from './chains';
+import { devWalletConnector, getDevWalletAddress } from './devWalletConnector';
 
 // Check if test mode is enabled
 export const isTestMode = (): boolean => {
   if (typeof window === 'undefined') return false;
   return process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+};
+
+// Check if dev wallet is available (private key configured)
+export const isDevWalletAvailable = (): boolean => {
+  return !!getDevWalletAddress();
 };
 
 // Test wallet private key (exported for use by viem wallet client in test mode)
@@ -28,11 +42,64 @@ const transports = {
   [fhenixTestnet.id]: http('https://api.testnet.fhenix.zone:7747'),
 };
 
-// Normal RainbowKit config (used when TEST_MODE is false)
-export const config = getDefaultConfig({
+// WalletConnect project ID
+const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo';
+
+// Dev wallet creator function for RainbowKit
+const devWalletCreator = (): Wallet => {
+  const address = getDevWalletAddress();
+  return {
+    id: 'devWallet',
+    name: `Dev Wallet${address ? ` (${address.slice(0, 6)}...)` : ''}`,
+    iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23f59e0b" width="100" height="100" rx="20"/><text x="50" y="70" font-size="50" text-anchor="middle" fill="white">D</text></svg>',
+    iconAccent: '#f59e0b',
+    iconBackground: '#1a1a1a',
+    downloadUrls: {},
+    createConnector: () => {
+      const connector = devWalletConnector();
+      if (!connector) {
+        throw new Error('Dev wallet connector not available');
+      }
+      return connector;
+    },
+  };
+};
+
+// Build wallet groups - dev wallet first if available
+const hasDevWallet = !!getDevWalletAddress();
+const walletGroups = [
+  // Dev wallet group (first, for easy access)
+  ...(hasDevWallet
+    ? [
+        {
+          groupName: 'Development',
+          wallets: [() => devWalletCreator()],
+        },
+      ]
+    : []),
+  // Standard wallets group
+  {
+    groupName: 'Popular',
+    wallets: [
+      metaMaskWallet,
+      rainbowWallet,
+      coinbaseWallet,
+      walletConnectWallet,
+      injectedWallet,
+    ],
+  },
+];
+
+// Create connectors with dev wallet included
+const connectors = connectorsForWallets(walletGroups, {
   appName: 'FheatherX',
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo',
+  projectId,
+});
+
+// Normal config with dev wallet in wallet list
+export const config = createConfig({
   chains: supportedChains,
+  connectors,
   transports,
   ssr: true,
 });
