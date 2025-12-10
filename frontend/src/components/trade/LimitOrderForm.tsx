@@ -2,12 +2,12 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { Button, Input, Select, Badge, TransactionModal } from '@/components/ui';
-import { Loader2, Lock, AlertTriangle, ArrowRight, Ban } from 'lucide-react';
+import { Loader2, Lock, AlertTriangle, ArrowRight, Ban, ChevronUp, ChevronDown } from 'lucide-react';
 import { usePlaceOrder } from '@/hooks/usePlaceOrder';
 import { useSelectedPool } from '@/stores/poolStore';
 import { parseUnits, formatUnits } from 'viem';
 import { BucketSide, OrderType, ORDER_TYPE_CONFIG } from '@/types/bucket';
-import { TICK_SPACING, tickToPrice, formatPrice, isValidTick } from '@/lib/constants';
+import { TICK_SPACING, tickToPrice, formatPrice, isValidTick, MIN_TICK_V3, MAX_TICK_V3 } from '@/lib/constants';
 import { getLimitOrderAvailability } from '@/lib/validation/privacyRules';
 import type { CurrentPrice } from '@/types/bucket';
 import { useAccount, useBalance } from 'wagmi';
@@ -101,12 +101,60 @@ export function LimitOrderForm({
     setAmount(trimmed);
   };
 
+  // Adjust tick by delta (for up/down buttons)
+  const adjustTick = (delta: number) => {
+    const current = parseInt(targetTick) || 0;
+    const newTick = current + delta;
+    if (isValidTick(newTick)) {
+      setTargetTick(newTick.toString());
+    }
+  };
+
+  // Handle manual tick input with snapping to valid tick
+  const handleTickChange = (value: string) => {
+    const tick = parseInt(value);
+    if (!isNaN(tick)) {
+      // Snap to nearest valid tick
+      const snapped = Math.round(tick / TICK_SPACING) * TICK_SPACING;
+      const clamped = Math.max(MIN_TICK_V3, Math.min(MAX_TICK_V3, snapped));
+      setTargetTick(clamped.toString());
+    } else if (value === '' || value === '-') {
+      setTargetTick(value);
+    }
+  };
+
+  // Calculate receive amount (when filled) based on tick price
+  const receiveAmount = useMemo(() => {
+    if (!amount || !targetTick || parseFloat(amount) === 0) return '0';
+    const amountNum = parseFloat(amount);
+    const tick = parseInt(targetTick);
+    if (isNaN(tick)) return '0';
+
+    const tickPrice = Number(tickToPrice(tick)) / 1e18;
+    if (tickPrice === 0) return '0';
+
+    const receiveDecimals = receiveToken?.decimals ?? 18;
+
+    if (config.depositToken === 'token1') {
+      // Buying token0 with token1: receiveAmount = deposit / price
+      const result = amountNum / tickPrice;
+      return result.toFixed(Math.min(6, receiveDecimals));
+    } else {
+      // Selling token0 for token1: receiveAmount = deposit * price
+      const result = amountNum * tickPrice;
+      return result.toFixed(Math.min(6, receiveDecimals));
+    }
+  }, [amount, targetTick, config.depositToken, receiveToken]);
+
   // Calculate limit order availability based on token types
   const limitOrderAvailability = useMemo(() => {
     return getLimitOrderAvailability(token0, token1);
   }, [token0, token1]);
 
   const noOrdersAvailable = !limitOrderAvailability.buyEnabled && !limitOrderAvailability.sellEnabled;
+
+  // Check if current tick is outside the valid limit order range
+  const isOutsideLimitOrderRange = currentTick < MIN_TICK_V3 || currentTick > MAX_TICK_V3;
 
   // Generate order type options for select, filtering by availability
   // Buy orders: limit-buy (deposits token1)
@@ -150,11 +198,23 @@ export function LimitOrderForm({
     const normalizedCurrentTick = Math.round(clampedTick / TICK_SPACING) * TICK_SPACING;
     const currentPriceValue = tickToPrice(normalizedCurrentTick);
 
+    // If we have a prefill tick that's valid, always include it as the first option
+    if (prefill && isValidTick(prefill.tick)) {
+      const price = tickToPrice(prefill.tick);
+      const diff = ((Number(price) - Number(currentPriceValue)) / Number(currentPriceValue) * 100).toFixed(1);
+      options.push({
+        value: prefill.tick.toString(),
+        label: `$${formatPrice(price)} (${parseFloat(diff) >= 0 ? '+' : ''}${diff}% • tick ${prefill.tick})`
+      });
+    }
+
     if (config.tickRelation === 'below') {
       // Generate ticks below current
       for (let i = 1; i <= numTicks; i++) {
         const tick = normalizedCurrentTick - i * TICK_SPACING;
         if (!isValidTick(tick)) continue;
+        // Skip if already added as prefill
+        if (prefill && tick === prefill.tick) continue;
         const price = tickToPrice(tick);
         const diff = ((Number(price) - Number(currentPriceValue)) / Number(currentPriceValue) * 100).toFixed(1);
         options.push({
@@ -167,6 +227,8 @@ export function LimitOrderForm({
       for (let i = 1; i <= numTicks; i++) {
         const tick = normalizedCurrentTick + i * TICK_SPACING;
         if (!isValidTick(tick)) continue;
+        // Skip if already added as prefill
+        if (prefill && tick === prefill.tick) continue;
         const price = tickToPrice(tick);
         const diff = ((Number(price) - Number(currentPriceValue)) / Number(currentPriceValue) * 100).toFixed(1);
         options.push({
@@ -177,7 +239,7 @@ export function LimitOrderForm({
     }
 
     return options;
-  }, [currentTick, config.tickRelation]);
+  }, [currentTick, config.tickRelation, prefill]);
 
   // Update target tick when options change and current value is not valid
   useEffect(() => {
@@ -222,6 +284,26 @@ export function LimitOrderForm({
 
   const selectedTick = parseInt(targetTick) || currentTick;
 
+  // Show disabled state when price is outside valid range
+  if (isOutsideLimitOrderRange) {
+    return (
+      <div className="space-y-4" data-testid="limit-form">
+        <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-lg text-center">
+          <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+          <h3 className="text-lg font-medium text-red-300 mb-2">
+            Price Outside Limit Order Range
+          </h3>
+          <p className="text-sm text-red-400 mb-4">
+            Current price (tick {currentTick}) is outside the valid limit order range ({MIN_TICK_V3} to {MAX_TICK_V3}).
+          </p>
+          <p className="text-xs text-red-500">
+            Use the Market tab for instant swaps. This is a known limitation being addressed in a future contract update.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Show disabled state when no orders available
   if (noOrdersAvailable) {
     return (
@@ -264,16 +346,42 @@ export function LimitOrderForm({
         <p className="text-xs text-feather-white/40">{config.description}</p>
       </div>
 
-      {/* Target Price/Tick */}
+      {/* Target Price/Tick with Up/Down Controls */}
       <div className="space-y-2">
         <label className="text-sm text-feather-white/60">Target Price (Tick)</label>
-        <Select
-          value={targetTick}
-          onChange={setTargetTick}
-          options={tickOptions}
-          placeholder="Select target price..."
-          data-testid="target-tick-select"
-        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => adjustTick(-TICK_SPACING)}
+            className="p-2 bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50"
+            disabled={isSubmitting || !isValidTick((parseInt(targetTick) || 0) - TICK_SPACING)}
+            title="Decrease tick"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </button>
+          <div className="flex-1">
+            <Select
+              value={targetTick}
+              onChange={setTargetTick}
+              options={tickOptions}
+              placeholder="Select target price..."
+              data-testid="target-tick-select"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => adjustTick(TICK_SPACING)}
+            className="p-2 bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50"
+            disabled={isSubmitting || !isValidTick((parseInt(targetTick) || 0) + TICK_SPACING)}
+            title="Increase tick"
+          >
+            <ChevronUp className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex justify-between text-xs text-feather-white/40">
+          <span>Tick: {targetTick || '—'}</span>
+          <span>Price: ${targetTick ? formatPrice(tickToPrice(parseInt(targetTick))) : '—'}</span>
+        </div>
       </div>
 
       {/* Amount Input */}
@@ -308,6 +416,23 @@ export function LimitOrderForm({
         </div>
       </div>
 
+      {/* Slippage Tolerance */}
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-feather-white/60">Max Tick Drift</span>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            value={slippage}
+            onChange={(e) => setSlippage(e.target.value)}
+            className="w-20 h-8 text-right text-sm"
+            disabled={isSubmitting}
+            min="0"
+            max="1000"
+          />
+          <span className="text-feather-white/60 text-xs">bps</span>
+        </div>
+      </div>
+
       {/* Order Summary */}
       <div className="p-3 bg-ash-gray/30 rounded-lg text-sm space-y-1">
         <div className="flex justify-between">
@@ -316,7 +441,7 @@ export function LimitOrderForm({
         </div>
         <div className="flex justify-between">
           <span className="text-feather-white/60">Receive (when filled)</span>
-          <span>{receiveTokenSymbol}</span>
+          <span>{receiveAmount} {receiveTokenSymbol}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-feather-white/60">Target Price</span>
