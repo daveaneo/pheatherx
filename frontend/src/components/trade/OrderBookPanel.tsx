@@ -8,8 +8,8 @@ import {
   TICK_SPACING,
   tickToPrice,
   formatPrice,
-  MIN_TICK_V3,
-  MAX_TICK_V3,
+  MIN_TICK,
+  MAX_TICK,
 } from '@/lib/constants';
 import { getLimitOrderAvailability, type LimitOrderAvailability } from '@/lib/validation/privacyRules';
 import type { CurrentPrice } from '@/types/bucket';
@@ -57,8 +57,6 @@ export function OrderBookPanel({
     return getLimitOrderAvailability(token0, token1);
   }, [token0, token1]);
 
-  // Check if current tick is outside the valid limit order range
-  const isOutsideLimitOrderRange = currentTick < MIN_TICK_V3 || currentTick > MAX_TICK_V3;
 
   // Generate price levels based on granularity
   // Always show LEVELS_PER_SIDE levels above and below current price
@@ -73,7 +71,7 @@ export function OrderBookPanel({
 
       // Level above current price
       const tickAbove = currentTick + tickDelta;
-      if (tickAbove >= MIN_TICK_V3 && tickAbove <= MAX_TICK_V3) {
+      if (tickAbove >= MIN_TICK && tickAbove <= MAX_TICK) {
         levelsAbove.push({
           tick: tickAbove,
           price: formatPrice(tickToPrice(tickAbove)),
@@ -84,7 +82,7 @@ export function OrderBookPanel({
 
       // Level below current price
       const tickBelow = currentTick - tickDelta;
-      if (tickBelow >= MIN_TICK_V3 && tickBelow <= MAX_TICK_V3) {
+      if (tickBelow >= MIN_TICK && tickBelow <= MAX_TICK) {
         levelsBelow.push({
           tick: tickBelow,
           price: formatPrice(tickToPrice(tickBelow)),
@@ -161,20 +159,6 @@ export function OrderBookPanel({
           <div className="px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
             <span className="text-xs text-amber-500">{limitOrderAvailability.message}</span>
-          </div>
-        )}
-
-        {/* Price Range Warning */}
-        {isOutsideLimitOrderRange && (
-          <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20 flex items-start gap-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="text-xs text-red-500">
-              <p className="font-medium">Limit Orders Unavailable</p>
-              <p className="text-red-500/80 mt-0.5">
-                Current price (tick {currentTick}) is outside the valid limit order range ({MIN_TICK_V3} to {MAX_TICK_V3}).
-                Use Market orders instead.
-              </p>
-            </div>
           </div>
         )}
 

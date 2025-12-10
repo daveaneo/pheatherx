@@ -7,7 +7,7 @@ import { usePlaceOrder } from '@/hooks/usePlaceOrder';
 import { useSelectedPool } from '@/stores/poolStore';
 import { parseUnits, formatUnits } from 'viem';
 import { BucketSide, OrderType, ORDER_TYPE_CONFIG } from '@/types/bucket';
-import { TICK_SPACING, tickToPrice, formatPrice, isValidTick, MIN_TICK_V3, MAX_TICK_V3 } from '@/lib/constants';
+import { TICK_SPACING, tickToPrice, formatPrice, isValidTick, MIN_TICK, MAX_TICK } from '@/lib/constants';
 import { getLimitOrderAvailability } from '@/lib/validation/privacyRules';
 import type { CurrentPrice } from '@/types/bucket';
 import { useAccount, useBalance } from 'wagmi';
@@ -116,7 +116,7 @@ export function LimitOrderForm({
     if (!isNaN(tick)) {
       // Snap to nearest valid tick
       const snapped = Math.round(tick / TICK_SPACING) * TICK_SPACING;
-      const clamped = Math.max(MIN_TICK_V3, Math.min(MAX_TICK_V3, snapped));
+      const clamped = Math.max(MIN_TICK, Math.min(MAX_TICK, snapped));
       setTargetTick(clamped.toString());
     } else if (value === '' || value === '-') {
       setTargetTick(value);
@@ -152,9 +152,6 @@ export function LimitOrderForm({
   }, [token0, token1]);
 
   const noOrdersAvailable = !limitOrderAvailability.buyEnabled && !limitOrderAvailability.sellEnabled;
-
-  // Check if current tick is outside the valid limit order range
-  const isOutsideLimitOrderRange = currentTick < MIN_TICK_V3 || currentTick > MAX_TICK_V3;
 
   // Generate order type options for select, filtering by availability
   // Buy orders: limit-buy (deposits token1)
@@ -283,26 +280,6 @@ export function LimitOrderForm({
   };
 
   const selectedTick = parseInt(targetTick) || currentTick;
-
-  // Show disabled state when price is outside valid range
-  if (isOutsideLimitOrderRange) {
-    return (
-      <div className="space-y-4" data-testid="limit-form">
-        <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-lg text-center">
-          <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
-          <h3 className="text-lg font-medium text-red-300 mb-2">
-            Price Outside Limit Order Range
-          </h3>
-          <p className="text-sm text-red-400 mb-4">
-            Current price (tick {currentTick}) is outside the valid limit order range ({MIN_TICK_V3} to {MAX_TICK_V3}).
-          </p>
-          <p className="text-xs text-red-500">
-            Use the Market tab for instant swaps. This is a known limitation being addressed in a future contract update.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   // Show disabled state when no orders available
   if (noOrdersAvailable) {

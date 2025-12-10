@@ -26,17 +26,11 @@ export const DEFAULT_SLIPPAGE = 0.5; // 0.5%
 export const MAX_SLIPPAGE = 50; // 50%
 
 // ============================================================================
-// FheatherX v3 Constants (match contract exactly)
+// FheatherX Tick Constants (now using Uniswap's full TickMath range)
 // ============================================================================
 
 /** Tick spacing - each tick represents ~0.6% price change */
 export const TICK_SPACING = 60;
-
-/** Minimum tick value (-6000 = ~0.55x price ratio) */
-export const MIN_TICK_V3 = -6000;
-
-/** Maximum tick value (6000 = ~1.8x price ratio) */
-export const MAX_TICK_V3 = 6000;
 
 /** Precision for fixed-point math (1e18) */
 export const PRECISION = BigInt(1e18);
@@ -89,8 +83,8 @@ export function priceToTick(price: bigint): number {
  */
 export function isValidTick(tick: number): boolean {
   return (
-    tick >= MIN_TICK_V3 &&
-    tick <= MAX_TICK_V3 &&
+    tick >= MIN_TICK &&
+    tick <= MAX_TICK &&
     tick % TICK_SPACING === 0
   );
 }

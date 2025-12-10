@@ -1,9 +1,9 @@
 {
   "version": "v6",
   "chainId": 11155111,
-  "deployedAt": "1765326324",
+  "deployedAt": "1765396188",
   "contracts": {
-    "hook": "0x1e2F7C494fe1C34dD7Bc8E389eF4e922288c90C8",
+    "hook": "0xA5C0d461B96aE934699E642e4e654e4790f890c8",
     "poolManager": "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
     "swapRouter": "0x9B6b46e2c869aa39918Db7f52f5557FE577B6eEe",
     "positionManager": "0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4"
@@ -16,26 +16,38 @@
   },
   "pools": {
     "WETH_USDC": {
-      "poolId": "0xb5d08ceaca4dfe1f1c6ffae13c25412b2b64ee13197d08665c8b773f3e60b34d",
+      "poolId": "0xb96ac4fe21ff2619b23a427e31bde93532b411f74cee21fc520e18eb28c1c911",
       "token0": "0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E",
       "token1": "0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56",
       "type": "ERC:ERC"
     },
     "fheWETH_fheUSDC": {
-      "poolId": "0xdeee175245030c61c6672071616e773ebecd6cfb0bb3e90296f083f07c192831",
+      "poolId": "0x9eaa622156e0c296d8c676005a92e0b69625bf44e699bb594b5884301029e07b",
       "token0": "0x1D77eE754b2080B354733299A5aC678539a0D740",
       "token1": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
       "type": "FHE:FHE"
     },
     "WETH_fheUSDC": {
-      "poolId": "0xe1e69f517c3c082678a3cadbd9f8ea7513cb7cc8a5a130b2666ab940c2ff636f",
+      "poolId": "0x89277947683aebfc5a1d1ef90f17ffcd2ee8956166982dc99d4b1463fa2a7c77",
       "token0": "0x1D77eE754b2080B354733299A5aC678539a0D740",
       "token1": "0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E",
       "type": "FHE:ERC"
     },
     "fheWETH_USDC": {
-      "poolId": "0x3fe7ff440f643fd4dbcd1921a5a617ecb887a71e881034928aa50c46b5f1e7e3",
+      "poolId": "0x62bd70fbee2f997c0c2dfbecf62a4341b758b70c9236e516b42c74171efa5208",
       "token0": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
+      "token1": "0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56",
+      "type": "FHE:ERC"
+    },
+    "WETH_fheWETH": {
+      "poolId": "0xd346b27869f877b6a290f5ba7637210bba0af18c197c597eef5fac53b918db60",
+      "token0": "0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E",
+      "token1": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
+      "type": "ERC:FHE"
+    },
+    "USDC_fheUSDC": {
+      "poolId": "0x4a451a57b94bd244a00c810c424696e72e884398578badf39540eff31787e50a",
+      "token0": "0x1D77eE754b2080B354733299A5aC678539a0D740",
       "token1": "0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56",
       "type": "FHE:ERC"
     }

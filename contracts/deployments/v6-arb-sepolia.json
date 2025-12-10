@@ -2,42 +2,42 @@
   "version": "v6",
   "network": "arb-sepolia",
   "chainId": 421614,
-  "deployedAt": "1765326363",
+  "deployedAt": "1765396271",
   "contracts": {
-    "hook": "0xbE26c52CC34C11297D57A797cC089211947090C8",
+    "hook": "0x12874fE3D50AE1771C0bcdD764Db5ff36D0D50C8",
     "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     "swapRouter": "0xf3A39C86dbd13C45365E57FB90fe413371F65AF8",
     "positionManager": "0xAc631556d3d4019C95769033B5E719dD77124BAc"
   },
   "tokens": {
-    "WETH": { "address": "0x34010C7b06cD65365C129223A466032Bc7897110", "decimals": 18, "type": "ERC20" },
-    "USDC": { "address": "0xbdDd18385FE6Ad2C81E3c1Adf40f28E3AA2a41e5", "decimals": 6, "type": "ERC20" },
-    "fheWETH": { "address": "0x9E0b37Ec3eC64ac667C3Bc7aD82DaC27bF82D55c", "decimals": 18, "type": "FHERC20" },
-    "fheUSDC": { "address": "0xF6f6a3162Ca3162E3855d0B201d2264de64a52F6", "decimals": 6, "type": "FHERC20" }
+    "WETH": { "address": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F", "decimals": 18, "type": "ERC20" },
+    "USDC": { "address": "0xF6E9f75e0419b7D2adE5AC0eA20B03d84D5e0B0D", "decimals": 6, "type": "ERC20" },
+    "fheWETH": { "address": "0xdbB7B95B3BFEA9a8a039f2509de766502eB9B115", "decimals": 18, "type": "FHERC20" },
+    "fheUSDC": { "address": "0xbAd7143e7b2f705cE89BB26f76C4f7861b0bd207", "decimals": 6, "type": "FHERC20" }
   },
   "pools": {
     "WETH_USDC": {
-      "poolId": "0x0ae59cb1d417184ff1f4c540ee3dc3120af83bd1124b9cefc3cec285e5e32f77",
-      "token0": "0x34010C7b06cD65365C129223A466032Bc7897110",
-      "token1": "0xbdDd18385FE6Ad2C81E3c1Adf40f28E3AA2a41e5",
+      "poolId": "0x824e346619f4e6746a659b1e280e6be749cba6e730d8e77a4610b72273c2de70",
+      "token0": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
+      "token1": "0xF6E9f75e0419b7D2adE5AC0eA20B03d84D5e0B0D",
       "type": "ERC:ERC"
     },
     "fheWETH_fheUSDC": {
-      "poolId": "0x38e31edb4eec939702d9410ce6a2032aebf2b2e03b7c5f511f7b162458175562",
-      "token0": "0x9E0b37Ec3eC64ac667C3Bc7aD82DaC27bF82D55c",
-      "token1": "0xF6f6a3162Ca3162E3855d0B201d2264de64a52F6",
+      "poolId": "0xd5111b906c78a7a6ef0671d704303548b5e44bdf9bf6137ca7561a92e048de8d",
+      "token0": "0xbAd7143e7b2f705cE89BB26f76C4f7861b0bd207",
+      "token1": "0xdbB7B95B3BFEA9a8a039f2509de766502eB9B115",
       "type": "FHE:FHE"
     },
     "WETH_fheUSDC": {
-      "poolId": "0xbd9b6446c290cff010c352c81d42feb99519c185a05a7e7c0adc1a7cecdc1015",
-      "token0": "0x34010C7b06cD65365C129223A466032Bc7897110",
-      "token1": "0xF6f6a3162Ca3162E3855d0B201d2264de64a52F6",
+      "poolId": "0xca505d089cbe015df9d98c9eeb42becd3b05f97daaf2873c05092787c146d2c0",
+      "token0": "0xbAd7143e7b2f705cE89BB26f76C4f7861b0bd207",
+      "token1": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
       "type": "ERC:FHE"
     },
     "fheWETH_USDC": {
-      "poolId": "0xa6e4cdc2bd66511731811a1f50d8d37ed3615df225c7ccf1a5c91a7832e9d0a6",
-      "token0": "0x9E0b37Ec3eC64ac667C3Bc7aD82DaC27bF82D55c",
-      "token1": "0xbdDd18385FE6Ad2C81E3c1Adf40f28E3AA2a41e5",
+      "poolId": "0x462c7e0a5e382e3dbce155c101fae815474bee16c34d9e54173a6738abd71db5",
+      "token0": "0xdbB7B95B3BFEA9a8a039f2509de766502eB9B115",
+      "token1": "0xF6E9f75e0419b7D2adE5AC0eA20B03d84D5e0B0D",
       "type": "FHE:ERC"
     }
   },
