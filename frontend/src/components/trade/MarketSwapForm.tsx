@@ -6,8 +6,9 @@ import { ArrowDownUp, Loader2 } from 'lucide-react';
 import { useSwap } from '@/hooks/useSwap';
 import { useSelectedPool } from '@/stores/poolStore';
 import { useTransactionModal } from '@/hooks/useTransactionModal';
-import { parseUnits } from 'viem';
+import { parseUnits, formatUnits } from 'viem';
 import type { CurrentPrice } from '@/types/bucket';
+import { useAccount, useBalance } from 'wagmi';
 
 interface MarketSwapFormProps {
   currentPrice: CurrentPrice | null;
@@ -21,12 +22,21 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   const { swap, step, isSwapping, error, reset } = useSwap();
   const { token0, token1 } = useSelectedPool();
   const txModal = useTransactionModal();
+  const { address } = useAccount();
 
   // Get token symbols from selected pool
   const sellToken = zeroForOne ? (token0?.symbol ?? 'Token0') : (token1?.symbol ?? 'Token1');
   const buyToken = zeroForOne ? (token1?.symbol ?? 'Token1') : (token0?.symbol ?? 'Token0');
   const sellDecimals = zeroForOne ? (token0?.decimals ?? 18) : (token1?.decimals ?? 18);
   const buyDecimals = zeroForOne ? (token1?.decimals ?? 18) : (token0?.decimals ?? 18);
+  const sellTokenAddress = zeroForOne ? token0?.address : token1?.address;
+
+  // Get wallet balance for sell token
+  const { data: balanceData } = useBalance({
+    address,
+    token: sellTokenAddress,
+  });
+  const sellBalance = balanceData?.value;
 
   // Calculate estimated output using AMM constant product formula
   // Formula: amountOut = (amountIn * reserveOut) / (reserveIn + amountIn)
@@ -52,6 +62,16 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
       return amountOut.toFixed(4);
     }
   })();
+
+  // Handle percentage button click
+  const handlePercentageClick = (pct: number) => {
+    if (!sellBalance) return;
+    const amount = (sellBalance * BigInt(pct)) / 100n;
+    const formatted = formatUnits(amount, sellDecimals);
+    // Trim trailing zeros but keep reasonable precision
+    const trimmed = parseFloat(formatted).toString();
+    setSellAmount(trimmed);
+  };
 
   const handleSwap = async () => {
     if (!sellAmount || parseFloat(sellAmount) === 0) return;
@@ -107,6 +127,19 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-feather-white/60 font-medium">
             {sellToken}
           </span>
+        </div>
+        <div className="flex gap-1 mt-1">
+          {[25, 50, 75, 100].map((pct) => (
+            <button
+              key={pct}
+              type="button"
+              onClick={() => handlePercentageClick(pct)}
+              className="px-2 py-0.5 text-xs bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!sellBalance || isSwapping}
+            >
+              {pct}%
+            </button>
+          ))}
         </div>
       </div>
 

@@ -102,6 +102,10 @@ export const config = createConfig({
   connectors,
   transports,
   ssr: true,
+  storage: createStorage({
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    key: 'fheatherx-wagmi',
+  }),
 });
 
 // Test mode config with mock connector (used when TEST_MODE is true)

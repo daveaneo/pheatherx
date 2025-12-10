@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { FheSessionGuard } from '@/components/common/FheSessionGuard';
 import { useUserLPPositions, type LPPosition } from '@/hooks/useUserLPPositions';
+import { Minus } from 'lucide-react';
 
 export default function LiquidityPage() {
   const [activeTab, setActiveTab] = useState<'add' | 'remove'>('add');

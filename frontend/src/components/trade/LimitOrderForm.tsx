@@ -5,7 +5,7 @@ import { Button, Input, Select, Badge, TransactionModal } from '@/components/ui'
 import { Loader2, Lock, AlertTriangle, ArrowRight, Ban } from 'lucide-react';
 import { usePlaceOrder } from '@/hooks/usePlaceOrder';
 import { useSelectedPool } from '@/stores/poolStore';
-import { parseUnits } from 'viem';
+import { parseUnits, formatUnits } from 'viem';
 import { BucketSide, OrderType, ORDER_TYPE_CONFIG } from '@/types/bucket';
 import { TICK_SPACING, tickToPrice, formatPrice, isValidTick } from '@/lib/constants';
 import { getLimitOrderAvailability } from '@/lib/validation/privacyRules';
@@ -90,6 +90,16 @@ export function LimitOrderForm({
 
   // Show wrap prompt if balance is insufficient
   const needsWrap = hasInsufficientBalance && depositTokenAddress !== undefined;
+
+  // Handle percentage button click
+  const handlePercentageClick = (pct: number) => {
+    if (!walletBalance || walletBalance === 0n) return;
+    const amountValue = (walletBalance * BigInt(pct)) / 100n;
+    const formatted = formatUnits(amountValue, depositTokenDecimals);
+    // Trim trailing zeros but keep reasonable precision
+    const trimmed = parseFloat(formatted).toString();
+    setAmount(trimmed);
+  };
 
   // Calculate limit order availability based on token types
   const limitOrderAvailability = useMemo(() => {
@@ -282,6 +292,19 @@ export function LimitOrderForm({
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-feather-white/60 font-medium">
             {depositTokenSymbol}
           </span>
+        </div>
+        <div className="flex gap-1 mt-1">
+          {[25, 50, 75, 100].map((pct) => (
+            <button
+              key={pct}
+              type="button"
+              onClick={() => handlePercentageClick(pct)}
+              className="px-2 py-0.5 text-xs bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!walletBalance || walletBalance === 0n || isSubmitting}
+            >
+              {pct}%
+            </button>
+          ))}
         </div>
       </div>
 
