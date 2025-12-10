@@ -603,9 +603,9 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.stopPrank();
 
         int24 tick = hook.getCurrentTickForPool(poolIdErcErc);
-        // With liquidity, tick should be within valid range
-        // Note: With WETH (18 decimals) and USDC (6 decimals), initial tick may vary
-        assertTrue(tick >= -6000 && tick <= 6000, "Tick should be within valid range");
+        // With liquidity, tick should be within valid range (using Uniswap's full TickMath range)
+        // Note: With WETH (18 decimals) and USDC (6 decimals), initial tick may vary significantly
+        assertTrue(tick >= -887272 && tick <= 887272, "Tick should be within valid range");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -687,10 +687,12 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
         InEuint128 memory amount = createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
         uint256 deadline = block.timestamp + 1 hours;
-        int24 maxDrift = 10000;
+        int24 maxDrift = 900000; // Allow large drift for extreme tick test
 
+        // With Uniswap's TickMath, MAX_TICK is 887272
+        // Test with a tick beyond that range
         vm.expectRevert(FheatherXv6.InvalidTick.selector);
-        hook.deposit(poolIdFheFhe, 6060, FheatherXv6.BucketSide.SELL, amount, deadline, maxDrift); // Beyond MAX_TICK
+        hook.deposit(poolIdFheFhe, 887280, FheatherXv6.BucketSide.SELL, amount, deadline, maxDrift); // Beyond MAX_TICK
 
         vm.stopPrank();
     }
