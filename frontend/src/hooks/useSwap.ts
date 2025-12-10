@@ -136,6 +136,7 @@ export function useSwap(): UseSwapResult {
         abi: erc20Abi,
         functionName: 'approve',
         args: [spender, amount],
+        chainId,
         gas: 100000n,
       });
 
@@ -148,7 +149,7 @@ export function useSwap(): UseSwapResult {
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
       updateTransaction(approveHash, { status: 'confirmed' });
     }
-  }, [address, publicClient, writeContractAsync, addTransaction, updateTransaction]);
+  }, [address, publicClient, writeContractAsync, chainId, addTransaction, updateTransaction]);
 
   /**
    * Get a quote using the hook's getQuote function
@@ -222,6 +223,7 @@ export function useSwap(): UseSwapResult {
         abi: FHEATHERX_V6_ABI,
         functionName: 'swap',
         args: [zeroForOne, amountIn, minAmountOut],
+        chainId,
       });
 
       debugLog('swap: tx submitted', { hash });
@@ -247,7 +249,7 @@ export function useSwap(): UseSwapResult {
       errorToast('Swap failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
    * Direct plaintext swap for specific pool
@@ -277,6 +279,7 @@ export function useSwap(): UseSwapResult {
         abi: FHEATHERX_V6_ABI,
         functionName: 'swapForPool',
         args: [poolId, zeroForOne, amountIn, minAmountOut],
+        chainId,
       });
 
       debugLog('swapForPool: tx submitted', { hash });
@@ -302,7 +305,7 @@ export function useSwap(): UseSwapResult {
       errorToast('Swap failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
    * Encrypted swap - hides direction, amount, and minOutput
@@ -389,6 +392,7 @@ export function useSwap(): UseSwapResult {
         abi: FHEATHERX_V6_ABI,
         functionName: 'swapEncrypted',
         args: [poolId, encDirection, encAmountIn, encMinOutput],
+        chainId,
       });
 
       debugLog('swapEncrypted: tx submitted', { hash });
@@ -414,7 +418,7 @@ export function useSwap(): UseSwapResult {
       errorToast('Encrypted swap failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, checkAndApproveToken, encrypt, encryptBool, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, encrypt, encryptBool, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
    * Router-based swap (legacy, uses V4 PoolSwapTest router)
@@ -467,6 +471,7 @@ export function useSwap(): UseSwapResult {
         abi: SWAP_ROUTER_ABI,
         functionName: 'swap',
         args: [poolKey, swapParams, testSettings, hookData] as any,
+        chainId,
       });
 
       debugLog('swapViaRouter: tx submitted', { hash });
@@ -492,7 +497,7 @@ export function useSwap(): UseSwapResult {
       errorToast('Swap failed', message);
       throw err;
     }
-  }, [address, routerAddress, publicClient, hookAddress, token0, token1, writeContractAsync, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, routerAddress, publicClient, hookAddress, token0, token1, writeContractAsync, chainId, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast]);
 
   return {
     getQuote,

@@ -38,10 +38,10 @@ const ETH_SEPOLIA_TOKENS = {
 
 // Arbitrum Sepolia Token Addresses (from contracts/deployments/v6-arb-sepolia.json)
 const ARB_SEPOLIA_TOKENS = {
-  WETH: '0x4b6ba4Bbfb4ffBcc916CAe8BA10E0bb0C5fEf23a' as `0x${string}`,
-  USDC: '0x83BC78029f3aC12D59d91B861E8Dc680090C7435' as `0x${string}`,
-  fheWETH: '0x9fcAa2Fde62f5cbe756500B6a47383B84D862C86' as `0x${string}`,
-  fheUSDC: '0x90A93499Ac71725864c3dc23c9AB26f46cb377dE' as `0x${string}`,
+  WETH: '0x34010C7b06cD65365C129223A466032Bc7897110' as `0x${string}`,
+  USDC: '0xbdDd18385FE6Ad2C81E3c1Adf40f28E3AA2a41e5' as `0x${string}`,
+  fheWETH: '0x9E0b37Ec3eC64ac667C3Bc7aD82DaC27bF82D55c' as `0x${string}`,
+  fheUSDC: '0xF6f6a3162Ca3162E3855d0B201d2264de64a52F6' as `0x${string}`,
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════

@@ -16,8 +16,8 @@ export const FHEATHERX_FACTORY_ADDRESSES: Record<number, `0x${string}`> = {
 // FheatherXv6 Hook addresses
 export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0xb51A06F8Ef84bB0Ae77414D866e90f778b77D0C8', // v6 Eth Sepolia
-  421614: '0x59CA6d351a3080fa690147F02e0e8DE70b9D10C8',   // v6 Arb Sepolia
+  11155111: '0x1e2F7C494fe1C34dD7Bc8E389eF4e922288c90C8', // v6 Eth Sepolia (redeployed)
+  421614: '0xbE26c52CC34C11297D57A797cC089211947090C8',   // v6 Arb Sepolia (redeployed)
   8008135: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
 };
 
@@ -40,10 +40,10 @@ export const TOKEN_ADDRESSES: Record<number, { token0: `0x${string}`; token1: `0
     token0: '0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E',  // WETH
     token1: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56',  // USDC
   },
-  // Arb Sepolia v6: WETH/USDC (WETH < USDC by address)
+  // Arb Sepolia v6: WETH/USDC (sorted by address)
   421614: {
-    token0: '0x4b6ba4Bbfb4ffBcc916CAe8BA10E0bb0C5fEf23a',  // WETH
-    token1: '0x83BC78029f3aC12D59d91B861E8Dc680090C7435',  // USDC
+    token0: '0x34010C7b06cD65365C129223A466032Bc7897110',  // WETH (redeployed)
+    token1: '0xbdDd18385FE6Ad2C81E3c1Adf40f28E3AA2a41e5',  // USDC (redeployed)
   },
   8008135: {
     token0: (process.env.NEXT_PUBLIC_TOKEN0_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',

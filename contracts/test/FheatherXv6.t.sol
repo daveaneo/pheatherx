@@ -510,6 +510,29 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.stopPrank();
     }
 
+    function testSwapViaDefaultPool() public {
+        // This test uses swap() which delegates to swapForPool()
+        // It caught a reentrancy guard bug where both functions had nonReentrant
+        vm.startPrank(lp);
+        hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
+        vm.stopPrank();
+
+        // Set default pool
+        vm.prank(owner);
+        hook.setDefaultPool(poolIdErcErc);
+
+        // Swap using swap() not swapForPool()
+        vm.startPrank(swapper);
+        uint256 balanceBefore = usdc.balanceOf(swapper);
+
+        uint256 amountOut = hook.swap(true, SWAP_AMOUNT, 0);
+
+        assertGt(amountOut, 0, "Should receive output tokens");
+        assertGt(usdc.balanceOf(swapper), balanceBefore, "USDC balance should increase");
+
+        vm.stopPrank();
+    }
+
     function testDirectSwap_RevertsZeroAmount() public {
         vm.startPrank(lp);
         hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);

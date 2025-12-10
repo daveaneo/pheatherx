@@ -545,11 +545,12 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
 
     /// @notice Execute a swap directly through the hook
     /// @dev Useful for simpler UX without V4 router
+    /// @dev No nonReentrant here - swapForPool has it (avoids nested guard error)
     function swap(
         bool zeroForOne,
         uint256 amountIn,
         uint256 minAmountOut
-    ) external nonReentrant whenNotPaused returns (uint256 amountOut) {
+    ) external whenNotPaused returns (uint256 amountOut) {
         return swapForPool(defaultPoolId, zeroForOne, amountIn, minAmountOut);
     }
 
