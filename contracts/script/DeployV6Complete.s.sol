@@ -14,16 +14,18 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {FheatherXv6} from "../src/FheatherXv6.sol";
 
 /// @title DeployV6Complete
-/// @notice Deploy FheatherXv6 hook with all 4 pool types on Ethereum Sepolia
+/// @notice Deploy FheatherXv6 hook with all 6 pool types on Ethereum Sepolia
 /// @dev Run with: source .env && forge script script/DeployV6Complete.s.sol:DeployV6Complete --rpc-url $ETH_SEPOLIA_RPC --broadcast -vvv
 ///
 /// This script:
 /// 1. Deploys FheatherXv6 hook using CREATE2
-/// 2. Initializes 4 pools via PoolManager:
+/// 2. Initializes 6 pools via PoolManager:
 ///    - Pool A: WETH/USDC (ERC20:ERC20)
 ///    - Pool B: fheWETH/fheUSDC (FHERC20:FHERC20)
 ///    - Pool C: WETH/fheUSDC (ERC20:FHERC20)
 ///    - Pool D: fheWETH/USDC (FHERC20:ERC20)
+///    - Pool E: WETH/fheWETH (ERC20:FHERC20 wrap pair)
+///    - Pool F: USDC/fheUSDC (ERC20:FHERC20 wrap pair)
 /// 3. Seeds initial liquidity to each pool
 /// 4. Exports deployment addresses to JSON
 contract DeployV6Complete is Script {
@@ -68,6 +70,8 @@ contract DeployV6Complete is Script {
     bytes32 poolIdB;
     bytes32 poolIdC;
     bytes32 poolIdD;
+    bytes32 poolIdE;
+    bytes32 poolIdF;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
@@ -192,6 +196,34 @@ contract DeployV6Complete is Script {
         poolIdD = PoolId.unwrap(keyD.toId());
         console.log("Pool D (fheWETH/USDC) initialized");
         console.log("  PoolId:", vm.toString(poolIdD));
+
+        // Pool E: WETH/fheWETH (ERC20:FHERC20 wrap pair)
+        (address token0E, address token1E) = _sortTokens(WETH, FHE_WETH);
+        PoolKey memory keyE = PoolKey({
+            currency0: Currency.wrap(token0E),
+            currency1: Currency.wrap(token1E),
+            fee: POOL_FEE,
+            tickSpacing: TICK_SPACING,
+            hooks: IHooks(hookAddress)
+        });
+        pm.initialize(keyE, SQRT_PRICE_1_1);
+        poolIdE = PoolId.unwrap(keyE.toId());
+        console.log("Pool E (WETH/fheWETH) initialized");
+        console.log("  PoolId:", vm.toString(poolIdE));
+
+        // Pool F: USDC/fheUSDC (ERC20:FHERC20 wrap pair)
+        (address token0F, address token1F) = _sortTokens(USDC, FHE_USDC);
+        PoolKey memory keyF = PoolKey({
+            currency0: Currency.wrap(token0F),
+            currency1: Currency.wrap(token1F),
+            fee: POOL_FEE,
+            tickSpacing: TICK_SPACING,
+            hooks: IHooks(hookAddress)
+        });
+        pm.initialize(keyF, SQRT_PRICE_1_1);
+        poolIdF = PoolId.unwrap(keyF.toId());
+        console.log("Pool F (USDC/fheUSDC) initialized");
+        console.log("  PoolId:", vm.toString(poolIdF));
         console.log("");
 
         // ============ Step 3: Seed Liquidity ============
@@ -209,11 +241,11 @@ contract DeployV6Complete is Script {
         console.log("  fheWETH:", fheWethBal);
         console.log("  fheUSDC:", fheUsdcBal);
 
-        // Required amounts for all 4 pools
-        uint256 requiredWeth = INIT_WETH_AMOUNT * 2;      // Pools A + C
-        uint256 requiredUsdc = INIT_USDC_AMOUNT * 2;      // Pools A + D
-        uint256 requiredFheWeth = INIT_FHE_WETH_AMOUNT * 2; // Pools B + D
-        uint256 requiredFheUsdc = INIT_FHE_USDC_AMOUNT * 2; // Pools B + C
+        // Required amounts for all 6 pools
+        uint256 requiredWeth = INIT_WETH_AMOUNT * 3;      // Pools A + C + E
+        uint256 requiredUsdc = INIT_USDC_AMOUNT * 3;      // Pools A + D + F
+        uint256 requiredFheWeth = INIT_FHE_WETH_AMOUNT * 3; // Pools B + D + E
+        uint256 requiredFheUsdc = INIT_FHE_USDC_AMOUNT * 3; // Pools B + C + F
 
         bool canSeedLiquidity = true;
         if (wethBal < requiredWeth) {
@@ -276,6 +308,24 @@ contract DeployV6Complete is Script {
             );
             hook.addLiquidity(PoolId.wrap(poolIdD), amt0D, amt1D);
             console.log("Added liquidity to Pool D");
+
+            // Add liquidity to Pool E (WETH/fheWETH)
+            (uint256 amt0E, uint256 amt1E) = _getOrderedAmounts(
+                token0E, token1E,
+                WETH, FHE_WETH,
+                INIT_WETH_AMOUNT, INIT_FHE_WETH_AMOUNT
+            );
+            hook.addLiquidity(PoolId.wrap(poolIdE), amt0E, amt1E);
+            console.log("Added liquidity to Pool E");
+
+            // Add liquidity to Pool F (USDC/fheUSDC)
+            (uint256 amt0F, uint256 amt1F) = _getOrderedAmounts(
+                token0F, token1F,
+                USDC, FHE_USDC,
+                INIT_USDC_AMOUNT, INIT_FHE_USDC_AMOUNT
+            );
+            hook.addLiquidity(PoolId.wrap(poolIdF), amt0F, amt1F);
+            console.log("Added liquidity to Pool F");
         } else {
             console.log("");
             console.log("SKIPPING LIQUIDITY SEEDING - use faucet to get tokens first");
@@ -294,7 +344,9 @@ contract DeployV6Complete is Script {
             token0A, token1A,
             token0B, token1B,
             token0C, token1C,
-            token0D, token1D
+            token0D, token1D,
+            token0E, token1E,
+            token0F, token1F
         );
 
         // ============ Print Summary ============
@@ -312,6 +364,8 @@ contract DeployV6Complete is Script {
         console.log("  B (fheWETH/fheUSDC):", vm.toString(poolIdB));
         console.log("  C (WETH/fheUSDC):", vm.toString(poolIdC));
         console.log("  D (fheWETH/USDC):", vm.toString(poolIdD));
+        console.log("  E (WETH/fheWETH):", vm.toString(poolIdE));
+        console.log("  F (USDC/fheUSDC):", vm.toString(poolIdF));
         console.log("");
         console.log("Tokens:");
         console.log("  WETH:", WETH);
@@ -354,13 +408,17 @@ contract DeployV6Complete is Script {
         address t0A, address t1A,
         address t0B, address t1B,
         address t0C, address t1C,
-        address t0D, address t1D
+        address t0D, address t1D,
+        address t0E, address t1E,
+        address t0F, address t1F
     ) internal {
         // Build pool type strings
         string memory poolAType = t0A == WETH ? "ERC:ERC" : "ERC:ERC";
         string memory poolBType = "FHE:FHE";
         string memory poolCType = t0C == WETH ? "ERC:FHE" : "FHE:ERC";
         string memory poolDType = t0D == FHE_WETH ? "FHE:ERC" : "ERC:FHE";
+        string memory poolEType = t0E == WETH ? "ERC:FHE" : "FHE:ERC";
+        string memory poolFType = t0F == USDC ? "ERC:FHE" : "FHE:ERC";
 
         string memory json = string.concat(
             '{\n',
@@ -395,7 +453,11 @@ contract DeployV6Complete is Script {
             '      "token0": "', vm.toString(t0B), '",\n',
             '      "token1": "', vm.toString(t1B), '",\n',
             '      "type": "', poolBType, '"\n',
-            '    },\n',
+            '    },\n'
+        );
+
+        json = string.concat(
+            json,
             '    "WETH_fheUSDC": {\n',
             '      "poolId": "', vm.toString(poolIdC), '",\n',
             '      "token0": "', vm.toString(t0C), '",\n',
@@ -407,6 +469,22 @@ contract DeployV6Complete is Script {
             '      "token0": "', vm.toString(t0D), '",\n',
             '      "token1": "', vm.toString(t1D), '",\n',
             '      "type": "', poolDType, '"\n',
+            '    },\n'
+        );
+
+        json = string.concat(
+            json,
+            '    "WETH_fheWETH": {\n',
+            '      "poolId": "', vm.toString(poolIdE), '",\n',
+            '      "token0": "', vm.toString(t0E), '",\n',
+            '      "token1": "', vm.toString(t1E), '",\n',
+            '      "type": "', poolEType, '"\n',
+            '    },\n',
+            '    "USDC_fheUSDC": {\n',
+            '      "poolId": "', vm.toString(poolIdF), '",\n',
+            '      "token0": "', vm.toString(t0F), '",\n',
+            '      "token1": "', vm.toString(t1F), '",\n',
+            '      "type": "', poolFType, '"\n',
             '    }\n',
             '  },\n'
         );

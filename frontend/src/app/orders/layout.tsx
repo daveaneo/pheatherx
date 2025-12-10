@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 const orderTabs = [
   { href: '/orders/new', label: 'New Order' },
   { href: '/orders/active', label: 'Active' },
+  { href: '/orders/claims', label: 'Claims' },
   { href: '/orders/history', label: 'History' },
 ];
 

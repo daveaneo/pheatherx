@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Input } from '@/components/ui';
+import { Button, Input, TransactionModal } from '@/components/ui';
 import { ArrowDownUp, Loader2 } from 'lucide-react';
 import { useSwap } from '@/hooks/useSwap';
 import { useSelectedPool } from '@/stores/poolStore';
+import { useTransactionModal } from '@/hooks/useTransactionModal';
 import { parseUnits } from 'viem';
 import type { CurrentPrice } from '@/types/bucket';
 
@@ -19,6 +20,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
 
   const { swap, step, isSwapping, error, reset } = useSwap();
   const { token0, token1 } = useSelectedPool();
+  const txModal = useTransactionModal();
 
   // Get token symbols from selected pool
   const sellToken = zeroForOne ? (token0?.symbol ?? 'Token0') : (token1?.symbol ?? 'Token1');
@@ -54,6 +56,10 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   const handleSwap = async () => {
     if (!sellAmount || parseFloat(sellAmount) === 0) return;
 
+    // Open modal and show pending state
+    txModal.setPending('Market Swap', `Swapping ${sellAmount} ${sellToken} for ${buyToken}...`);
+    txModal.openModal();
+
     try {
       const amountIn = parseUnits(sellAmount, sellDecimals);
       const slippagePercent = parseFloat(slippage) / 100;
@@ -64,10 +70,16 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
       const hash = await swap(zeroForOne, amountIn, minAmountOut);
 
       if (hash) {
+        txModal.setSuccess(hash, [
+          { label: 'Sold', value: `${sellAmount} ${sellToken}` },
+          { label: 'Received', value: `~${estimatedOutput} ${buyToken}` },
+        ]);
         setSellAmount('');
       }
     } catch (err) {
-      // Error is already handled by the hook - don't call reset() as it clears the error state
+      // Show error in modal
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      txModal.setError(errorMessage);
       console.error('Swap failed:', err);
     }
   };
@@ -192,6 +204,13 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
       <p className="text-xs text-center text-feather-white/40">
         Market swaps use plaintext amounts (not encrypted)
       </p>
+
+      {/* Transaction Modal */}
+      <TransactionModal
+        isOpen={txModal.isOpen}
+        onClose={txModal.closeModal}
+        data={txModal.modalData}
+      />
     </div>
   );
 }

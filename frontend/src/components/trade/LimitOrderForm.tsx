@@ -1,16 +1,18 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { Button, Input, Select, Badge } from '@/components/ui';
-import { Loader2, Lock, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Button, Input, Select, Badge, TransactionModal } from '@/components/ui';
+import { Loader2, Lock, AlertTriangle, ArrowRight, Ban } from 'lucide-react';
 import { usePlaceOrder } from '@/hooks/usePlaceOrder';
 import { useSelectedPool } from '@/stores/poolStore';
 import { parseUnits } from 'viem';
 import { BucketSide, OrderType, ORDER_TYPE_CONFIG } from '@/types/bucket';
 import { TICK_SPACING, tickToPrice, formatPrice, isValidTick } from '@/lib/constants';
+import { getLimitOrderAvailability } from '@/lib/validation/privacyRules';
 import type { CurrentPrice } from '@/types/bucket';
 import { useAccount, useBalance } from 'wagmi';
 import Link from 'next/link';
+import { useTransactionModal } from '@/hooks/useTransactionModal';
 
 interface LimitOrderFormProps {
   currentTick: number;
@@ -33,6 +35,7 @@ export function LimitOrderForm({
   const { placeOrder, step, isSubmitting, error, reset } = usePlaceOrder();
   const { address } = useAccount();
   const { token0, token1 } = useSelectedPool();
+  const txModal = useTransactionModal();
 
   // Handle prefill from Quick Limit Order panel
   useEffect(() => {
@@ -71,6 +74,8 @@ export function LimitOrderForm({
   const receiveToken = config.receiveToken === 'token0' ? token0 : token1;
   const depositTokenAddress = depositToken?.address;
   const depositTokenDecimals = depositToken?.decimals ?? 18;
+  const depositTokenSymbol = depositToken?.symbol ?? 'Token';
+  const receiveTokenSymbol = receiveToken?.symbol ?? 'Token';
 
   // Get FHERC20 balance for the deposit token (wagmi useBalance reads plaintext wrapped amount)
   const { data: balanceData } = useBalance({
@@ -86,26 +91,62 @@ export function LimitOrderForm({
   // Show wrap prompt if balance is insufficient
   const needsWrap = hasInsufficientBalance && depositTokenAddress !== undefined;
 
-  // Generate order type options for select
-  const orderTypeOptions = [
-    { value: 'limit-buy', label: 'Limit Buy' },
-    { value: 'limit-sell', label: 'Limit Sell' },
-    { value: 'stop-loss', label: 'Stop Loss' },
-    { value: 'take-profit', label: 'Take Profit' },
-  ];
+  // Calculate limit order availability based on token types
+  const limitOrderAvailability = useMemo(() => {
+    return getLimitOrderAvailability(token0, token1);
+  }, [token0, token1]);
+
+  const noOrdersAvailable = !limitOrderAvailability.buyEnabled && !limitOrderAvailability.sellEnabled;
+
+  // Generate order type options for select, filtering by availability
+  // Buy orders: limit-buy (deposits token1)
+  // Sell orders: limit-sell, stop-loss, take-profit (all deposit token0)
+  const orderTypeOptions = useMemo(() => {
+    const options = [];
+
+    if (limitOrderAvailability.buyEnabled) {
+      options.push({ value: 'limit-buy', label: 'Limit Buy' });
+    }
+
+    if (limitOrderAvailability.sellEnabled) {
+      options.push(
+        { value: 'limit-sell', label: 'Limit Sell' },
+        { value: 'stop-loss', label: 'Stop Loss' },
+        { value: 'take-profit', label: 'Take Profit' }
+      );
+    }
+
+    return options;
+  }, [limitOrderAvailability.buyEnabled, limitOrderAvailability.sellEnabled]);
+
+  // Auto-select first available order type when availability changes
+  useEffect(() => {
+    if (orderTypeOptions.length > 0) {
+      const currentTypeAvailable = orderTypeOptions.some(opt => opt.value === orderType);
+      if (!currentTypeAvailable) {
+        setOrderType(orderTypeOptions[0].value as OrderType);
+      }
+    }
+  }, [orderTypeOptions, orderType]);
 
   // Calculate target tick options based on order type
   const tickOptions = useMemo(() => {
     const options: { value: string; label: string }[] = [];
     const numTicks = 10;
 
+    // Normalize currentTick to nearest valid tick spacing
+    // Clamp to valid range to ensure we always generate options
+    const clampedTick = Math.max(-5400, Math.min(5400, currentTick));
+    const normalizedCurrentTick = Math.round(clampedTick / TICK_SPACING) * TICK_SPACING;
+    const currentPriceValue = tickToPrice(normalizedCurrentTick);
+
     if (config.tickRelation === 'below') {
       // Generate ticks below current
       for (let i = 1; i <= numTicks; i++) {
-        const tick = currentTick - i * TICK_SPACING;
+        const tick = normalizedCurrentTick - i * TICK_SPACING;
         if (!isValidTick(tick)) continue;
         const price = tickToPrice(tick);
-        const diff = ((Number(price) - Number(tickToPrice(currentTick))) / Number(tickToPrice(currentTick)) * 100).toFixed(1);
+        const diff = ((Number(price) - Number(currentPriceValue)) / Number(currentPriceValue) * 100).toFixed(1);
         options.push({
           value: tick.toString(),
           label: `$${formatPrice(price)} (${diff}% • tick ${tick})`
@@ -114,10 +155,10 @@ export function LimitOrderForm({
     } else {
       // Generate ticks above current
       for (let i = 1; i <= numTicks; i++) {
-        const tick = currentTick + i * TICK_SPACING;
+        const tick = normalizedCurrentTick + i * TICK_SPACING;
         if (!isValidTick(tick)) continue;
         const price = tickToPrice(tick);
-        const diff = ((Number(price) - Number(tickToPrice(currentTick))) / Number(tickToPrice(currentTick)) * 100).toFixed(1);
+        const diff = ((Number(price) - Number(currentPriceValue)) / Number(currentPriceValue) * 100).toFixed(1);
         options.push({
           value: tick.toString(),
           label: `$${formatPrice(price)} (+${diff}% • tick ${tick})`
@@ -129,7 +170,7 @@ export function LimitOrderForm({
   }, [currentTick, config.tickRelation]);
 
   // Update target tick when options change and current value is not valid
-  useMemo(() => {
+  useEffect(() => {
     if (tickOptions.length > 0 && !tickOptions.find(o => o.value === targetTick)) {
       setTargetTick(tickOptions[0].value);
     }
@@ -139,6 +180,13 @@ export function LimitOrderForm({
     const tick = parseInt(targetTick);
     if (!amount || parseFloat(amount) === 0 || !isValidTick(tick)) return;
 
+    // Open modal and show pending state
+    txModal.setPending(
+      `${config.label} Order`,
+      `Placing ${config.label.toLowerCase()} order for ${amount} ${depositTokenSymbol}...`
+    );
+    txModal.openModal();
+
     try {
       const amountIn = parseUnits(amount, depositTokenDecimals);
       const slippageBps = parseInt(slippage) || 50;
@@ -146,20 +194,54 @@ export function LimitOrderForm({
       const hash = await placeOrder(orderType, tick, amountIn, slippageBps);
 
       if (hash) {
+        txModal.setSuccess(hash, [
+          { label: 'Order Type', value: config.label },
+          { label: 'Amount', value: `${amount} ${depositTokenSymbol}` },
+          { label: 'Target Price', value: `$${formatPrice(tickToPrice(tick))}` },
+          { label: 'Tick', value: tick.toString() },
+        ]);
         setAmount('');
       }
     } catch (err) {
-      // Error is already handled by the hook
+      // Show error in modal
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      txModal.setError(errorMessage);
       console.error('Place order failed:', err);
     }
   };
 
-  const depositTokenSymbol = depositToken?.symbol ?? 'Token';
-  const receiveTokenSymbol = receiveToken?.symbol ?? 'Token';
   const selectedTick = parseInt(targetTick) || currentTick;
+
+  // Show disabled state when no orders available
+  if (noOrdersAvailable) {
+    return (
+      <div className="space-y-4" data-testid="limit-form">
+        <div className="p-6 bg-gray-500/10 border border-gray-500/20 rounded-lg text-center">
+          <Ban className="w-10 h-10 mx-auto mb-3 text-gray-400" />
+          <h3 className="text-lg font-medium text-gray-300 mb-2">
+            Limit Orders Unavailable
+          </h3>
+          <p className="text-sm text-gray-400 mb-4">
+            {limitOrderAvailability.message || 'Limit orders require at least one FHERC20 token for privacy.'}
+          </p>
+          <p className="text-xs text-gray-500">
+            Use the Market tab for instant swaps, or select a pool with FHERC20 tokens.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4" data-testid="limit-form">
+      {/* Privacy Restriction Notice */}
+      {limitOrderAvailability.message && (
+        <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+          <span className="text-xs text-amber-500">{limitOrderAvailability.message}</span>
+        </div>
+      )}
+
       {/* Order Type Selection */}
       <div className="space-y-2">
         <label className="text-sm text-feather-white/60">Order Type</label>
@@ -286,6 +368,13 @@ export function LimitOrderForm({
           `Place ${config.label} Order`
         )}
       </Button>
+
+      {/* Transaction Modal */}
+      <TransactionModal
+        isOpen={txModal.isOpen}
+        onClose={txModal.closeModal}
+        data={txModal.modalData}
+      />
     </div>
   );
 }

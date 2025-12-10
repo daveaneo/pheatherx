@@ -114,3 +114,95 @@ export const PRIVACY_INFO = {
     description: 'Standard ERC20 - amounts are visible on-chain',
   },
 } as const;
+
+/**
+ * Limit order availability for a token pair
+ * Based on FheatherX privacy requirements:
+ * - Input (deposit) token must be FHERC20 for privacy
+ * - Buy orders deposit token1, Sell orders deposit token0
+ */
+export interface LimitOrderAvailability {
+  /** Can place buy orders (limit-buy) */
+  buyEnabled: boolean;
+  /** Can place sell orders (limit-sell, stop-loss, take-profit) */
+  sellEnabled: boolean;
+  /** Reason why buy is disabled */
+  buyDisabledReason?: string;
+  /** Reason why sell is disabled */
+  sellDisabledReason?: string;
+  /** Overall summary message */
+  message?: string;
+}
+
+/**
+ * Check limit order availability for a token pair
+ *
+ * Privacy Matrix:
+ * | Token0 | Token1 | Buy (deposits token1) | Sell (deposits token0) |
+ * |--------|--------|----------------------|------------------------|
+ * | FHERC20| FHERC20| Yes                  | Yes                    |
+ * | FHERC20| ERC20  | No (token1 public)   | Yes                    |
+ * | ERC20  | FHERC20| Yes                  | No (token0 public)     |
+ * | ERC20  | ERC20  | No                   | No                     |
+ *
+ * @param token0 - First token in the pair (what you buy/sell)
+ * @param token1 - Second token in the pair (quote token)
+ * @returns Availability object with enabled states and reasons
+ */
+export function getLimitOrderAvailability(
+  token0: Token | undefined,
+  token1: Token | undefined
+): LimitOrderAvailability {
+  // If tokens not loaded yet, disable everything
+  if (!token0 || !token1) {
+    return {
+      buyEnabled: false,
+      sellEnabled: false,
+      message: 'Select a trading pair to see limit order options',
+    };
+  }
+
+  const token0IsFhe = isFHERC20(token0);
+  const token1IsFhe = isFHERC20(token1);
+
+  // Buy orders deposit token1 → needs token1 to be FHERC20
+  const buyEnabled = token1IsFhe;
+  // Sell orders deposit token0 → needs token0 to be FHERC20
+  const sellEnabled = token0IsFhe;
+
+  const result: LimitOrderAvailability = {
+    buyEnabled,
+    sellEnabled,
+  };
+
+  // Set disabled reasons
+  if (!buyEnabled) {
+    result.buyDisabledReason = `Buy orders require ${token1.symbol} to be encrypted (FHERC20)`;
+  }
+  if (!sellEnabled) {
+    result.sellDisabledReason = `Sell orders require ${token0.symbol} to be encrypted (FHERC20)`;
+  }
+
+  // Set overall message
+  if (!buyEnabled && !sellEnabled) {
+    // ERC20/ERC20 pair - no limit orders possible (neither token provides privacy)
+    result.message = `Limit orders unavailable - at least one token must be FHERC20 for privacy. ${token0.symbol}/${token1.symbol} are both standard ERC20 tokens.`;
+  } else if (!buyEnabled) {
+    result.message = `Only sell orders available (${token0.symbol} is encrypted)`;
+  } else if (!sellEnabled) {
+    result.message = `Only buy orders available (${token1.symbol} is encrypted)`;
+  }
+
+  return result;
+}
+
+/**
+ * Hook-friendly function to check if limit orders are fully available
+ */
+export function areLimitOrdersFullyAvailable(
+  token0: Token | undefined,
+  token1: Token | undefined
+): boolean {
+  const availability = getLimitOrderAvailability(token0, token1);
+  return availability.buyEnabled && availability.sellEnabled;
+}

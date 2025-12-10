@@ -11,3 +11,4 @@ export { Tabs, TabsList, TabsTrigger, TabsContent } from './Tabs';
 export { Select } from './Select';
 export { Badge, type BadgeProps } from './Badge';
 export { ToastContainer } from './Toast';
+export { TransactionModal, type TransactionModalData, type TransactionModalState } from './TransactionModal';

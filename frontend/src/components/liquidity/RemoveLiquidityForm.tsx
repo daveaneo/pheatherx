@@ -8,7 +8,9 @@ import { parseUnits, formatUnits } from 'viem';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { TransactionModal } from '@/components/ui';
 import { TransactionLink } from '@/components/common/TransactionLink';
+import { useTransactionModal } from '@/hooks/useTransactionModal';
 import { useRemoveLiquidity } from '@/hooks/useRemoveLiquidity';
 import type { LPPosition } from '@/hooks/useUserLPPositions';
 
@@ -58,6 +60,8 @@ export function RemoveLiquidityForm({ position, onSuccess, onCancel }: RemoveLiq
     reset: resetHook,
   } = useRemoveLiquidity();
 
+  const txModal = useTransactionModal();
+
   // Watch LP amount for estimated token returns
   const watchedLpAmount = watch('lpAmount');
 
@@ -81,10 +85,45 @@ export function RemoveLiquidityForm({ position, onSuccess, onCancel }: RemoveLiq
     }
   }, [step, onSuccess]);
 
+  // Format for display (moved up to be used in onSubmit)
+  const formatTokenAmount = (amount: bigint, decimals: number): string => {
+    const formatted = formatUnits(amount, decimals);
+    const num = parseFloat(formatted);
+    if (num < 0.0001) return '<0.0001';
+    if (num < 1) return num.toFixed(4);
+    if (num < 1000) return num.toFixed(2);
+    return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  };
+
   const onSubmit = async (data: RemoveLiquidityFormValues) => {
     const lpAmount = parseUnits(data.lpAmount, 18);
-    await removeLiquidity(token0, token1, hookAddress, lpAmount);
+
+    // Open modal and show pending state
+    txModal.setPending(
+      'Remove Liquidity',
+      `Removing ${data.lpAmount} LP tokens from ${token0.symbol}/${token1.symbol}...`
+    );
+    txModal.openModal();
+
+    try {
+      await removeLiquidity(token0, token1, hookAddress, lpAmount);
+      // Success is handled via useEffect watching step/txHash
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      txModal.setError(errorMessage);
+    }
   };
+
+  // Watch for transaction completion
+  useEffect(() => {
+    if (step === 'complete' && txHash && txModal.isOpen) {
+      const details = [
+        { label: 'Pool', value: `${token0.symbol}/${token1.symbol}` },
+        { label: 'Status', value: 'Liquidity removed successfully' },
+      ];
+      txModal.setSuccess(txHash, details);
+    }
+  }, [step, txHash, txModal, token0.symbol, token1.symbol]);
 
   const handleReset = () => {
     resetForm();
@@ -120,16 +159,6 @@ export function RemoveLiquidityForm({ position, onSuccess, onCancel }: RemoveLiq
   };
 
   const formattedLpBalance = formatUnits(lpBalance, 18);
-
-  // Format for display
-  const formatTokenAmount = (amount: bigint, decimals: number): string => {
-    const formatted = formatUnits(amount, decimals);
-    const num = parseFloat(formatted);
-    if (num < 0.0001) return '<0.0001';
-    if (num < 1) return num.toFixed(4);
-    if (num < 1000) return num.toFixed(2);
-    return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  };
 
   return (
     <Card>
@@ -275,6 +304,13 @@ export function RemoveLiquidityForm({ position, onSuccess, onCancel }: RemoveLiq
           </div>
         </form>
       </CardContent>
+
+      {/* Transaction Modal */}
+      <TransactionModal
+        isOpen={txModal.isOpen}
+        onClose={txModal.closeModal}
+        data={txModal.modalData}
+      />
     </Card>
   );
 }

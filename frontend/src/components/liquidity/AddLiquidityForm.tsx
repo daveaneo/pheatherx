@@ -9,7 +9,9 @@ import { useChainId, useAccount, useBalance } from 'wagmi';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { TransactionModal } from '@/components/ui';
 import { TransactionLink } from '@/components/common/TransactionLink';
+import { useTransactionModal } from '@/hooks/useTransactionModal';
 import { TokenPairSelector } from './TokenPairSelector';
 import { useAddLiquidity } from '@/hooks/useAddLiquidity';
 import { usePoolInfo } from '@/hooks/usePoolInfo';
@@ -93,6 +95,8 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
     reset: resetHook,
   } = useAddLiquidity();
 
+  const txModal = useTransactionModal();
+
   // Watch amounts for estimated share calculation
   const watchedAmount0 = watch('amount0');
   const watchedAmount1 = watch('amount1');
@@ -158,9 +162,34 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
       ? parseUnits(data.amount1, token1.decimals)
       : 0n;
 
-    // Pass isInitialized so the hook knows whether to initialize the pool first
-    await addLiquidity(token0, token1, hookAddress, amount0, amount1, isInitialized);
+    // Open modal and show pending state
+    const actionLabel = isInitialized ? 'Add Liquidity' : 'Create Pool & Add Liquidity';
+    txModal.setPending(
+      actionLabel,
+      `Adding ${data.amount0} ${token0.symbol} and ${data.amount1} ${token1.symbol}...`
+    );
+    txModal.openModal();
+
+    try {
+      // Pass isInitialized so the hook knows whether to initialize the pool first
+      await addLiquidity(token0, token1, hookAddress, amount0, amount1, isInitialized);
+
+      // Success is handled via useEffect watching step/txHash
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      txModal.setError(errorMessage);
+    }
   };
+
+  // Watch for transaction completion
+  useEffect(() => {
+    if (step === 'complete' && txHash && txModal.isOpen) {
+      txModal.setSuccess(txHash, [
+        { label: 'Pool', value: `${token0?.symbol || 'Token0'}/${token1?.symbol || 'Token1'}` },
+        { label: 'Status', value: 'Liquidity added successfully' },
+      ]);
+    }
+  }, [step, txHash, txModal, token0?.symbol, token1?.symbol]);
 
   const handleReset = () => {
     resetForm();
@@ -477,6 +506,13 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
           </form>
         </div>
       </CardContent>
+
+      {/* Transaction Modal */}
+      <TransactionModal
+        isOpen={txModal.isOpen}
+        onClose={txModal.closeModal}
+        data={txModal.modalData}
+      />
     </Card>
   );
 }

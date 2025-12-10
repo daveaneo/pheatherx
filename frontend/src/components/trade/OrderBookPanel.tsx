@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@/components/ui';
-import { Plus, Minus } from 'lucide-react';
+import { Plus, Minus, AlertTriangle } from 'lucide-react';
 import { useSelectedPool } from '@/stores/poolStore';
 import {
   TICK_SPACING,
@@ -11,6 +11,7 @@ import {
   MIN_TICK,
   MAX_TICK,
 } from '@/lib/constants';
+import { getLimitOrderAvailability, type LimitOrderAvailability } from '@/lib/validation/privacyRules';
 import type { CurrentPrice } from '@/types/bucket';
 
 interface QuickLimitOrderPanelProps {
@@ -50,6 +51,11 @@ export function OrderBookPanel({
 }: QuickLimitOrderPanelProps) {
   const [granularity, setGranularity] = useState<GranularityOption>(2);
   const { token0, token1 } = useSelectedPool();
+
+  // Calculate limit order availability based on token types
+  const limitOrderAvailability = useMemo(() => {
+    return getLimitOrderAvailability(token0, token1);
+  }, [token0, token1]);
 
   // Generate price levels based on granularity
   // Always show LEVELS_PER_SIDE levels above and below current price
@@ -147,6 +153,14 @@ export function OrderBookPanel({
           <span className="text-right">% Diff</span>
         </div>
 
+        {/* Restriction Warning */}
+        {limitOrderAvailability.message && (
+          <div className="px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+            <span className="text-xs text-amber-500">{limitOrderAvailability.message}</span>
+          </div>
+        )}
+
         {/* Levels Above (sell territory) */}
         <div className="max-h-[200px] overflow-auto">
           {levelsAbove.map((level) => (
@@ -155,6 +169,10 @@ export function OrderBookPanel({
               level={level}
               onBuy={() => handleOrderClick(level.tick, true)}
               onSell={() => handleOrderClick(level.tick, false)}
+              buyEnabled={limitOrderAvailability.buyEnabled}
+              sellEnabled={limitOrderAvailability.sellEnabled}
+              buyDisabledReason={limitOrderAvailability.buyDisabledReason}
+              sellDisabledReason={limitOrderAvailability.sellDisabledReason}
             />
           ))}
         </div>
@@ -179,6 +197,10 @@ export function OrderBookPanel({
               level={level}
               onBuy={() => handleOrderClick(level.tick, true)}
               onSell={() => handleOrderClick(level.tick, false)}
+              buyEnabled={limitOrderAvailability.buyEnabled}
+              sellEnabled={limitOrderAvailability.sellEnabled}
+              buyDisabledReason={limitOrderAvailability.buyDisabledReason}
+              sellDisabledReason={limitOrderAvailability.sellDisabledReason}
             />
           ))}
         </div>
@@ -186,11 +208,11 @@ export function OrderBookPanel({
         {/* Footer Legend */}
         <div className="px-3 py-2 border-t text-xs text-muted-foreground">
           <div className="flex justify-between items-center">
-            <span className="flex items-center gap-1">
+            <span className={`flex items-center gap-1 ${!limitOrderAvailability.buyEnabled ? 'opacity-40' : ''}`}>
               <span className="w-4 h-4 rounded bg-green-500/20 flex items-center justify-center text-green-500">+</span>
               Buy {token0?.symbol ?? 'Token0'}
             </span>
-            <span className="flex items-center gap-1">
+            <span className={`flex items-center gap-1 ${!limitOrderAvailability.sellEnabled ? 'opacity-40' : ''}`}>
               <span className="w-4 h-4 rounded bg-red-500/20 flex items-center justify-center text-red-500">−</span>
               Sell {token0?.symbol ?? 'Token0'}
             </span>
@@ -205,10 +227,18 @@ function PriceLevelRow({
   level,
   onBuy,
   onSell,
+  buyEnabled,
+  sellEnabled,
+  buyDisabledReason,
+  sellDisabledReason,
 }: {
   level: PriceLevelRow;
   onBuy: () => void;
   onSell: () => void;
+  buyEnabled: boolean;
+  sellEnabled: boolean;
+  buyDisabledReason?: string;
+  sellDisabledReason?: string;
 }) {
   const isAbove = level.isAbove;
 
@@ -221,16 +251,26 @@ function PriceLevelRow({
       {/* Action Buttons */}
       <div className="flex gap-1 justify-center">
         <button
-          onClick={onSell}
-          className="w-5 h-5 rounded flex items-center justify-center bg-red-500/20 hover:bg-red-500/40 text-red-500 transition-colors"
-          title={`Sell at $${level.price}`}
+          onClick={sellEnabled ? onSell : undefined}
+          disabled={!sellEnabled}
+          className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
+            sellEnabled
+              ? 'bg-red-500/20 hover:bg-red-500/40 text-red-500 cursor-pointer'
+              : 'bg-gray-500/10 text-gray-500/40 cursor-not-allowed'
+          }`}
+          title={sellEnabled ? `Sell at $${level.price}` : sellDisabledReason}
         >
           <Minus className="w-3 h-3" />
         </button>
         <button
-          onClick={onBuy}
-          className="w-5 h-5 rounded flex items-center justify-center bg-green-500/20 hover:bg-green-500/40 text-green-500 transition-colors"
-          title={`Buy at $${level.price}`}
+          onClick={buyEnabled ? onBuy : undefined}
+          disabled={!buyEnabled}
+          className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
+            buyEnabled
+              ? 'bg-green-500/20 hover:bg-green-500/40 text-green-500 cursor-pointer'
+              : 'bg-gray-500/10 text-gray-500/40 cursor-not-allowed'
+          }`}
+          title={buyEnabled ? `Buy at $${level.price}` : buyDisabledReason}
         >
           <Plus className="w-3 h-3" />
         </button>

@@ -47,28 +47,37 @@ export function Select({
 
         <Transition
           as={Fragment}
+          enter="transition ease-out duration-100"
+          enterFrom="opacity-0 scale-95"
+          enterTo="opacity-100 scale-100"
           leave="transition ease-in duration-100"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
+          leaveFrom="opacity-100 scale-100"
+          leaveTo="opacity-0 scale-95"
         >
-          <Listbox.Options className="absolute z-10 mt-1 w-full bg-ash-gray border border-carbon-gray rounded-lg shadow-lg max-h-60 overflow-auto py-1">
-            {options.map(option => (
-              <Listbox.Option
-                key={option.value}
-                value={option.value}
-                disabled={option.disabled}
-                className={({ active, selected }) =>
-                  cn(
-                    'relative cursor-pointer select-none py-2 px-4',
-                    active && 'bg-carbon-gray',
-                    selected && 'text-phoenix-ember',
-                    option.disabled && 'opacity-50 cursor-not-allowed'
-                  )
-                }
-              >
-                {option.label}
-              </Listbox.Option>
-            ))}
+          <Listbox.Options className="absolute z-50 mt-1 w-full origin-top bg-ash-gray border border-carbon-gray rounded-lg shadow-lg max-h-60 overflow-auto py-1">
+            {options.length === 0 ? (
+              <div className="py-2 px-4 text-feather-white/40 text-sm">
+                No options available
+              </div>
+            ) : (
+              options.map(option => (
+                <Listbox.Option
+                  key={option.value}
+                  value={option.value}
+                  disabled={option.disabled}
+                  className={({ active, selected }) =>
+                    cn(
+                      'relative cursor-pointer select-none py-2 px-4',
+                      active && 'bg-carbon-gray',
+                      selected && 'text-phoenix-ember',
+                      option.disabled && 'opacity-50 cursor-not-allowed'
+                    )
+                  }
+                >
+                  {option.label}
+                </Listbox.Option>
+              ))
+            )}
           </Listbox.Options>
         </Transition>
       </div>
