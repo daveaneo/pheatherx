@@ -6,6 +6,7 @@ import { ArrowDownUp, Loader2 } from 'lucide-react';
 import { useSwap } from '@/hooks/useSwap';
 import { useSelectedPool } from '@/stores/poolStore';
 import { useTransactionModal } from '@/hooks/useTransactionModal';
+import { getPoolIdFromTokens } from '@/lib/poolId';
 import { parseUnits, formatUnits } from 'viem';
 import type { CurrentPrice } from '@/types/bucket';
 import { useAccount, useBalance } from 'wagmi';
@@ -19,8 +20,8 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   const [zeroForOne, setZeroForOne] = useState(true); // true = sell token0
   const [slippage, setSlippage] = useState('0.5');
 
-  const { swap, step, isSwapping, error, reset } = useSwap();
-  const { token0, token1 } = useSelectedPool();
+  const { swapForPool, step, isSwapping, error, reset } = useSwap();
+  const { hookAddress, token0, token1 } = useSelectedPool();
   const txModal = useTransactionModal();
   const { address } = useAccount();
 
@@ -75,6 +76,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
 
   const handleSwap = async () => {
     if (!sellAmount || parseFloat(sellAmount) === 0) return;
+    if (!token0 || !token1 || !hookAddress) return;
 
     // Open modal and show pending state
     txModal.setPending('Market Swap', `Swapping ${sellAmount} ${sellToken} for ${buyToken}...`);
@@ -86,8 +88,9 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
       const estimatedOut = parseUnits(estimatedOutput, buyDecimals);
       const minAmountOut = estimatedOut - (estimatedOut * BigInt(Math.floor(slippagePercent * 10000)) / 10000n);
 
-      // V4 swap signature: swap(zeroForOne, amountIn, minAmountOut, hookAddress?)
-      const hash = await swap(zeroForOne, amountIn, minAmountOut);
+      // Compute poolId from selected tokens - must use swapForPool to target correct pool
+      const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
+      const hash = await swapForPool(poolId, zeroForOne, amountIn, minAmountOut);
 
       if (hash) {
         txModal.setSuccess(hash, [
@@ -218,7 +221,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
         className="w-full"
         size="lg"
         onClick={handleSwap}
-        disabled={isSwapping || !sellAmount || parseFloat(sellAmount) === 0}
+        disabled={isSwapping || !sellAmount || parseFloat(sellAmount) === 0 || !hookAddress}
         data-testid="swap-button"
       >
         {isSwapping ? (

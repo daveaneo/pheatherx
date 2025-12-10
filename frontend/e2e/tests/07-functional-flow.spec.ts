@@ -149,26 +149,18 @@ test.describe('Functional E2E Test Suite', () => {
         const hasLiquidityPage = await pageTitle.isVisible().catch(() => false);
         console.log(`[Liquidity] Page loaded: ${hasLiquidityPage}`);
 
-        if (!hasLiquidityPage) {
-          console.log('[Liquidity] Liquidity page not available, skipping...');
-          state.errors.push(`Liquidity page not loaded for ${pair.name}`);
-          return;
-        }
+        expect(hasLiquidityPage).toBe(true);
 
-        // Try to add liquidity
+        // Execute add liquidity - must succeed
         const success = await helpers.liquidity.addLiquidity(
           pair,
           TEST_CONFIG.liquidityAmount,
           TEST_CONFIG.liquidityAmount
         );
 
-        if (success) {
-          state.liquidityAddedPairs.push(pair.name);
-          console.log(`[Liquidity] Successfully added to ${pair.name}`);
-        } else {
-          console.log(`[Liquidity] Could not add liquidity to ${pair.name}`);
-          state.errors.push(`Failed to add liquidity to ${pair.name}`);
-        }
+        expect(success).toBe(true);
+        state.liquidityAddedPairs.push(pair.name);
+        console.log(`[Liquidity] Successfully added to ${pair.name}`);
 
         // Verify UI shows the liquidity was added (if applicable)
         await page.waitForTimeout(2000);
@@ -217,22 +209,14 @@ test.describe('Functional E2E Test Suite', () => {
         const hasTradeContent = await tradeContent.first().isVisible().catch(() => false);
         console.log(`[Swap] Trade page loaded: ${hasTradeContent}`);
 
-        if (!hasTradeContent) {
-          console.log('[Swap] Trade page not available, skipping...');
-          state.errors.push(`Trade page not loaded for ${pair.name}`);
-          return;
-        }
+        expect(hasTradeContent).toBe(true);
 
-        // Try to execute swap
+        // Execute swap - must succeed
         const success = await helpers.trade.swap(pair, TEST_CONFIG.swapAmount);
 
-        if (success) {
-          state.swappedPairs.push(pair.name);
-          console.log(`[Swap] Successfully swapped on ${pair.name}`);
-        } else {
-          console.log(`[Swap] Could not swap on ${pair.name}`);
-          state.errors.push(`Failed to swap on ${pair.name}`);
-        }
+        expect(success).toBe(true);
+        state.swappedPairs.push(pair.name);
+        console.log(`[Swap] Successfully swapped on ${pair.name}`);
 
         await page.waitForTimeout(2000);
       });
@@ -270,26 +254,18 @@ test.describe('Functional E2E Test Suite', () => {
         const hasLimitTab = await limitTab.first().isVisible().catch(() => false);
         console.log(`[Limit] Limit tab available: ${hasLimitTab}`);
 
-        if (!hasLimitTab) {
-          console.log('[Limit] Limit orders not available, skipping...');
-          state.errors.push(`Limit tab not available for ${pair.name}`);
-          return;
-        }
+        expect(hasLimitTab).toBe(true);
 
-        // Place limit order at 1.0 price (near current)
+        // Place limit order at 1.0 price (near current) - must succeed
         const success = await helpers.trade.placeLimitOrder(
           pair,
           TEST_CONFIG.orderAmount,
           '1.0'
         );
 
-        if (success) {
-          state.ordersPlacedPairs.push(pair.name);
-          console.log(`[Limit] Successfully placed order on ${pair.name}`);
-        } else {
-          console.log(`[Limit] Could not place order on ${pair.name}`);
-          state.errors.push(`Failed to place limit order on ${pair.name}`);
-        }
+        expect(success).toBe(true);
+        state.ordersPlacedPairs.push(pair.name);
+        console.log(`[Limit] Successfully placed order on ${pair.name}`);
 
         await page.waitForTimeout(2000);
       });
