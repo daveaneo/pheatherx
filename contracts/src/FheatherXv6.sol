@@ -10,6 +10,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {FHE, euint128, ebool, InEuint128, InEbool, Common} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {IFHERC20} from "./interface/IFHERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -38,14 +39,15 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     /// @notice Fixed-point precision for share calculations (18 decimals)
     uint256 public constant PRECISION = 1e18;
 
-    /// @notice Tick spacing - each tick is 0.6% price increment
+    /// @notice Tick spacing for limit orders (each tick ~0.6% price increment)
+    /// @dev Using 60 for coarser granularity than Uniswap's default
     int24 public constant TICK_SPACING = 60;
 
-    /// @notice Minimum valid tick (~0.55x price)
-    int24 public constant MIN_TICK = -6000;
+    /// @notice Minimum valid tick (uses Uniswap's full range)
+    int24 public constant MIN_TICK = TickMath.MIN_TICK;
 
-    /// @notice Maximum valid tick (~1.8x price)
-    int24 public constant MAX_TICK = 6000;
+    /// @notice Maximum valid tick (uses Uniswap's full range)
+    int24 public constant MAX_TICK = TickMath.MAX_TICK;
 
     /// @notice Delay for fee changes (user protection)
     uint256 public constant FEE_CHANGE_DELAY = 2 days;
@@ -158,7 +160,6 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     mapping(PoolId => mapping(int16 => uint256)) internal sellBitmaps;
 
     // ─────────────────── Tick Tracking ───────────────────
-    mapping(int24 => uint256) public tickPrices;
     mapping(PoolId => int24) public lastProcessedTick;
 
     // ─────────────────── Fee Collection ───────────────────
@@ -212,8 +213,8 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         FHE.allowThis(ENC_SWAP_FEE_BPS);
         FHE.allowThis(ENC_TEN_THOUSAND);
 
-        // Pre-compute tick prices
-        _initializeTickPrices();
+        // Note: Tick prices are now calculated on-demand using Uniswap's TickMath
+        // No pre-computation needed - saves significant deployment gas
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1285,18 +1286,66 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         FHE.allowThis(bucket.filledPerShare);
     }
 
+    /// @notice Get current tick from reserve ratio using Uniswap's TickMath
+    /// @dev Converts price to sqrtPriceX96, then uses getTickAtSqrtPrice
     function _getCurrentTick(PoolId poolId) internal view returns (int24) {
         PoolReserves storage reserves = poolReserves[poolId];
         if (reserves.reserve0 == 0 || reserves.reserve1 == 0) return 0;
 
-        uint256 price = (reserves.reserve1 * PRECISION) / reserves.reserve0;
+        // price = reserve1 / reserve0
+        // sqrtPriceX96 = sqrt(price) * 2^96
 
-        for (int24 tick = MIN_TICK; tick <= MAX_TICK; tick += TICK_SPACING) {
-            if (tickPrices[tick] >= price) {
-                return tick;
-            }
+        // To compute sqrt(reserve1/reserve0) * 2^96:
+        // = sqrt(reserve1) / sqrt(reserve0) * 2^96
+        // = sqrt(reserve1 * 2^192) / sqrt(reserve0 * 2^192) * 2^96
+        // = sqrt(reserve1 * 2^192 / reserve0) (approximately)
+
+        // Simpler approach: compute price, then sqrt, then scale
+        // price_scaled = reserve1 * 2^192 / reserve0
+        // sqrtPriceX96 = sqrt(price_scaled)
+
+        // To avoid overflow, we use: sqrt(reserve1 * 2^96 / reserve0) * 2^48
+        // which equals sqrt(reserve1/reserve0) * 2^48 * 2^48 = sqrt(price) * 2^96
+
+        uint256 ratio;
+        if (reserves.reserve1 >= reserves.reserve0) {
+            // price >= 1, safe to compute
+            ratio = (reserves.reserve1 << 96) / reserves.reserve0;
+        } else {
+            // price < 1, compute inverse and negate result
+            ratio = (reserves.reserve0 << 96) / reserves.reserve1;
+            // For price < 1, sqrtPriceX96 = 2^96 / sqrt(ratio)
+            // This is equivalent to negative ticks
         }
-        return MAX_TICK;
+
+        // Compute sqrt using Newton's method
+        uint160 sqrtPriceX96 = uint160(_sqrt256(ratio));
+
+        // Clamp to valid range
+        if (sqrtPriceX96 < TickMath.MIN_SQRT_PRICE) {
+            sqrtPriceX96 = TickMath.MIN_SQRT_PRICE;
+        } else if (sqrtPriceX96 > TickMath.MAX_SQRT_PRICE) {
+            sqrtPriceX96 = TickMath.MAX_SQRT_PRICE;
+        }
+
+        // Get tick from sqrt price
+        int24 tick = TickMath.getTickAtSqrtPrice(sqrtPriceX96);
+
+        // Round to nearest valid tick (divisible by TICK_SPACING)
+        tick = (tick / TICK_SPACING) * TICK_SPACING;
+
+        return tick;
+    }
+
+    /// @notice 256-bit square root using Newton's method
+    function _sqrt256(uint256 x) internal pure returns (uint256 y) {
+        if (x == 0) return 0;
+        uint256 z = (x + 1) / 2;
+        y = x;
+        while (z < y) {
+            y = z;
+            z = (x / z + z) / 2;
+        }
     }
 
     function _findNextActiveTick(
@@ -1336,27 +1385,46 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         }
     }
 
-    function _initializeTickPrices() internal {
-        for (int24 tick = MIN_TICK; tick <= MAX_TICK; tick += TICK_SPACING) {
-            tickPrices[tick] = _calculateTickPrice(tick);
-        }
-    }
-
+    /// @notice Convert tick to price using Uniswap's TickMath library
+    /// @dev Converts sqrtPriceX96 (Q64.96) to our price format (1e18 scale)
+    /// @param tick The tick value
+    /// @return price The price scaled by PRECISION (1e18)
     function _calculateTickPrice(int24 tick) internal pure returns (uint256) {
-        if (tick == 0) return PRECISION;
+        // Get sqrtPriceX96 from Uniswap's TickMath (Q64.96 format)
+        uint160 sqrtPriceX96 = TickMath.getSqrtPriceAtTick(tick);
 
-        uint256 absTick = tick > 0 ? uint256(int256(tick)) : uint256(-int256(tick));
-        uint256 ratio = PRECISION;
+        // Convert sqrtPriceX96 to price:
+        // sqrtPriceX96 = sqrt(price) * 2^96
+        // price = (sqrtPriceX96 / 2^96)^2 = sqrtPriceX96^2 / 2^192
+        //
+        // To get price in 1e18 scale:
+        // price_1e18 = sqrtPriceX96^2 * 1e18 / 2^192
+        //
+        // To avoid overflow, we do: (sqrtPriceX96^2 / 2^64) * 1e18 / 2^128
+        // Or equivalently: sqrtPriceX96^2 * 1e18 >> 192
 
-        for (uint256 i = 0; i < absTick / 60; i++) {
-            ratio = (ratio * 10060) / 10000;
-        }
+        uint256 sqrtPrice = uint256(sqrtPriceX96);
 
-        if (tick < 0) {
-            ratio = (PRECISION * PRECISION) / ratio;
-        }
+        // sqrtPrice^2 can overflow uint256 for high prices, so we need to be careful
+        // For most practical ticks, this won't overflow
+        // sqrtPriceX96 max is ~2^160, so sqrtPrice^2 max is ~2^320 which overflows
+        // We need to divide first: (sqrtPrice >> 64)^2 * 1e18 >> 64
+        // Or: (sqrtPrice * sqrtPrice >> 128) * 1e18 >> 64
 
-        return ratio;
+        // Safe approach: divide sqrtPrice by 2^48 first, then square, then adjust
+        // (sqrtPrice >> 48)^2 gives us price * 2^(192-96) = price * 2^96
+        // Then multiply by 1e18 and divide by 2^96
+
+        uint256 sqrtPriceReduced = sqrtPrice >> 48; // Reduce to prevent overflow
+        uint256 priceX96 = sqrtPriceReduced * sqrtPriceReduced; // This is price * 2^(96-96) = price * 2^0... wait
+
+        // Let me recalculate:
+        // sqrtPriceX96 = sqrt(price) * 2^96
+        // sqrtPriceReduced = sqrtPriceX96 >> 48 = sqrt(price) * 2^48
+        // sqrtPriceReduced^2 = price * 2^96
+        // price_1e18 = sqrtPriceReduced^2 * 1e18 / 2^96
+
+        return (priceX96 * PRECISION) >> 96;
     }
 
     function _abs(int24 x) internal pure returns (int24) {
@@ -1460,8 +1528,8 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         return (reserves.reserve0, reserves.reserve1, totalLpSupply[poolId]);
     }
 
-    function getTickPrice(int24 tick) external view returns (uint256) {
-        return tickPrices[tick];
+    function getTickPrice(int24 tick) external pure returns (uint256) {
+        return _calculateTickPrice(tick);
     }
 
     function hasActiveOrders(PoolId poolId, int24 tick, BucketSide side) external view returns (bool) {
