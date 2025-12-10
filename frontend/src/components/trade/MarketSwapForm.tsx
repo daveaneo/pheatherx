@@ -13,11 +13,12 @@ import { useAccount, useBalance } from 'wagmi';
 
 interface MarketSwapFormProps {
   currentPrice: CurrentPrice | null;
+  zeroForOne: boolean;
+  onFlipDirection: () => void;
 }
 
-export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
+export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: MarketSwapFormProps) {
   const [sellAmount, setSellAmount] = useState('');
-  const [zeroForOne, setZeroForOne] = useState(true); // true = sell token0
   const [slippage, setSlippage] = useState('0.5');
 
   const { swapForPool, step, isSwapping, error, reset } = useSwap();
@@ -33,7 +34,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   const sellTokenAddress = zeroForOne ? token0?.address : token1?.address;
 
   // Get wallet balance for sell token
-  const { data: balanceData } = useBalance({
+  const { data: balanceData, isLoading: isBalanceLoading } = useBalance({
     address,
     token: sellTokenAddress,
   });
@@ -48,8 +49,9 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
     const inputAmount = parseFloat(sellAmount);
 
     // Normalize reserves to actual token amounts
-    const reserve0Normalized = Number(currentPrice.reserve0) / Math.pow(10, sellDecimals);
-    const reserve1Normalized = Number(currentPrice.reserve1) / Math.pow(10, buyDecimals);
+    // reserve0 is always token0, reserve1 is always token1 - use their respective decimals
+    const reserve0Normalized = Number(currentPrice.reserve0) / Math.pow(10, token0?.decimals ?? 18);
+    const reserve1Normalized = Number(currentPrice.reserve1) / Math.pow(10, token1?.decimals ?? 18);
 
     if (zeroForOne) {
       // Selling token0 for token1
@@ -127,7 +129,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
   };
 
   const handleFlip = () => {
-    setZeroForOne(!zeroForOne);
+    onFlipDirection();
     setSellAmount('');
   };
 
@@ -135,7 +137,12 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
     <div className="space-y-4" data-testid="swap-form">
       {/* Sell Input */}
       <div className="space-y-2">
-        <label className="text-sm text-feather-white/60">You Pay</label>
+        <div className="flex items-center justify-between">
+          <label className="text-sm text-feather-white/60">You Pay</label>
+          <span className="text-xs text-feather-white/40">
+            Balance: {balanceData ? parseFloat(formatUnits(balanceData.value, sellDecimals)).toFixed(4) : '...'} {sellToken}
+          </span>
+        </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -177,7 +184,7 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
               type="button"
               onClick={() => handlePercentageClick(pct)}
               className="px-2 py-0.5 text-xs bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!sellBalance || isSwapping}
+              disabled={isBalanceLoading || !sellBalance || isSwapping}
             >
               {pct}%
             </button>
@@ -237,8 +244,11 @@ export function MarketSwapForm({ currentPrice }: MarketSwapFormProps) {
           <span className="text-feather-white/60">Rate</span>
           <span>1 {sellToken} = {(() => {
             if (!currentPrice || currentPrice.reserve0 === 0n || currentPrice.reserve1 === 0n) return '0.0000';
-            const r0 = Number(currentPrice.reserve0) / Math.pow(10, zeroForOne ? (token0?.decimals ?? 18) : (token1?.decimals ?? 18));
-            const r1 = Number(currentPrice.reserve1) / Math.pow(10, zeroForOne ? (token1?.decimals ?? 18) : (token0?.decimals ?? 18));
+            // reserve0 is always token0, reserve1 is always token1 - decimals don't depend on swap direction
+            const r0 = Number(currentPrice.reserve0) / Math.pow(10, token0?.decimals ?? 18);
+            const r1 = Number(currentPrice.reserve1) / Math.pow(10, token1?.decimals ?? 18);
+            // zeroForOne: selling token0 for token1, rate = r1/r0
+            // !zeroForOne: selling token1 for token0, rate = r0/r1
             return zeroForOne ? (r1 / r0).toFixed(4) : (r0 / r1).toFixed(4);
           })()} {buyToken}</span>
         </div>

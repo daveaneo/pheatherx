@@ -19,6 +19,7 @@ interface LimitOrderFormProps {
   currentPrice: CurrentPrice | null;
   prefill?: { tick: number; isBuy: boolean } | null;
   onPrefillUsed?: () => void;
+  zeroForOne: boolean;
 }
 
 export function LimitOrderForm({
@@ -26,8 +27,10 @@ export function LimitOrderForm({
   currentPrice,
   prefill,
   onPrefillUsed,
+  zeroForOne,
 }: LimitOrderFormProps) {
-  const [orderType, setOrderType] = useState<OrderType>('limit-buy');
+  // Default order type based on direction: zeroForOne=true means selling token0, so default to limit-sell
+  const [orderType, setOrderType] = useState<OrderType>(zeroForOne ? 'limit-sell' : 'limit-buy');
   const [amount, setAmount] = useState('');
   const [targetTick, setTargetTick] = useState<string>('');
   const [priceInput, setPriceInput] = useState<string>('');
@@ -36,6 +39,12 @@ export function LimitOrderForm({
   const { address } = useAccount();
   const { token0, token1 } = useSelectedPool();
   const txModal = useTransactionModal();
+
+  // Update order type when global direction changes
+  useEffect(() => {
+    setOrderType(zeroForOne ? 'limit-sell' : 'limit-buy');
+    setAmount(''); // Clear amount when direction changes
+  }, [zeroForOne]);
 
   // Handle prefill from Quick Limit Order panel
   useEffect(() => {
@@ -95,7 +104,7 @@ export function LimitOrderForm({
 
   // Handle percentage button click
   const handlePercentageClick = (pct: number) => {
-    if (!walletBalance || walletBalance === 0n) return;
+    if (walletBalance === 0n) return;
     const amountValue = (walletBalance * BigInt(pct)) / 100n;
     const formatted = formatUnits(amountValue, depositTokenDecimals);
     // Trim trailing zeros but keep reasonable precision
@@ -192,23 +201,20 @@ export function LimitOrderForm({
     }
   }, [orderTypeOptions, orderType]);
 
-  // Initialize default tick based on order type direction when no tick is set
+  // Initialize default tick to current price (0-slip equivalent) when no tick is set
   useEffect(() => {
     // Don't override if we have a prefill or if there's already a tick
     if (prefill || targetTick) return;
 
-    // Calculate initial tick one step in the appropriate direction
+    // Default to current tick (normalized to tick spacing)
     const normalizedCurrentTick = Math.round(currentTick / TICK_SPACING) * TICK_SPACING;
-    const initialTick = config.tickRelation === 'below'
-      ? normalizedCurrentTick - TICK_SPACING
-      : normalizedCurrentTick + TICK_SPACING;
 
-    if (isValidTick(initialTick)) {
-      setTargetTick(initialTick.toString());
-      const price = tickToPrice(initialTick);
+    if (isValidTick(normalizedCurrentTick)) {
+      setTargetTick(normalizedCurrentTick.toString());
+      const price = tickToPrice(normalizedCurrentTick);
       setPriceInput((Number(price) / 1e18).toFixed(4));
     }
-  }, [config.tickRelation, currentTick, prefill, targetTick]);
+  }, [currentTick, prefill, targetTick]);
 
   const handlePlaceOrder = async () => {
     const tick = parseInt(targetTick);
@@ -230,7 +236,7 @@ export function LimitOrderForm({
         txModal.setSuccess(hash, [
           { label: 'Order Type', value: config.label },
           { label: 'Amount', value: `${amount} ${depositTokenSymbol}` },
-          { label: 'Target Price', value: `$${formatPrice(tickToPrice(tick))}` },
+          { label: 'Target Price', value: `${formatPrice(tickToPrice(tick))} ${token1?.symbol ?? 'Token1'}` },
           { label: 'Tick', value: tick.toString() },
         ]);
         setAmount('');
@@ -301,14 +307,13 @@ export function LimitOrderForm({
             <ChevronDown className="w-4 h-4" />
           </button>
           <div className="flex-1 relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-feather-white/60">$</span>
             <Input
               type="number"
               placeholder="0.0000"
               value={priceInput}
               onChange={(e) => setPriceInput(e.target.value)}
               onBlur={handlePriceBlur}
-              className="pl-7 text-lg"
+              className="text-lg"
               disabled={isSubmitting}
               data-testid="target-price-input"
               step="0.0001"
@@ -339,7 +344,12 @@ export function LimitOrderForm({
 
       {/* Amount Input */}
       <div className="space-y-2">
-        <label className="text-sm text-feather-white/60">Order Amount</label>
+        <div className="flex items-center justify-between">
+          <label className="text-sm text-feather-white/60">Order Amount</label>
+          <span className="text-xs text-feather-white/40">
+            Balance: {balanceData ? parseFloat(formatUnits(balanceData.value, depositTokenDecimals)).toFixed(4) : '...'} {depositTokenSymbol}
+          </span>
+        </div>
         <div className="relative">
           <Input
             type="number"
@@ -381,7 +391,7 @@ export function LimitOrderForm({
         </div>
         <div className="flex justify-between">
           <span className="text-feather-white/60">Target Price</span>
-          <span>${formatPrice(tickToPrice(selectedTick))}</span>
+          <span>{formatPrice(tickToPrice(selectedTick))} {token1?.symbol ?? ''}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-feather-white/60">Bucket Side</span>
@@ -399,16 +409,15 @@ export function LimitOrderForm({
         </span>
       </div>
 
-      {/* Wrap Prompt - shown when user has insufficient encrypted balance */}
+      {/* Insufficient balance prompt */}
       {needsWrap && depositTokenSymbol && (
         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-2">
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
             <div className="text-sm">
-              <p className="text-amber-500 font-medium">Insufficient encrypted balance</p>
+              <p className="text-amber-500 font-medium">Insufficient balance</p>
               <p className="text-amber-500/80 text-xs mt-1">
-                You need to wrap your {depositTokenSymbol.replace('fhe', '')} tokens to {depositTokenSymbol} before placing a limit order.
-                This enables order privacy.
+                You need more {depositTokenSymbol} to place this order.
               </p>
             </div>
           </div>
@@ -418,7 +427,7 @@ export function LimitOrderForm({
               size="sm"
               className="w-full border-amber-500/30 text-amber-500 hover:bg-amber-500/10"
             >
-              <span>Go to Faucet to Wrap Tokens</span>
+              <span>Go to Faucet</span>
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </Link>

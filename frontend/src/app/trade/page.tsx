@@ -6,7 +6,8 @@ import { OrderBookPanel } from '@/components/trade/OrderBookPanel';
 import { ExecutionPanel } from '@/components/trade/ExecutionPanel';
 import { ActiveOrdersPanel } from '@/components/trade/ActiveOrdersPanel';
 import { PoolSelector } from '@/components/pool/PoolSelector';
-import { Badge } from '@/components/ui';
+import { Badge, Button } from '@/components/ui';
+import { ArrowRightLeft } from 'lucide-react';
 import { useCurrentPrice } from '@/hooks/useCurrentPrice';
 import { useSelectedPool } from '@/stores/poolStore';
 
@@ -43,8 +44,46 @@ function PoolTypeBadge() {
   );
 }
 
+// Direction toggle showing sell token -> buy token with flip button
+function DirectionToggle({
+  zeroForOne,
+  onFlip
+}: {
+  zeroForOne: boolean;
+  onFlip: () => void;
+}) {
+  const { token0, token1 } = useSelectedPool();
+
+  const sellToken = zeroForOne ? token0?.symbol : token1?.symbol;
+  const buyToken = zeroForOne ? token1?.symbol : token0?.symbol;
+
+  if (!token0 || !token1) return null;
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-ash-gray/30 rounded-lg">
+      <span className="text-sm font-medium">{sellToken}</span>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onFlip}
+        className="p-1 h-6 w-6"
+        title="Flip direction"
+      >
+        <ArrowRightLeft className="w-3.5 h-3.5" />
+      </Button>
+      <span className="text-sm font-medium">{buyToken}</span>
+    </div>
+  );
+}
+
 export default function TradePage() {
   const { currentPrice, currentTick, isLoading } = useCurrentPrice();
+
+  // Global trade direction - true = sell token0, false = sell token1
+  const [zeroForOne, setZeroForOne] = useState(true);
+  const handleFlipDirection = useCallback(() => {
+    setZeroForOne(prev => !prev);
+  }, []);
 
   // State for limit order prefill from Quick Limit Order panel
   const [limitOrderPrefill, setLimitOrderPrefill] = useState<{
@@ -69,6 +108,7 @@ export default function TradePage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-1">
           <h1 className="text-2xl font-bold">Trade</h1>
           <div className="flex items-center gap-3">
+            <DirectionToggle zeroForOne={zeroForOne} onFlip={handleFlipDirection} />
             <PoolSelector compact />
             <PoolTypeBadge />
           </div>
@@ -86,6 +126,7 @@ export default function TradePage() {
             currentPrice={currentPrice}
             currentTick={currentTick}
             isLoading={isLoading}
+            zeroForOne={zeroForOne}
           />
         </div>
 
@@ -96,6 +137,7 @@ export default function TradePage() {
             currentPrice={currentPrice}
             isLoading={isLoading}
             onCreateOrder={handleCreateOrder}
+            zeroForOne={zeroForOne}
           />
         </div>
 
@@ -106,6 +148,8 @@ export default function TradePage() {
             currentPrice={currentPrice}
             limitOrderPrefill={limitOrderPrefill}
             onPrefillUsed={clearPrefill}
+            zeroForOne={zeroForOne}
+            onFlipDirection={handleFlipDirection}
           />
         </div>
       </div>

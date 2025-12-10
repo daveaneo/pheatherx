@@ -11,6 +11,8 @@ interface ExecutionPanelProps {
   currentPrice: CurrentPrice | null;
   limitOrderPrefill?: { tick: number; isBuy: boolean } | null;
   onPrefillUsed?: () => void;
+  zeroForOne: boolean;
+  onFlipDirection: () => void;
 }
 
 export function ExecutionPanel({
@@ -18,6 +20,8 @@ export function ExecutionPanel({
   currentPrice,
   limitOrderPrefill,
   onPrefillUsed,
+  zeroForOne,
+  onFlipDirection,
 }: ExecutionPanelProps) {
   const [activeTab, setActiveTab] = useState('market');
 
@@ -41,7 +45,11 @@ export function ExecutionPanel({
           </TabsList>
 
           <TabsContent value="market">
-            <MarketSwapForm currentPrice={currentPrice} />
+            <MarketSwapForm
+              currentPrice={currentPrice}
+              zeroForOne={zeroForOne}
+              onFlipDirection={onFlipDirection}
+            />
           </TabsContent>
 
           <TabsContent value="limit">
@@ -50,6 +58,7 @@ export function ExecutionPanel({
               currentPrice={currentPrice}
               prefill={limitOrderPrefill}
               onPrefillUsed={onPrefillUsed}
+              zeroForOne={zeroForOne}
             />
           </TabsContent>
         </Tabs>

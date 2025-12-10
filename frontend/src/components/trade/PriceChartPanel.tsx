@@ -10,19 +10,29 @@ interface PriceChartPanelProps {
   currentPrice: CurrentPrice | null;
   currentTick: number;
   isLoading: boolean;
+  zeroForOne: boolean;
 }
 
 export function PriceChartPanel({
   currentPrice,
   currentTick,
   isLoading,
+  zeroForOne,
 }: PriceChartPanelProps) {
   const { token0, token1 } = useSelectedPool();
-  const pairLabel = token0 && token1 ? `${token0.symbol}/${token1.symbol}` : '';
-  // Calculate price display
-  const priceDisplay = currentPrice?.priceFormatted ?? '1.0000';
+
+  // Swap base/quote based on direction
+  const baseToken = zeroForOne ? token0 : token1;
+  const quoteToken = zeroForOne ? token1 : token0;
+  const pairLabel = baseToken && quoteToken ? `${baseToken.symbol}/${quoteToken.symbol}` : '';
+
+  // Calculate price display - show reciprocal when direction is flipped
+  const rawPrice = currentPrice?.priceFormatted ? parseFloat(currentPrice.priceFormatted) : 1;
+  const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
+  const priceDisplay = displayPrice.toFixed(4);
+
   const tickDisplay = currentTick ?? 0;
-  const isPositiveTick = tickDisplay >= 0;
+  const isPositiveTick = zeroForOne ? tickDisplay >= 0 : tickDisplay <= 0;
 
   return (
     <Card className="h-full">
@@ -40,7 +50,7 @@ export function PriceChartPanel({
           ) : (
             <>
               <div className="text-4xl font-bold tracking-tight">
-                ${priceDisplay}
+                {priceDisplay} <span className="text-lg text-muted-foreground">{quoteToken?.symbol ?? ''}</span>
               </div>
               <div className={`flex items-center justify-center gap-1 mt-2 text-sm ${
                 isPositiveTick ? 'text-green-500' : 'text-red-500'

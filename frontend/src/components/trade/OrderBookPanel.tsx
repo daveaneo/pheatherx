@@ -19,6 +19,7 @@ interface QuickLimitOrderPanelProps {
   currentPrice: CurrentPrice | null;
   isLoading: boolean;
   onCreateOrder?: (tick: number, isBuy: boolean) => void;
+  zeroForOne: boolean;
 }
 
 type GranularityOption = 1 | 2 | 5 | 10;
@@ -48,9 +49,27 @@ export function OrderBookPanel({
   currentPrice,
   isLoading,
   onCreateOrder,
+  zeroForOne,
 }: QuickLimitOrderPanelProps) {
   const [granularity, setGranularity] = useState<GranularityOption>(2);
   const { token0, token1 } = useSelectedPool();
+
+  // Helper to format price based on direction
+  const formatDisplayPrice = (tick: number) => {
+    const rawPrice = Number(tickToPrice(tick)) / 1e18;
+    const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
+    return displayPrice.toFixed(4);
+  };
+
+  // Format current price based on direction
+  const currentDisplayPrice = (() => {
+    if (currentPrice?.priceFormatted) {
+      const rawPrice = parseFloat(currentPrice.priceFormatted);
+      const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
+      return displayPrice.toFixed(4);
+    }
+    return formatDisplayPrice(currentTick);
+  })();
 
   // Calculate limit order availability based on token types
   const limitOrderAvailability = useMemo(() => {
@@ -69,31 +88,37 @@ export function OrderBookPanel({
       const pct = i * granularity;
       const tickDelta = percentageToTickDelta(pct);
 
-      // Level above current price
+      // Level above current price (higher tick = higher token0/token1 price)
       const tickAbove = currentTick + tickDelta;
       if (tickAbove >= MIN_TICK && tickAbove <= MAX_TICK) {
+        // Calculate direction-aware price
+        const rawPrice = Number(tickToPrice(tickAbove)) / 1e18;
+        const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
         levelsAbove.push({
           tick: tickAbove,
-          price: formatPrice(tickToPrice(tickAbove)),
-          percentDiff: pct,
-          isAbove: true,
+          price: displayPrice.toFixed(4),
+          percentDiff: zeroForOne ? pct : -pct, // Invert % when direction flipped
+          isAbove: zeroForOne, // "Above" semantics flip with direction
         });
       }
 
-      // Level below current price
+      // Level below current price (lower tick = lower token0/token1 price)
       const tickBelow = currentTick - tickDelta;
       if (tickBelow >= MIN_TICK && tickBelow <= MAX_TICK) {
+        // Calculate direction-aware price
+        const rawPrice = Number(tickToPrice(tickBelow)) / 1e18;
+        const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
         levelsBelow.push({
           tick: tickBelow,
-          price: formatPrice(tickToPrice(tickBelow)),
-          percentDiff: -pct,
-          isAbove: false,
+          price: displayPrice.toFixed(4),
+          percentDiff: zeroForOne ? -pct : pct, // Invert % when direction flipped
+          isAbove: !zeroForOne, // "Below" semantics flip with direction
         });
       }
     }
 
     return { levelsAbove, levelsBelow };
-  }, [currentTick, granularity]);
+  }, [currentTick, granularity, zeroForOne]);
 
   // Reverse levelsAbove so highest is at top
   const levelsAbove = [...priceLevels.levelsAbove].reverse();
@@ -182,7 +207,7 @@ export function OrderBookPanel({
         <div className="grid grid-cols-[50px_1fr_70px_55px] px-3 py-2 bg-muted/50 border-y items-center">
           <span className="text-xs text-muted-foreground text-center">Current</span>
           <span className="font-mono font-bold text-sm text-center">
-            ${currentPrice?.priceFormatted ?? formatPrice(tickToPrice(currentTick))}
+            {currentDisplayPrice}
           </span>
           <span className="text-xs text-muted-foreground text-center font-mono">
             {currentTick}
@@ -259,7 +284,7 @@ function PriceLevelRow({
               ? 'bg-red-500/20 hover:bg-red-500/40 text-red-500 cursor-pointer'
               : 'bg-gray-500/10 text-gray-500/40 cursor-not-allowed'
           }`}
-          title={sellEnabled ? `Sell at $${level.price}` : sellDisabledReason}
+          title={sellEnabled ? `Sell at ${level.price}` : sellDisabledReason}
         >
           <Minus className="w-3 h-3" />
         </button>
@@ -271,14 +296,14 @@ function PriceLevelRow({
               ? 'bg-green-500/20 hover:bg-green-500/40 text-green-500 cursor-pointer'
               : 'bg-gray-500/10 text-gray-500/40 cursor-not-allowed'
           }`}
-          title={buyEnabled ? `Buy at $${level.price}` : buyDisabledReason}
+          title={buyEnabled ? `Buy at ${level.price}` : buyDisabledReason}
         >
           <Plus className="w-3 h-3" />
         </button>
       </div>
 
       {/* Price */}
-      <span className="font-mono text-center text-feather-white text-xs">${level.price}</span>
+      <span className="font-mono text-center text-feather-white text-xs">{level.price}</span>
 
       {/* Tick */}
       <span className="font-mono text-center text-muted-foreground text-xs">{level.tick}</span>
