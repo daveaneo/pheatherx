@@ -34,13 +34,11 @@ interface UsePlaceOrderResult {
    * @param orderType - The type of order (limit-buy, limit-sell, stop-loss, take-profit)
    * @param triggerTick - The tick at which the order triggers
    * @param amount - The amount to deposit (will be encrypted)
-   * @param slippageBps - Slippage in basis points (used for maxTickDrift calculation)
    */
   placeOrder: (
     orderType: OrderType,
     triggerTick: number,
-    amount: bigint,
-    slippageBps: number
+    amount: bigint
   ) => Promise<`0x${string}`>;
   step: PlaceOrderStep;
   isSubmitting: boolean;
@@ -78,10 +76,9 @@ export function usePlaceOrder(): UsePlaceOrderResult {
   const placeOrder = useCallback(async (
     orderType: OrderType,
     triggerTick: number,
-    amount: bigint,
-    slippageBps: number
+    amount: bigint
   ): Promise<`0x${string}`> => {
-    debugLog('placeOrder called', { orderType, triggerTick, amount: amount.toString(), slippageBps });
+    debugLog('placeOrder called', { orderType, triggerTick, amount: amount.toString() });
 
     if (!address || !hookAddress || !token0 || !token1) {
       throw new Error('Wallet not connected or no pool selected');
@@ -173,10 +170,11 @@ export function usePlaceOrder(): UsePlaceOrderResult {
         };
       }
 
-      // Calculate deadline (1 hour from now) and maxTickDrift
+      // Calculate deadline (1 hour from now)
       const deadline = BigInt(Math.floor(Date.now() / 1000) + V6_DEFAULTS.DEADLINE_OFFSET);
-      // Convert slippage to tick drift (rough approximation)
-      const maxTickDrift = Math.max(V6_DEFAULTS.MAX_TICK_DRIFT, Math.floor(slippageBps / 10));
+      // For limit orders, maxTickDrift is effectively disabled (use full tick range)
+      // Limit orders wait at a specific tick - no slippage protection needed
+      const maxTickDrift = 887272; // MAX_TICK - allows any price movement
 
       setStep('submitting');
 

@@ -81,9 +81,8 @@ export function OrderForm() {
     const triggerTick = priceToTick(triggerPrice);
     const token = tokens[0]; // Using token0 for orders
     const amount = parseUnits(data.amount, token?.decimals || 18);
-    const slippageBps = Math.round(data.slippage * 100);
 
-    await placeOrder(data.orderType as OrderType, triggerTick, amount, slippageBps);
+    await placeOrder(data.orderType as OrderType, triggerTick, amount);
   };
 
   const handleReset = () => {
