@@ -6,7 +6,6 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { FheSessionGuard } from '@/components/common/FheSessionGuard';
 import { useUserLPPositions, type LPPosition } from '@/hooks/useUserLPPositions';
-import { Plus, Minus } from 'lucide-react';
 
 export default function LiquidityPage() {
   const [activeTab, setActiveTab] = useState<'add' | 'remove'>('add');
@@ -45,14 +44,12 @@ export default function LiquidityPage() {
           <Card>
             <CardHeader className="pb-0">
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'add' | 'remove')}>
-                <TabsList className="w-full sm:w-auto">
-                  <TabsTrigger value="add" className="flex-1 sm:flex-none gap-2" data-testid="add-liquidity-tab">
-                    <Plus className="w-4 h-4" />
-                    Add Liquidity
+                <TabsList>
+                  <TabsTrigger value="add" data-testid="add-liquidity-tab">
+                    Add
                   </TabsTrigger>
-                  <TabsTrigger value="remove" className="flex-1 sm:flex-none gap-2" data-testid="remove-liquidity-tab">
-                    <Minus className="w-4 h-4" />
-                    Remove Liquidity
+                  <TabsTrigger value="remove" data-testid="remove-liquidity-tab">
+                    Remove
                   </TabsTrigger>
                 </TabsList>
               </Tabs>

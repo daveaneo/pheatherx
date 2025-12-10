@@ -77,14 +77,14 @@ export function formatPairName(pair: TokenPair): string {
  * Check if a pair contains only FHERC20 tokens (fully private)
  */
 export function isPrivatePair(pair: TokenPair): boolean {
-  return pair.token0.type === 'fherc20' && pair.token1.type === 'fherc20';
+  return pair.token0.type === 'fheerc20' && pair.token1.type === 'fheerc20';
 }
 
 /**
  * Check if a pair contains any FHERC20 tokens
  */
 export function hasPrivateToken(pair: TokenPair): boolean {
-  return pair.token0.type === 'fherc20' || pair.token1.type === 'fherc20';
+  return pair.token0.type === 'fheerc20' || pair.token1.type === 'fheerc20';
 }
 
 /**

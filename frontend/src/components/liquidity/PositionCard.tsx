@@ -37,7 +37,7 @@ export function PositionCard({
     : formatTokenAmount(lpBalance, 18);
 
   // Check if this is a fully private pair
-  const isPrivatePair = token0.type === 'fherc20' && token1.type === 'fherc20';
+  const isPrivatePair = token0.type === 'fheerc20' && token1.type === 'fheerc20';
 
   return (
     <Card
@@ -156,7 +156,7 @@ function formatTokenAmount(amount: bigint, decimals: number): string {
  * Token icon component
  */
 function TokenIcon({ token }: { token: { symbol: string; type?: string } }) {
-  const bgColor = token.type === 'fherc20' ? 'bg-green-500' : 'bg-blue-500';
+  const bgColor = token.type === 'fheerc20' ? 'bg-green-500' : 'bg-blue-500';
 
   return (
     <div

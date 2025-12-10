@@ -36,16 +36,23 @@ export function usePoolDiscovery() {
   }, [chainId, setCurrentChainId]);
 
   /**
-   * Fetch token metadata (symbol, name, decimals)
+   * Fetch token metadata (symbol, name, decimals) and determine type
    */
   const fetchTokenMetadata = useCallback(
     async (tokenAddress: `0x${string}`): Promise<Token> => {
+      // First check if we have this token in our static config (includes type info)
+      const configTokens = getTokensForChain(chainId);
+      const configToken = configTokens.find(
+        t => t.address.toLowerCase() === tokenAddress.toLowerCase()
+      );
+
       if (!publicClient) {
         return {
           address: tokenAddress,
-          symbol: 'UNKNOWN',
-          name: 'Unknown Token',
-          decimals: 18,
+          symbol: configToken?.symbol ?? 'UNKNOWN',
+          name: configToken?.name ?? 'Unknown Token',
+          decimals: configToken?.decimals ?? 18,
+          type: configToken?.type,
         };
       }
 
@@ -68,23 +75,28 @@ export function usePoolDiscovery() {
           }) as Promise<number>,
         ]);
 
+        // Use type from config if available, otherwise infer from symbol
+        const type = configToken?.type ?? (symbol.toLowerCase().startsWith('fhe') ? 'fheerc20' : 'erc20');
+
         return {
           address: tokenAddress,
           symbol,
           name,
           decimals,
+          type,
         };
       } catch (error) {
         console.error(`[usePoolDiscovery] Failed to fetch metadata for ${tokenAddress}:`, error);
         return {
           address: tokenAddress,
-          symbol: 'UNKNOWN',
-          name: 'Unknown Token',
-          decimals: 18,
+          symbol: configToken?.symbol ?? 'UNKNOWN',
+          name: configToken?.name ?? 'Unknown Token',
+          decimals: configToken?.decimals ?? 18,
+          type: configToken?.type,
         };
       }
     },
-    [publicClient]
+    [publicClient, chainId]
   );
 
   /**
@@ -125,12 +137,14 @@ export function usePoolDiscovery() {
           symbol: sorted0.symbol,
           name: sorted0.name,
           decimals: sorted0.decimals,
+          type: sorted0.type,
         };
         const token1Meta: Token = {
           address: sorted1.address,
           symbol: sorted1.symbol,
           name: sorted1.name,
           decimals: sorted1.decimals,
+          type: sorted1.type,
         };
 
         pools.push({

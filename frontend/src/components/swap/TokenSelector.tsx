@@ -12,11 +12,8 @@ import type { Token } from '@/types/pool';
 type AnyToken = Token | LegacyToken;
 
 // Token type badge component - exported for use in other components
-export function TokenTypeBadge({ type }: { type?: TokenType | 'erc20' | 'fherc20' | 'fheerc20' }) {
-  // Normalize type (fheerc20 and fherc20 are the same)
-  const normalizedType = type === 'fheerc20' ? 'fherc20' : type;
-
-  if (normalizedType === 'fherc20') {
+export function TokenTypeBadge({ type }: { type?: TokenType | 'erc20' | 'fheerc20' }) {
+  if (type === 'fheerc20') {
     return (
       <span
         className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-phoenix-ember/20 text-phoenix-ember border border-phoenix-ember/30"
@@ -72,14 +69,14 @@ export function TokenSelector({
     return 'isNative' in token && token.isNative === true;
   };
 
-  const getTokenType = (token: AnyToken): TokenType | 'erc20' | 'fherc20' | 'fheerc20' | undefined => {
+  const getTokenType = (token: AnyToken): TokenType | 'erc20' | 'fheerc20' | undefined => {
     // Check if type is defined on the token
     if ('type' in token && token.type) {
-      return token.type as TokenType | 'erc20' | 'fherc20' | 'fheerc20';
+      return token.type as TokenType | 'erc20' | 'fheerc20';
     }
     // Infer from symbol
     if (token.symbol.toLowerCase().startsWith('fhe')) {
-      return 'fherc20';
+      return 'fheerc20';
     }
     return 'erc20';
   };

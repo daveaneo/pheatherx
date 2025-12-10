@@ -79,7 +79,7 @@ export function TokenPairSelector({
               <span className="flex items-center gap-2">
                 <TokenIcon token={token0} />
                 <span>{token0.symbol}</span>
-                {token0.type === 'fherc20' && <Lock className="w-3 h-3 text-green-400" />}
+                {token0.type === 'fheerc20' && <Lock className="w-3 h-3 text-green-400" />}
               </span>
             ) : (
               <span className="text-feather-white/40">Select token</span>
@@ -113,7 +113,7 @@ export function TokenPairSelector({
               <span className="flex items-center gap-2">
                 <TokenIcon token={token1} />
                 <span>{token1.symbol}</span>
-                {token1.type === 'fherc20' && <Lock className="w-3 h-3 text-green-400" />}
+                {token1.type === 'fheerc20' && <Lock className="w-3 h-3 text-green-400" />}
               </span>
             ) : (
               <span className="text-feather-white/40">Select token</span>
@@ -179,7 +179,7 @@ export function TokenPairSelector({
  */
 function TokenIcon({ token }: { token: Token }) {
   // Simple colored circle based on token type
-  const bgColor = token.type === 'fherc20' ? 'bg-green-500' : 'bg-blue-500';
+  const bgColor = token.type === 'fheerc20' ? 'bg-green-500' : 'bg-blue-500';
 
   return (
     <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold', bgColor)}>
@@ -218,7 +218,7 @@ function TokenDropdown({
               <div className="font-medium">{token.symbol}</div>
               <div className="text-xs text-feather-white/40">{token.name}</div>
             </div>
-            {token.type === 'fherc20' && (
+            {token.type === 'fheerc20' && (
               <div className="flex items-center gap-1 text-xs text-green-400">
                 <Lock className="w-3 h-3" />
                 Private

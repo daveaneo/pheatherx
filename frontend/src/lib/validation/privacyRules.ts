@@ -29,7 +29,7 @@ export interface PrivacyValidationResult {
  */
 export function isFHERC20(token: Token | undefined): boolean {
   if (!token) return false;
-  return token.type === 'fherc20';
+  return token.type === 'fheerc20';
 }
 
 /**
@@ -103,7 +103,7 @@ export function getUnderlyingToken(token: Token | undefined): `0x${string}` | un
  * Privacy info for display
  */
 export const PRIVACY_INFO = {
-  fherc20: {
+  fheerc20: {
     icon: '🛡️',
     label: 'Private',
     description: 'FHE-encrypted token - amounts are hidden on-chain',

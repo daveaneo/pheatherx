@@ -1,6 +1,6 @@
 import { NATIVE_ETH_ADDRESS } from '@/lib/constants';
 
-export type TokenType = 'erc20' | 'fherc20';
+export type TokenType = 'erc20' | 'fheerc20';
 
 export interface Token {
   address: `0x${string}`;
@@ -9,7 +9,7 @@ export interface Token {
   decimals: number;
   isNative?: boolean;
   logoUrl?: string;
-  /** Token type: erc20 (standard) or fherc20 (FHE-enabled) */
+  /** Token type: erc20 (standard) or fheerc20 (FHE-enabled) */
   type?: TokenType;
   /** For ERC20 tokens, the address of the corresponding FHERC20 wrapper */
   wrappedToken?: `0x${string}`;
@@ -92,14 +92,14 @@ export const ALL_TOKENS: Record<number, Token[]> = {
       symbol: 'fheWETH',
       name: 'FHE Wrapped Ether',
       decimals: 18,
-      type: 'fherc20',
+      type: 'fheerc20',
     },
     {
       address: ETH_SEPOLIA_TOKENS.fheUSDC,
       symbol: 'fheUSDC',
       name: 'FHE USD Coin',
       decimals: 6,
-      type: 'fherc20',
+      type: 'fheerc20',
     },
   ],
 
@@ -124,14 +124,14 @@ export const ALL_TOKENS: Record<number, Token[]> = {
       symbol: 'fheWETH',
       name: 'FHE Wrapped Ether',
       decimals: 18,
-      type: 'fherc20',
+      type: 'fheerc20',
     },
     {
       address: ARB_SEPOLIA_TOKENS.fheUSDC,
       symbol: 'fheUSDC',
       name: 'FHE USD Coin',
       decimals: 6,
-      type: 'fherc20',
+      type: 'fheerc20',
     },
   ],
 
@@ -188,7 +188,7 @@ export function getERC20Tokens(chainId: number): Token[] {
  * Get only FHERC20 tokens for a chain
  */
 export function getFHERC20Tokens(chainId: number): Token[] {
-  return getTokensForChain(chainId).filter(t => t.type === 'fherc20');
+  return getTokensForChain(chainId).filter(t => t.type === 'fheerc20');
 }
 
 /**

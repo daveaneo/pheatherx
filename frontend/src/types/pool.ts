@@ -2,11 +2,15 @@
  * Pool types for the multi-pool FheatherX exchange
  */
 
+export type TokenType = 'erc20' | 'fheerc20';
+
 export interface Token {
   address: `0x${string}`;
   symbol: string;
   name: string;
   decimals: number;
+  /** Token type - 'fheerc20' for encrypted tokens, 'erc20' for standard */
+  type?: TokenType;
 }
 
 /**
