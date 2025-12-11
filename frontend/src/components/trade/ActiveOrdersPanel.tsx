@@ -1,26 +1,54 @@
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle, Button, Skeleton, Badge } from '@/components/ui';
-import { Loader2, X } from 'lucide-react';
-import { useActiveOrders } from '@/hooks/useActiveOrders';
+import { Card, CardContent, CardHeader, CardTitle, Button, Skeleton, Badge, TransactionModal } from '@/components/ui';
+import { Loader2, X, Lock } from 'lucide-react';
+import { useActiveOrders, type ActivePosition } from '@/hooks/useActiveOrders';
 import { useCancelOrder } from '@/hooks/useCancelOrder';
+import { useTransactionModal } from '@/hooks/useTransactionModal';
 import { tickToPrice, formatPrice } from '@/lib/constants';
+import { useSelectedPool } from '@/stores/poolStore';
 
 interface ActiveOrdersPanelProps {
   currentTick: number;
 }
 
 export function ActiveOrdersPanel({ currentTick }: ActiveOrdersPanelProps) {
-  const { orderIds, isLoading, refetch } = useActiveOrders();
-  const { cancelOrder, isCancelling } = useCancelOrder();
+  const { positions, isLoading, refetch } = useActiveOrders();
+  const { withdraw, isCancelling, step } = useCancelOrder();
+  const { token0, token1 } = useSelectedPool();
+  const txModal = useTransactionModal();
 
-  const handleCancel = async (orderId: bigint) => {
+  const handleCancel = async (position: ActivePosition) => {
+    // Show pending modal
+    txModal.setPending(
+      'Withdraw Order',
+      `Withdrawing ${position.sideLabel} order at tick ${position.tick}...`
+    );
+    txModal.openModal();
+
     try {
-      await cancelOrder(orderId);
-      // Refresh orders after cancel
+      // Call v6 withdraw - uses max amount for full withdrawal
+      const hash = await withdraw(
+        position.poolId,
+        position.tick,
+        position.side
+      );
+
+      // Show success
+      const price = tickToPrice(position.tick);
+      txModal.setSuccess(hash, [
+        { label: 'Order Type', value: position.sideLabel },
+        { label: 'Tick', value: position.tick.toString() },
+        { label: 'Price', value: formatPrice(price) },
+      ]);
+
+      // Refresh positions list
       refetch();
     } catch (err) {
-      console.error('Cancel failed:', err);
+      // Show error in modal
+      const errorMessage = err instanceof Error ? err.message : 'Failed to withdraw order';
+      txModal.setError(errorMessage);
+      console.error('Withdraw failed:', err);
     }
   };
 
@@ -41,7 +69,7 @@ export function ActiveOrdersPanel({ currentTick }: ActiveOrdersPanelProps) {
     );
   }
 
-  const hasOrders = orderIds && orderIds.length > 0;
+  const hasOrders = positions && positions.length > 0;
 
   if (!hasOrders) {
     return (
@@ -60,72 +88,100 @@ export function ActiveOrdersPanel({ currentTick }: ActiveOrdersPanelProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>Your Active Orders</span>
-          <Badge variant="default">{orderIds?.length ?? 0}</Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {/* Header */}
-        <div className="grid grid-cols-4 gap-4 px-4 py-2 text-xs text-feather-white/40 border-b border-carbon-gray">
-          <span>Order ID</span>
-          <span>Amount</span>
-          <span>Status</span>
-          <span className="text-right">Action</span>
-        </div>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span>Your Active Orders</span>
+            <Badge variant="default">{positions?.length ?? 0}</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {/* Header */}
+          <div className="grid grid-cols-5 gap-4 px-4 py-2 text-xs text-feather-white/40 border-b border-carbon-gray">
+            <span>Tick</span>
+            <span>Price</span>
+            <span>Side</span>
+            <span>Amount</span>
+            <span className="text-right">Action</span>
+          </div>
 
-        {/* Orders */}
-        <div className="divide-y divide-carbon-gray">
-          {orderIds?.map((orderId) => (
-            <div
-              key={orderId.toString()}
-              className="grid grid-cols-4 gap-4 px-4 py-3 items-center hover:bg-ash-gray/30"
-            >
-              {/* Order ID */}
-              <div className="font-mono">#{orderId.toString()}</div>
+          {/* Orders */}
+          <div className="divide-y divide-carbon-gray">
+            {positions?.map((position) => {
+              const price = tickToPrice(position.tick);
+              const priceFormatted = formatPrice(price);
+              // Determine deposit/receive tokens based on side
+              const depositToken = position.side === 1 ? token0 : token1; // SELL deposits token0, BUY deposits token1
+              const receiveToken = position.side === 1 ? token1 : token0;
 
-              {/* Amount (encrypted) */}
-              <div className="font-mono text-feather-white/40">
-                ******
-              </div>
-
-              {/* Status */}
-              <div>
-                <Badge variant="default">
-                  Active
-                </Badge>
-              </div>
-
-              {/* Action */}
-              <div className="text-right">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleCancel(orderId)}
-                  disabled={isCancelling}
-                  className="text-deep-magenta hover:text-deep-magenta"
+              return (
+                <div
+                  key={`${position.tick}-${position.side}`}
+                  className="grid grid-cols-5 gap-4 px-4 py-3 items-center hover:bg-ash-gray/30"
                 >
-                  {isCancelling ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      <X className="w-4 h-4 mr-1" />
-                      Cancel
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
+                  {/* Tick */}
+                  <div className="font-mono text-sm">{position.tick}</div>
 
-        {/* Footer */}
-        <div className="mt-4 pt-4 border-t border-carbon-gray text-xs text-feather-white/40 text-center">
-          Order amounts are encrypted. Cancel to retrieve your funds.
-        </div>
-      </CardContent>
-    </Card>
+                  {/* Price */}
+                  <div className="font-mono text-sm">
+                    {priceFormatted}
+                  </div>
+
+                  {/* Side */}
+                  <div>
+                    <Badge variant={position.sideLabel === 'BUY' ? 'success' : 'error'}>
+                      {position.sideLabel}
+                    </Badge>
+                  </div>
+
+                  {/* Amount (encrypted) */}
+                  <div className="flex items-center gap-1 font-mono text-feather-white/40">
+                    <Lock className="w-3 h-3" />
+                    <span>******</span>
+                  </div>
+
+                  {/* Action */}
+                  <div className="text-right">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleCancel(position)}
+                      disabled={isCancelling}
+                      className="text-deep-magenta hover:text-deep-magenta"
+                    >
+                      {isCancelling ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                          {step === 'encrypting' ? 'Encrypting...' : 'Withdrawing...'}
+                        </>
+                      ) : (
+                        <>
+                          <X className="w-4 h-4 mr-1" />
+                          Withdraw
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Footer */}
+          <div className="mt-4 pt-4 border-t border-carbon-gray text-xs text-feather-white/40 text-center">
+            <Lock className="w-3 h-3 inline mr-1" />
+            Order amounts are encrypted with FHE. Withdraw to retrieve your funds.
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Transaction Modal */}
+      <TransactionModal
+        isOpen={txModal.isOpen}
+        onClose={txModal.closeModal}
+        data={txModal.modalData}
+      />
+    </>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Input, TransactionModal } from '@/components/ui';
-import { ArrowDownUp, Loader2, Plus, Minus } from 'lucide-react';
+import { ArrowDownUp, Loader2, Plus, Minus, Lock } from 'lucide-react';
 import { useSwap } from '@/hooks/useSwap';
 import { useSelectedPool } from '@/stores/poolStore';
 import { useTransactionModal } from '@/hooks/useTransactionModal';
@@ -10,6 +10,7 @@ import { getPoolIdFromTokens } from '@/lib/poolId';
 import { parseUnits, formatUnits } from 'viem';
 import type { CurrentPrice } from '@/types/bucket';
 import { useAccount, useBalance } from 'wagmi';
+import { useFherc20Balance } from '@/hooks/useFherc20Balance';
 
 interface MarketSwapFormProps {
   currentPrice: CurrentPrice | null;
@@ -21,7 +22,7 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
   const [sellAmount, setSellAmount] = useState('');
   const [slippage, setSlippage] = useState('0.5');
 
-  const { swapForPool, step, isSwapping, error, reset } = useSwap();
+  const { swapForPool, swapEncrypted, step, isSwapping, error, reset } = useSwap();
   const { hookAddress, token0, token1 } = useSelectedPool();
   const txModal = useTransactionModal();
   const { address } = useAccount();
@@ -31,14 +32,30 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
   const buyToken = zeroForOne ? (token1?.symbol ?? 'Token1') : (token0?.symbol ?? 'Token0');
   const sellDecimals = zeroForOne ? (token0?.decimals ?? 18) : (token1?.decimals ?? 18);
   const buyDecimals = zeroForOne ? (token1?.decimals ?? 18) : (token0?.decimals ?? 18);
-  const sellTokenAddress = zeroForOne ? token0?.address : token1?.address;
+  const sellTokenObj = zeroForOne ? token0 : token1;
+  const sellTokenAddress = sellTokenObj?.address;
+
+  // Determine pool type
+  const token0IsFhe = token0?.type === 'fheerc20';
+  const token1IsFhe = token1?.type === 'fheerc20';
+  const isFheFhePool = token0IsFhe && token1IsFhe;
 
   // Get wallet balance for sell token
+  // For FHERC20 tokens, we need encrypted balance; for ERC20, use standard balance
   const { data: balanceData, isLoading: isBalanceLoading } = useBalance({
     address,
     token: sellTokenAddress,
   });
-  const sellBalance = balanceData?.value;
+
+  // Get encrypted balance for FHERC20 sell token
+  const { balance: encryptedBalance, isLoading: isEncryptedBalanceLoading } = useFherc20Balance(
+    sellTokenObj,
+    address
+  );
+
+  // Use encrypted balance for FHE:FHE pools, plaintext for others
+  const sellBalance = isFheFhePool ? encryptedBalance : balanceData?.value;
+  const isBalanceLoadingFinal = isFheFhePool ? isEncryptedBalanceLoading : isBalanceLoading;
 
   // Calculate estimated output using AMM constant product formula
   // Formula: amountOut = (amountIn * reserveOut) / (reserveIn + amountIn)
@@ -100,7 +117,8 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
     if (!token0 || !token1 || !hookAddress) return;
 
     // Open modal and show pending state
-    txModal.setPending('Market Swap', `Swapping ${sellAmount} ${sellToken} for ${buyToken}...`);
+    const swapType = isFheFhePool ? 'Encrypted Swap' : 'Market Swap';
+    txModal.setPending(swapType, `Swapping ${sellAmount} ${sellToken} for ${buyToken}...`);
     txModal.openModal();
 
     try {
@@ -109,9 +127,18 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
       const estimatedOut = parseUnits(estimatedOutput, buyDecimals);
       const minAmountOut = estimatedOut - (estimatedOut * BigInt(Math.floor(slippagePercent * 10000)) / 10000n);
 
-      // Compute poolId from selected tokens - must use swapForPool to target correct pool
+      // Compute poolId from selected tokens
       const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
-      const hash = await swapForPool(poolId, zeroForOne, amountIn, minAmountOut);
+
+      let hash: `0x${string}`;
+
+      if (isFheFhePool) {
+        // FHE:FHE pools use swapEncrypted (uses encrypted balance)
+        hash = await swapEncrypted(poolId, zeroForOne, amountIn, minAmountOut);
+      } else {
+        // ERC:ERC and mixed pools use swapForPool (uses plaintext balance)
+        hash = await swapForPool(poolId, zeroForOne, amountIn, minAmountOut);
+      }
 
       if (hash) {
         txModal.setSuccess(hash, [
@@ -138,9 +165,15 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
       {/* Sell Input */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="text-sm text-feather-white/60">You Pay</label>
+          <label className="text-sm text-feather-white/60">
+            You Pay {isFheFhePool && <span title="Encrypted"><Lock className="inline w-3 h-3 ml-1" /></span>}
+          </label>
           <span className="text-xs text-feather-white/40">
-            Balance: {balanceData ? parseFloat(formatUnits(balanceData.value, sellDecimals)).toFixed(4) : '...'} {sellToken}
+            {isFheFhePool ? 'Encrypted ' : ''}Balance: {
+              isBalanceLoadingFinal ? '...' :
+              sellBalance !== null && sellBalance !== undefined ?
+                parseFloat(formatUnits(sellBalance, sellDecimals)).toFixed(4) : '0'
+            } {sellToken}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -184,7 +217,7 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
               type="button"
               onClick={() => handlePercentageClick(pct)}
               className="px-2 py-0.5 text-xs bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={isBalanceLoading || !sellBalance || isSwapping}
+              disabled={isBalanceLoadingFinal || !sellBalance || isSwapping}
             >
               {pct}%
             </button>
@@ -287,7 +320,9 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
 
       {/* Note */}
       <p className="text-xs text-center text-feather-white/40">
-        Market swaps use plaintext amounts (not encrypted)
+        {isFheFhePool
+          ? 'Encrypted swap - uses your encrypted token balance'
+          : 'Market swaps use plaintext amounts (not encrypted)'}
       </p>
 
       {/* Transaction Modal */}

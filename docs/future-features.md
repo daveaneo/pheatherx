@@ -576,10 +576,148 @@ function _isFherc20(address token) internal view returns (bool) {
 
 ---
 
+## 5. Cancel Order Function (Full Position Withdrawal)
+
+### Current State
+
+FheatherXv6 uses a generic `withdraw()` function that accepts an encrypted amount parameter:
+
+```solidity
+function withdraw(
+    PoolId poolId,
+    int24 tick,
+    BucketSide side,
+    InEuint128 calldata encryptedAmount  // Can be partial
+) external whenNotPaused
+```
+
+**Problem:** After withdrawal, the frontend cannot easily determine if a position is fully closed:
+
+1. **Encrypted shares handle persists** - The contract doesn't clear `position.shares`; it subtracts, leaving an encrypted zero
+2. **Handle ≠ Value** - A non-zero handle can point to an encrypted zero value
+3. **Unsealing required** - To know actual remaining shares, must decrypt the handle (slow, ~2+ minutes)
+4. **No "position closed" event** - Only generic `Withdraw` event emitted
+
+### Proposed Solution: `cancelOrder()` Function
+
+Add a dedicated function that always withdraws the **entire position** at a tick/side:
+
+```solidity
+/// @notice Cancel an order by withdrawing ALL shares at a specific tick/side
+/// @dev Withdraws entire position - no partial withdrawals
+/// @param poolId The pool identifier
+/// @param tick The tick of the position to cancel
+/// @param side BucketSide.BUY or BucketSide.SELL
+event OrderCancelled(PoolId indexed poolId, address indexed user, int24 indexed tick, BucketSide side);
+
+function cancelOrder(
+    PoolId poolId,
+    int24 tick,
+    BucketSide side
+) external whenNotPaused nonReentrant {
+    UserPosition storage position = positions[poolId][msg.sender][tick][side];
+
+    // Check position exists
+    require(Common.isInitialized(position.shares), "NoPosition");
+
+    // Get full share amount
+    euint128 sharesToWithdraw = position.shares;
+
+    // ... existing withdrawal logic using sharesToWithdraw ...
+
+    // Clear position completely (optional - helps with detection)
+    delete positions[poolId][msg.sender][tick][side];
+
+    emit OrderCancelled(poolId, msg.sender, tick, side);
+}
+```
+
+### Key Design Decisions
+
+#### 1. Full Withdrawal Only
+
+| Aspect | `withdraw(amount)` | `cancelOrder()` |
+|--------|-------------------|-----------------|
+| Amount | User-specified (encrypted) | All shares |
+| Partial? | Yes | No |
+| Use case | Granular control | Simple exit |
+| UI tracking | Requires unsealing | Tx success = position gone |
+
+#### 2. Position Deletion
+
+**Option A: Delete position mapping entry**
+```solidity
+delete positions[poolId][msg.sender][tick][side];
+```
+- Pro: Clean state, handle becomes 0
+- Con: Gas cost for storage clear (but refund applies)
+
+**Option B: Keep entry, set shares to encrypted zero**
+- Pro: Preserves history
+- Con: Frontend still can't easily detect
+
+**Recommendation:** Option A - delete the entry for clean state.
+
+#### 3. Dedicated Event
+
+The `OrderCancelled` event clearly signals full position closure:
+```solidity
+event OrderCancelled(PoolId indexed poolId, address indexed user, int24 indexed tick, BucketSide side);
+```
+
+Frontend can:
+1. Listen for `OrderCancelled` events
+2. Immediately remove position from UI on tx success
+3. No unsealing needed
+
+### Compounding Behavior
+
+When users make multiple deposits at the same tick/side, shares compound:
+
+| Action | Shares at tick 100, SELL |
+|--------|--------------------------|
+| Deposit 50 | 50 |
+| Deposit 30 | 80 |
+| **cancelOrder()** | 0 (all 80 withdrawn) |
+
+`cancelOrder()` withdraws the **entire combined position**. This matches traditional order book UX where "Cancel" cancels the whole order.
+
+Users who want different exit strategies can place orders at different ticks (tick spacing = 60 provides granularity).
+
+### Frontend Changes
+
+With `cancelOrder()`:
+
+```typescript
+// After successful cancel transaction
+const handleCancel = async (position: ActivePosition) => {
+  const hash = await cancelOrder(position.poolId, position.tick, position.side);
+
+  // Transaction success = position is gone
+  // Optimistically remove from UI immediately
+  removePositionFromUI(position.tick, position.side);
+};
+```
+
+No unsealing needed. Transaction success guarantees position is fully closed.
+
+### Migration Path
+
+1. **Keep `withdraw()`** - For advanced users who want partial withdrawals
+2. **Add `cancelOrder()`** - For simple "exit entire position" use case
+3. **Frontend uses `cancelOrder()`** - For the Cancel/Withdraw button in Active Orders panel
+
+### Implementation Priority
+
+**Medium-High** - Significantly improves UX by eliminating the need to unseal shares just to know if a position is active.
+
+---
+
 ## Implementation Priority
 
 1. **High Priority:** FheatherXPeriphery (unlocks ecosystem integration)
-2. **Medium Priority:** Auto-wrap on deposit (improves UX)
-3. **Medium Priority:** FHE.div optimization (reduces gas costs)
-4. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
-5. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
+2. **Medium-High Priority:** cancelOrder function (improves position tracking UX)
+3. **Medium Priority:** Auto-wrap on deposit (improves UX)
+4. **Medium Priority:** FHE.div optimization (reduces gas costs)
+5. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
+6. **Lower Priority:** Cross-chain bridges (complex, future roadmap)

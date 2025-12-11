@@ -10,9 +10,10 @@ import { BucketSide, OrderType, ORDER_TYPE_CONFIG } from '@/types/bucket';
 import { TICK_SPACING, tickToPrice, priceToTick, formatPrice, isValidTick, MIN_TICK, MAX_TICK } from '@/lib/constants';
 import { getLimitOrderAvailability } from '@/lib/validation/privacyRules';
 import type { CurrentPrice } from '@/types/bucket';
-import { useAccount, useBalance } from 'wagmi';
+import { useAccount } from 'wagmi';
 import Link from 'next/link';
 import { useTransactionModal } from '@/hooks/useTransactionModal';
+import { useFherc20Balance } from '@/hooks/useFherc20Balance';
 
 interface LimitOrderFormProps {
   currentTick: number;
@@ -106,16 +107,25 @@ export function LimitOrderForm({
   const depositTokenSymbol = depositToken?.symbol ?? 'Token';
   const receiveTokenSymbol = receiveToken?.symbol ?? 'Token';
 
-  // Get FHERC20 balance for the deposit token (wagmi useBalance reads plaintext wrapped amount)
-  const { data: balanceData, isLoading: isBalanceLoading } = useBalance({
-    address,
-    token: depositTokenAddress,
+  // Get encrypted balance for the deposit token (limit orders always use FHERC20)
+  const { balance: encryptedBalance, isLoading: isBalanceLoading, isRevealed, error: balanceError } = useFherc20Balance(
+    depositToken,
+    address
+  );
+
+  // Debug: log balance state
+  console.log('[LimitOrderForm] Balance state:', {
+    depositToken: depositToken?.symbol,
+    encryptedBalance: encryptedBalance?.toString(),
+    isLoading: isBalanceLoading,
+    isRevealed,
+    error: balanceError,
   });
 
-  // Check if user has sufficient FHERC20 balance
+  // Check if user has sufficient encrypted FHERC20 balance
   const amountBigInt = amount ? parseUnits(amount, depositTokenDecimals) : BigInt(0);
-  const walletBalance = balanceData?.value ?? BigInt(0);
-  const hasInsufficientBalance = amountBigInt > BigInt(0) && amountBigInt > walletBalance;
+  const walletBalance = encryptedBalance ?? 0n;
+  const hasInsufficientBalance = amountBigInt > 0n && amountBigInt > walletBalance;
 
   // Show wrap prompt if balance is insufficient
   const needsWrap = hasInsufficientBalance && depositTokenAddress !== undefined;
@@ -366,7 +376,13 @@ export function LimitOrderForm({
         <div className="flex items-center justify-between">
           <label className="text-sm text-feather-white/60">Order Amount</label>
           <span className="text-xs text-feather-white/40">
-            Balance: {balanceData ? parseFloat(formatUnits(balanceData.value, depositTokenDecimals)).toFixed(4) : '...'} {depositTokenSymbol}
+            <Lock className="inline w-3 h-3 mr-1" />
+            Encrypted Balance: {
+              isBalanceLoading ? 'Loading...' :
+              balanceError ? `Error: ${balanceError}` :
+              !isRevealed ? 'Revealing...' :
+              encryptedBalance !== null ? parseFloat(formatUnits(encryptedBalance, depositTokenDecimals)).toFixed(4) : '0'
+            } {!balanceError && depositTokenSymbol}
           </span>
         </div>
         <div className="relative">
