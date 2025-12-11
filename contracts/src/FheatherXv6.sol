@@ -53,9 +53,6 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     /// @notice Delay for fee changes (user protection)
     uint256 public constant FEE_CHANGE_DELAY = 2 days;
 
-    // TODO -- review
-    /// @notice Minimum blocks between reserve sync requests
-    uint256 public constant SYNC_COOLDOWN_BLOCKS = 5;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
@@ -68,8 +65,6 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     error InvalidTick();
     error InputTokenMustBeFherc20();
     error BothTokensMustBeFherc20();
-    error InsufficientBalance();
-    error InvalidPoolId();
     error DeadlineExpired();
     error PriceMoved();
     error FeeTooHigh();
