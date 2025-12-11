@@ -18,7 +18,7 @@ import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol
 // Local Imports
 import {FheatherX} from "../src/FheatherX.sol";
 import {IFheatherX} from "../src/interface/IFheatherX.sol";
-import {FHERC20FaucetToken} from "../src/tokens/FHERC20FaucetToken.sol";
+import {FhenixFHERC20Faucet} from "../src/tokens/FhenixFHERC20Faucet.sol";
 
 // Test Utils
 import {EasyPosm} from "./utils/EasyPosm.sol";
@@ -42,8 +42,8 @@ contract FheatherXFHERC20Test is Test, Fixtures, CoFheTest {
     FheatherX hook;
     PoolId poolId;
 
-    FHERC20FaucetToken fheToken0;
-    FHERC20FaucetToken fheToken1;
+    FhenixFHERC20Faucet fheToken0;
+    FhenixFHERC20Faucet fheToken1;
 
     uint256 constant INITIAL_MINT = 10000 ether;
 
@@ -53,8 +53,8 @@ contract FheatherXFHERC20Test is Test, Fixtures, CoFheTest {
 
         // Deploy FHERC20 tokens - we need to be the owner to mint
         // Deploy to deterministic addresses using CREATE2 pattern
-        FHERC20FaucetToken tokenA = new FHERC20FaucetToken("FHE Token0", "fheTK0", 18);
-        FHERC20FaucetToken tokenB = new FHERC20FaucetToken("FHE Token1", "fheTK1", 18);
+        FhenixFHERC20Faucet tokenA = new FhenixFHERC20Faucet("FHE Token0", "fheTK0", 18);
+        FhenixFHERC20Faucet tokenB = new FhenixFHERC20Faucet("FHE Token1", "fheTK1", 18);
 
         // Ensure token0 < token1 for Uniswap ordering
         if (address(tokenA) > address(tokenB)) {

@@ -23,7 +23,7 @@ import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol
 
 // Local Imports
 import {FheatherXv6} from "../src/FheatherXv6.sol";
-import {FHERC20FaucetToken} from "../src/tokens/FHERC20FaucetToken.sol";
+import {FhenixFHERC20Faucet} from "../src/tokens/FhenixFHERC20Faucet.sol";
 import {FaucetToken} from "../src/tokens/FaucetToken.sol";
 
 // Test Utils
@@ -61,8 +61,8 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
     // Tokens for different pool types
     FaucetToken weth;  // ERC20
     FaucetToken usdc;  // ERC20
-    FHERC20FaucetToken fheWeth;  // FHERC20
-    FHERC20FaucetToken fheUsdc;  // FHERC20
+    FhenixFHERC20Faucet fheWeth;  // FHERC20
+    FhenixFHERC20Faucet fheUsdc;  // FHERC20
 
     // Pool keys
     PoolKey keyErcErc;
@@ -86,8 +86,8 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         FaucetToken tokenB = new FaucetToken("USD Coin", "USDC", 6);
 
         // Deploy FHERC20 tokens
-        FHERC20FaucetToken fheTokenA = new FHERC20FaucetToken("FHE Wrapped Ether", "fheWETH", 18);
-        FHERC20FaucetToken fheTokenB = new FHERC20FaucetToken("FHE USD Coin", "fheUSDC", 6);
+        FhenixFHERC20Faucet fheTokenA = new FhenixFHERC20Faucet("FHE Wrapped Ether", "fheWETH", 18);
+        FhenixFHERC20Faucet fheTokenB = new FhenixFHERC20Faucet("FHE USD Coin", "fheUSDC", 6);
 
         // Sort tokens by address for Uniswap ordering
         if (address(tokenA) < address(tokenB)) {
@@ -758,7 +758,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
     function testClaimNoProceeds() public {
         // NOTE: This test is skipped because claim() with zero proceeds requires
-        // the hook to have an initialized encrypted balance to call transferEncryptedDirect(),
+        // the hook to have an initialized encrypted balance to call _transferEncrypted(),
         // which is complex to set up in mock FHE environment.
         // This flow is tested in integration tests on real CoFHE network.
         vm.skip(true);
@@ -770,7 +770,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
     function testExit() public {
         // NOTE: This test is skipped because exit() requires
-        // the hook to have an initialized encrypted balance to call transferEncryptedDirect(),
+        // the hook to have an initialized encrypted balance to call _transferEncrypted(),
         // which is complex to set up in mock FHE environment.
         // This flow is tested in integration tests on real CoFHE network.
         vm.skip(true);
@@ -1090,7 +1090,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
     function testWithdrawFullPosition() public {
         // NOTE: This test is skipped because withdraw() requires
-        // the hook to have an initialized encrypted balance to call transferEncryptedDirect(),
+        // the hook to have an initialized encrypted balance to call _transferEncrypted(),
         // which is complex to set up in mock FHE environment.
         // This flow is tested in integration tests on real CoFHE network.
         vm.skip(true);
@@ -1098,7 +1098,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
     function testMultipleUsersInBucketFairDistribution() public {
         // NOTE: This test is skipped because exit() requires
-        // the hook to have an initialized encrypted balance to call transferEncryptedDirect(),
+        // the hook to have an initialized encrypted balance to call _transferEncrypted(),
         // which is complex to set up in mock FHE environment.
         // This flow is tested in integration tests on real CoFHE network.
         vm.skip(true);

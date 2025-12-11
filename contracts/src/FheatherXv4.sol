@@ -492,7 +492,7 @@ contract FheatherXv4 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer tokens from user
         IFHERC20 depositToken = side == BucketSide.SELL ? state.token0 : state.token1;
         FHE.allow(amount, address(depositToken));
-        depositToken.transferFromEncryptedDirect(msg.sender, address(this), amount);
+        depositToken._transferFromEncrypted(msg.sender, address(this), amount);
 
         emit Deposit(poolId, msg.sender, tick, side, keccak256(abi.encode(encryptedAmount)));
     }
@@ -540,7 +540,7 @@ contract FheatherXv4 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer tokens back to user
         IFHERC20 withdrawToken = side == BucketSide.SELL ? state.token0 : state.token1;
         FHE.allow(withdrawAmount, address(withdrawToken));
-        withdrawToken.transferEncryptedDirect(msg.sender, withdrawAmount);
+        withdrawToken._transferEncrypted(msg.sender, withdrawAmount);
 
         emit Withdraw(poolId, msg.sender, tick, side, keccak256(abi.encode(encryptedAmount)));
     }
@@ -581,7 +581,7 @@ contract FheatherXv4 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer proceeds to user (SELL bucket: deposited token0, receive token1)
         IFHERC20 proceedsToken = side == BucketSide.SELL ? state.token1 : state.token0;
         FHE.allow(totalProceeds, address(proceedsToken));
-        proceedsToken.transferEncryptedDirect(msg.sender, totalProceeds);
+        proceedsToken._transferEncrypted(msg.sender, totalProceeds);
 
         emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));
     }
@@ -638,8 +638,8 @@ contract FheatherXv4 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         FHE.allow(unfilled, address(depositToken));
         FHE.allow(totalProceeds, address(proceedsToken));
 
-        depositToken.transferEncryptedDirect(msg.sender, unfilled);
-        proceedsToken.transferEncryptedDirect(msg.sender, totalProceeds);
+        depositToken._transferEncrypted(msg.sender, unfilled);
+        proceedsToken._transferEncrypted(msg.sender, totalProceeds);
 
         emit Withdraw(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(unfilled))));
         emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));

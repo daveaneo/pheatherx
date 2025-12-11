@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Script.sol";
 import "forge-std/StdJson.sol";
 import {FaucetToken} from "../src/tokens/FaucetToken.sol";
-import {FheFaucetToken} from "../src/tokens/FheFaucetToken.sol";
+import {FhenixFHERC20Faucet} from "../src/tokens/FhenixFHERC20Faucet.sol";
 
 /// @title DeployFaucetTokens
 /// @notice Deploy 4 faucet tokens (2 ERC20 + 2 FHE-enabled) on Ethereum Sepolia
@@ -44,11 +44,11 @@ contract DeployFaucetTokens is Script {
         console.log("--- Deploying FHE-Enabled Tokens ---");
 
         // FHE USDC (6 decimals)
-        FheFaucetToken fheUsdc = new FheFaucetToken("FHE USDC", "fheUSDC", 6);
+        FhenixFHERC20Faucet fheUsdc = new FhenixFHERC20Faucet("FHE USDC", "fheUSDC", 6);
         console.log("fheUSDC deployed at:", address(fheUsdc));
 
         // FHE WETH (18 decimals)
-        FheFaucetToken fheWeth = new FheFaucetToken("FHE WETH", "fheWETH", 18);
+        FhenixFHERC20Faucet fheWeth = new FhenixFHERC20Faucet("FHE WETH", "fheWETH", 18);
         console.log("fheWETH deployed at:", address(fheWeth));
 
         // ============ Mint initial supply to deployer ============

@@ -6,6 +6,50 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 
+/**
+ * Custom signer that uses a random wallet for signing but returns
+ * the user's actual address for getAddress(). This is needed because
+ * CoFHE's signature verification uses the address returned by getAddress()
+ * but the user's wallet (msg.sender) will actually call the contract.
+ */
+class UserAddressSigner extends ethers.AbstractSigner {
+  private _wallet: ethers.Wallet | ethers.HDNodeWallet;
+  private _userAddress: string;
+
+  constructor(wallet: ethers.Wallet | ethers.HDNodeWallet, userAddress: string) {
+    super(wallet.provider);
+    this._wallet = wallet;
+    this._userAddress = userAddress;
+  }
+
+  async getAddress(): Promise<string> {
+    // Return the user's address, not the wallet's address
+    // This is critical for CoFHE signature verification to work
+    return this._userAddress;
+  }
+
+  connect(provider: ethers.Provider | null): ethers.Signer {
+    const newWallet = this._wallet.connect(provider) as ethers.Wallet | ethers.HDNodeWallet;
+    return new UserAddressSigner(newWallet, this._userAddress);
+  }
+
+  async signTransaction(tx: ethers.TransactionRequest): Promise<string> {
+    return this._wallet.signTransaction(tx);
+  }
+
+  async signMessage(message: string | Uint8Array): Promise<string> {
+    return this._wallet.signMessage(message);
+  }
+
+  async signTypedData(
+    domain: ethers.TypedDataDomain,
+    types: Record<string, ethers.TypedDataField[]>,
+    value: Record<string, any>
+  ): Promise<string> {
+    return this._wallet.signTypedData(domain, types, value);
+  }
+}
+
 const RPC_URLS: Record<number, string> = {
   11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
   421614: 'https://sepolia-rollup.arbitrum.io/rpc',
@@ -51,15 +95,26 @@ export async function POST(request: NextRequest) {
         // Initialize a new FHE session
         const provider = new ethers.JsonRpcProvider(rpcUrl!);
 
-        // For server-side, we create a session key that the client can use
+        // Validate userAddress is provided - required for CoFHE signature verification
+        if (!userAddress || !ethers.isAddress(userAddress)) {
+          return NextResponse.json({
+            success: false,
+            error: 'Valid userAddress is required for FHE initialization',
+          }, { status: 400 });
+        }
+
+        // Create a session wallet with a random key for signing permits,
+        // but use UserAddressSigner to return the user's address for encryption.
+        // CoFHE's verifier service needs the user's address (msg.sender) in the signature.
         const sessionWallet = ethers.Wallet.createRandom().connect(provider);
+        const userSigner = new UserAddressSigner(sessionWallet, userAddress);
         const sessionId = `${chainId}-${userAddress}-${Date.now()}`;
 
         const { cofhejs } = await import('cofhejs/node');
 
         const result = await cofhejs.initializeWithEthers({
           ethersProvider: provider,
-          ethersSigner: sessionWallet,
+          ethersSigner: userSigner,
           environment: 'TESTNET',
           generatePermit: true,
         });

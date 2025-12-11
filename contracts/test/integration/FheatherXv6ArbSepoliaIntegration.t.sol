@@ -31,8 +31,8 @@ interface IFHERC20 is IERC20 {
     function faucet() external;
     function mintEncrypted(address to, uint256 amount) external;
     function approveEncrypted(address spender, InEuint128 calldata amount) external;
-    function transferFromEncryptedDirect(address from, address to, euint128 amount) external;
-    function transferEncryptedDirect(address to, euint128 amount) external;
+    function _transferFromEncrypted(address from, address to, euint128 amount) external;
+    function _transferEncrypted(address to, euint128 amount) external;
 }
 
 /**

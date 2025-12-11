@@ -295,10 +295,10 @@ contract FheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         // Transfer input token - allow token contract to access the encrypted amount
         if (side == BucketSide.SELL) {
             FHE.allow(amt, address(token0));
-            token0.transferFromEncryptedDirect(msg.sender, address(this), amt);
+            token0._transferFromEncrypted(msg.sender, address(this), amt);
         } else {
             FHE.allow(amt, address(token1));
-            token1.transferFromEncryptedDirect(msg.sender, address(this), amt);
+            token1._transferFromEncrypted(msg.sender, address(this), amt);
         }
 
         Bucket storage bucket = buckets[tick][side];
@@ -486,7 +486,7 @@ contract FheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         // BUY bucket: deposited token1, receive token0 proceeds
         IFHERC20 proceedsToken = (side == BucketSide.SELL) ? token1 : token0;
         FHE.allow(proceeds, address(proceedsToken));
-        proceedsToken.transferEncryptedDirect(msg.sender, proceeds);
+        proceedsToken._transferEncrypted(msg.sender, proceeds);
 
         emit Claim(msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(proceeds))));
     }
@@ -520,7 +520,7 @@ contract FheatherXv3 is ReentrancyGuard, Pausable, Ownable {
         // BUY bucket: deposited token1 → withdraw token1
         IFHERC20 depositToken = (side == BucketSide.SELL) ? token0 : token1;
         FHE.allow(withdrawn, address(depositToken));
-        depositToken.transferEncryptedDirect(msg.sender, withdrawn);
+        depositToken._transferEncrypted(msg.sender, withdrawn);
 
         emit Withdraw(msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(withdrawn))));
     }
@@ -570,8 +570,8 @@ contract FheatherXv3 is ReentrancyGuard, Pausable, Ownable {
 
         FHE.allow(unfilled, address(depositToken));
         FHE.allow(proceeds, address(proceedsToken));
-        depositToken.transferEncryptedDirect(msg.sender, unfilled);
-        proceedsToken.transferEncryptedDirect(msg.sender, proceeds);
+        depositToken._transferEncrypted(msg.sender, unfilled);
+        proceedsToken._transferEncrypted(msg.sender, proceeds);
 
         emit Withdraw(msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(unfilled))));
         emit Claim(msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(proceeds))));

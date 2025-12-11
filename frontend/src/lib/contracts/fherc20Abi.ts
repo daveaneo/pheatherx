@@ -128,36 +128,98 @@ export const FHERC20_ABI = [
   },
 
   // ═══════════════════════════════════════════════════════════════════════
+  //                      ENCRYPTED APPROVAL FUNCTIONS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Approve spender to spend encrypted tokens
+   * Uses encrypted allowance (required for transferFromEncryptedDirect)
+   */
+  {
+    type: 'function',
+    name: 'approveEncrypted',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      {
+        name: 'encryptedAmount',
+        type: 'tuple',
+        components: [
+          { name: 'ctHash', type: 'uint256' },
+          { name: 'securityZone', type: 'uint8' },
+          { name: 'utype', type: 'uint8' },
+          { name: 'signature', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
   //                      ENCRYPTED BALANCE FUNCTIONS
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Get encrypted balance handle
+   * Get encrypted balance handle (Fhenix standard name)
    */
   {
     type: 'function',
-    name: 'encBalanceOf',
+    name: 'balanceOfEncrypted',
     inputs: [{ name: 'account', type: 'address' }],
     outputs: [{ name: '', type: 'uint256' }], // Returns euint128 handle
     stateMutability: 'view',
   },
 
   /**
-   * Transfer encrypted tokens directly
+   * Check if account has an initialized encrypted balance
+   */
+  {
+    type: 'function',
+    name: 'hasEncryptedBalance',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+
+  /**
+   * Get encrypted allowance handle
+   */
+  {
+    type: 'function',
+    name: 'allowanceEncrypted',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }], // Returns euint128 handle
+    stateMutability: 'view',
+  },
+
+  /**
+   * Transfer encrypted tokens (EOA/frontend input)
    */
   {
     type: 'function',
     name: 'transferEncrypted',
     inputs: [
       { name: 'to', type: 'address' },
-      { name: 'encryptedAmount', type: 'bytes' }, // InEuint128
+      {
+        name: 'encryptedAmount',
+        type: 'tuple',
+        components: [
+          { name: 'ctHash', type: 'uint256' },
+          { name: 'securityZone', type: 'uint8' },
+          { name: 'utype', type: 'uint8' },
+          { name: 'signature', type: 'bytes' },
+        ],
+      },
     ],
-    outputs: [],
+    outputs: [{ name: '', type: 'uint256' }], // Returns euint128 handle
     stateMutability: 'nonpayable',
   },
 
   /**
-   * Transfer encrypted tokens from another address
+   * Transfer encrypted tokens from another address (EOA/frontend input)
    */
   {
     type: 'function',
@@ -165,9 +227,49 @@ export const FHERC20_ABI = [
     inputs: [
       { name: 'from', type: 'address' },
       { name: 'to', type: 'address' },
-      { name: 'encryptedAmount', type: 'bytes' }, // InEuint128
+      {
+        name: 'encryptedAmount',
+        type: 'tuple',
+        components: [
+          { name: 'ctHash', type: 'uint256' },
+          { name: 'securityZone', type: 'uint8' },
+          { name: 'utype', type: 'uint8' },
+          { name: 'signature', type: 'bytes' },
+        ],
+      },
     ],
-    outputs: [],
+    outputs: [{ name: '', type: 'uint256' }], // Returns euint128 handle
+    stateMutability: 'nonpayable',
+  },
+
+  /**
+   * Transfer encrypted tokens (contract-to-contract, euint128 handle)
+   * Fhenix standard name with underscore prefix
+   */
+  {
+    type: 'function',
+    name: '_transferEncrypted',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' }, // euint128 handle
+    ],
+    outputs: [{ name: '', type: 'uint256' }], // Returns euint128 handle
+    stateMutability: 'nonpayable',
+  },
+
+  /**
+   * Transfer encrypted tokens from another address (contract-to-contract, euint128 handle)
+   * Fhenix standard name with underscore prefix
+   */
+  {
+    type: 'function',
+    name: '_transferFromEncrypted',
+    inputs: [
+      { name: 'from', type: 'address' },
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' }, // euint128 handle
+    ],
+    outputs: [{ name: '', type: 'uint256' }], // Returns euint128 handle
     stateMutability: 'nonpayable',
   },
 

@@ -587,7 +587,7 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer tokens
         IFHERC20 depositToken = side == BucketSide.SELL ? state.token0 : state.token1;
         FHE.allow(amount, address(depositToken));
-        depositToken.transferFromEncryptedDirect(msg.sender, address(this), amount);
+        depositToken._transferFromEncrypted(msg.sender, address(this), amount);
 
         emit Deposit(poolId, msg.sender, tick, side, keccak256(abi.encode(encryptedAmount)));
     }
@@ -629,7 +629,7 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer tokens
         IFHERC20 withdrawToken = side == BucketSide.SELL ? state.token0 : state.token1;
         FHE.allow(withdrawAmount, address(withdrawToken));
-        withdrawToken.transferEncryptedDirect(msg.sender, withdrawAmount);
+        withdrawToken._transferEncrypted(msg.sender, withdrawAmount);
 
         emit Withdraw(poolId, msg.sender, tick, side, keccak256(abi.encode(encryptedAmount)));
     }
@@ -666,7 +666,7 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer proceeds
         IFHERC20 proceedsToken = side == BucketSide.SELL ? state.token1 : state.token0;
         FHE.allow(totalProceeds, address(proceedsToken));
-        proceedsToken.transferEncryptedDirect(msg.sender, totalProceeds);
+        proceedsToken._transferEncrypted(msg.sender, totalProceeds);
 
         emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));
     }
@@ -719,8 +719,8 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         FHE.allow(unfilled, address(depositToken));
         FHE.allow(totalProceeds, address(proceedsToken));
 
-        depositToken.transferEncryptedDirect(msg.sender, unfilled);
-        proceedsToken.transferEncryptedDirect(msg.sender, totalProceeds);
+        depositToken._transferEncrypted(msg.sender, unfilled);
+        proceedsToken._transferEncrypted(msg.sender, totalProceeds);
 
         emit Withdraw(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(unfilled))));
         emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));
@@ -863,8 +863,8 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer encrypted tokens
         FHE.allow(amt0, address(state.token0));
         FHE.allow(amt1, address(state.token1));
-        state.token0.transferFromEncryptedDirect(msg.sender, address(this), amt0);
-        state.token1.transferFromEncryptedDirect(msg.sender, address(this), amt1);
+        state.token0._transferFromEncrypted(msg.sender, address(this), amt0);
+        state.token1._transferFromEncrypted(msg.sender, address(this), amt1);
 
         // Calculate LP amount
         ebool isFirstDeposit = FHE.eq(reserves.encTotalLpSupply, ENC_ZERO);
@@ -980,8 +980,8 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer tokens
         FHE.allow(amount0, address(state.token0));
         FHE.allow(amount1, address(state.token1));
-        state.token0.transferEncryptedDirect(msg.sender, amount0);
-        state.token1.transferEncryptedDirect(msg.sender, amount1);
+        state.token0._transferEncrypted(msg.sender, amount0);
+        state.token1._transferEncrypted(msg.sender, amount1);
 
         _requestReserveSync(poolId);
 
@@ -1014,8 +1014,8 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         FHE.allow(token0Amt, address(state.token0));
         FHE.allow(token1Amt, address(state.token1));
 
-        state.token0.transferFromEncryptedDirect(msg.sender, address(this), token0Amt);
-        state.token1.transferFromEncryptedDirect(msg.sender, address(this), token1Amt);
+        state.token0._transferFromEncrypted(msg.sender, address(this), token0Amt);
+        state.token1._transferFromEncrypted(msg.sender, address(this), token1Amt);
 
         // Execute encrypted swap
         amountOut = _executeSwapMathForPool(poolId, dir, amt);
@@ -1033,8 +1033,8 @@ contract FheatherXv5 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         FHE.allow(out0, address(state.token0));
         FHE.allow(out1, address(state.token1));
 
-        state.token0.transferEncryptedDirect(msg.sender, out0);
-        state.token1.transferEncryptedDirect(msg.sender, out1);
+        state.token0._transferEncrypted(msg.sender, out0);
+        state.token1._transferEncrypted(msg.sender, out1);
 
         _requestReserveSync(poolId);
 

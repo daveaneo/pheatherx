@@ -20,7 +20,7 @@ import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol
 
 // Local Imports
 import {FheatherXv4} from "../src/FheatherXv4.sol";
-import {FHERC20FaucetToken} from "../src/tokens/FHERC20FaucetToken.sol";
+import {FhenixFHERC20Faucet} from "../src/tokens/FhenixFHERC20Faucet.sol";
 
 // Test Utils
 import {EasyPosm} from "./utils/EasyPosm.sol";
@@ -50,8 +50,8 @@ contract FheatherXv4Test is Test, Fixtures, CoFheTest {
     FheatherXv4 hook;
     PoolId poolId;
 
-    FHERC20FaucetToken token0;
-    FHERC20FaucetToken token1;
+    FhenixFHERC20Faucet token0;
+    FhenixFHERC20Faucet token1;
 
     // Common test amounts
     uint256 constant DEPOSIT_AMOUNT = 100e18;
@@ -63,8 +63,8 @@ contract FheatherXv4Test is Test, Fixtures, CoFheTest {
         owner = address(this);
 
         // Deploy FHERC20 tokens properly
-        FHERC20FaucetToken tokenA = new FHERC20FaucetToken("Token0", "TK0", 18);
-        FHERC20FaucetToken tokenB = new FHERC20FaucetToken("Token1", "TK1", 18);
+        FhenixFHERC20Faucet tokenA = new FhenixFHERC20Faucet("Token0", "TK0", 18);
+        FhenixFHERC20Faucet tokenB = new FhenixFHERC20Faucet("Token1", "TK1", 18);
 
         // Ensure token0 < token1 for Uniswap ordering
         if (address(tokenA) < address(tokenB)) {

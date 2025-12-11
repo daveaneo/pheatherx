@@ -13,7 +13,7 @@ import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {FheatherXv6} from "../src/FheatherXv6.sol";
 import {FaucetToken} from "../src/tokens/FaucetToken.sol";
-import {FheFaucetToken} from "../src/tokens/FheFaucetToken.sol";
+import {FhenixFHERC20Faucet} from "../src/tokens/FhenixFHERC20Faucet.sol";
 
 /// @title DeployArbSepolia
 /// @notice Deploy FheatherXv6 complete stack on Arbitrum Sepolia
@@ -93,12 +93,12 @@ contract DeployArbSepolia is Script {
         usdc = address(usdcToken);
         console.log("USDC deployed at:", usdc);
 
-        // Deploy FHERC20 tokens
-        FheFaucetToken fheWethToken = new FheFaucetToken("FHE Wrapped Ether", "fheWETH", 18);
+        // Deploy FHERC20 tokens (using official Fhenix FHERC20 with faucet extension)
+        FhenixFHERC20Faucet fheWethToken = new FhenixFHERC20Faucet("FHE Wrapped Ether", "fheWETH", 18);
         fheWeth = address(fheWethToken);
         console.log("fheWETH deployed at:", fheWeth);
 
-        FheFaucetToken fheUsdcToken = new FheFaucetToken("FHE USD Coin", "fheUSDC", 6);
+        FhenixFHERC20Faucet fheUsdcToken = new FhenixFHERC20Faucet("FHE USD Coin", "fheUSDC", 6);
         fheUsdc = address(fheUsdcToken);
         console.log("fheUSDC deployed at:", fheUsdc);
 
@@ -108,8 +108,10 @@ contract DeployArbSepolia is Script {
 
         wethToken.mint(deployer, wethMint);
         usdcToken.mint(deployer, usdcMint);
-        fheWethToken.mint(deployer, wethMint);
-        fheUsdcToken.mint(deployer, usdcMint);
+        // Use mintPlaintext for FHERC20 so addLiquidity can use transferFrom
+        // The hook will wrap() them to encrypted balance as needed
+        fheWethToken.mintPlaintext(deployer, wethMint);
+        fheUsdcToken.mintPlaintext(deployer, usdcMint);
         console.log("Minted initial supply to deployer");
         console.log("");
 

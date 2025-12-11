@@ -14,6 +14,7 @@ import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
 import { FHEATHERX_V6_ABI, BucketSide, V6_DEFAULTS, type InEuint128, type BucketSideType } from '@/lib/contracts/fheatherXv6Abi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
+import { FHERC20_ABI } from '@/lib/contracts/fherc20Abi';
 import { orderTypeToFlags, type OrderType } from '@/lib/orders';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
@@ -115,38 +116,7 @@ export function usePlaceOrder(): UsePlaceOrderResult {
       const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
       debugLog('Computed poolId', poolId);
 
-      // Check and approve token if needed
-      const allowance = await publicClient?.readContract({
-        address: depositToken.address,
-        abi: ERC20_ABI,
-        functionName: 'allowance',
-        args: [address, hookAddress],
-      }) as bigint;
-
-      debugLog('Allowance check', { allowance: allowance?.toString(), amount: amount.toString() });
-
-      if (allowance === undefined || allowance < amount) {
-        setStep('approving');
-        debugLog('Approving token', { token: depositToken.symbol, amount: amount.toString() });
-
-        const approveHash = await writeContractAsync({
-          address: depositToken.address,
-          abi: ERC20_ABI,
-          functionName: 'approve',
-          args: [hookAddress, amount],
-        });
-
-        addTransaction({
-          hash: approveHash,
-          type: 'approve',
-          description: `Approve ${depositToken.symbol} for limit order`,
-        });
-
-        await publicClient?.waitForTransactionReceipt({ hash: approveHash });
-        updateTransaction(approveHash, { status: 'confirmed' });
-      }
-
-      // Encrypt the amount
+      // Encrypt the amount first (needed for both approval and deposit for FHERC20)
       setStep('encrypting');
       debugLog('Encrypting amount');
 
@@ -165,8 +135,80 @@ export function usePlaceOrder(): UsePlaceOrderResult {
         encryptedAmount = await encrypt!(amount);
       }
 
+      debugLog('Encrypted amount', encryptedAmount);
+
+      // Check and approve token if needed
+      // For FHERC20 tokens (limit orders require FHERC20), use approveEncrypted
+      // The contract uses transferFromEncryptedDirect which checks _encAllowances
+      const isFherc20 = depositToken.type === 'fheerc20';
+      debugLog('Token type', { isFherc20, tokenType: depositToken.type });
+
+      // For FHERC20, we always need to call approveEncrypted since the deposit uses
+      // transferFromEncryptedDirect which checks encrypted allowances
+      // Note: We can't easily check encrypted allowance, so we approve every time
+      if (isFherc20) {
+        setStep('approving');
+        debugLog('Approving FHERC20 token with encrypted approval', { token: depositToken.symbol });
+
+        const approveHash = await writeContractAsync({
+          address: depositToken.address,
+          abi: FHERC20_ABI,
+          functionName: 'approveEncrypted',
+          args: [hookAddress, encryptedAmount],
+        });
+
+        addTransaction({
+          hash: approveHash,
+          type: 'approve',
+          description: `Approve ${depositToken.symbol} (encrypted) for limit order`,
+        });
+
+        await publicClient?.waitForTransactionReceipt({ hash: approveHash });
+        updateTransaction(approveHash, { status: 'confirmed' });
+        debugLog('Encrypted approval confirmed');
+      } else {
+        // For regular ERC20, use standard approve (shouldn't happen for limit orders)
+        const allowance = await publicClient?.readContract({
+          address: depositToken.address,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [address, hookAddress],
+        }) as bigint;
+
+        debugLog('ERC20 allowance check', { allowance: allowance?.toString(), amount: amount.toString() });
+
+        if (allowance === undefined || allowance < amount) {
+          setStep('approving');
+          debugLog('Approving ERC20 token', { token: depositToken.symbol, amount: amount.toString() });
+
+          const approveHash = await writeContractAsync({
+            address: depositToken.address,
+            abi: ERC20_ABI,
+            functionName: 'approve',
+            args: [hookAddress, amount],
+          });
+
+          addTransaction({
+            hash: approveHash,
+            type: 'approve',
+            description: `Approve ${depositToken.symbol} for limit order`,
+          });
+
+          await publicClient?.waitForTransactionReceipt({ hash: approveHash });
+          updateTransaction(approveHash, { status: 'confirmed' });
+        }
+      }
+
       // Calculate deadline (1 hour from now)
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + V6_DEFAULTS.DEADLINE_OFFSET);
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const deadline = BigInt(nowSeconds + V6_DEFAULTS.DEADLINE_OFFSET);
+      debugLog('Deadline calculation', {
+        nowMs: Date.now(),
+        nowSeconds,
+        offset: V6_DEFAULTS.DEADLINE_OFFSET,
+        deadline: deadline.toString(),
+        deadlineDate: new Date(Number(deadline) * 1000).toISOString(),
+      });
       // For limit orders, maxTickDrift is effectively disabled (use full tick range)
       // Limit orders wait at a specific tick - no slippage protection needed
       const maxTickDrift = 887272; // MAX_TICK - allows any price movement

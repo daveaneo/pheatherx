@@ -2,14 +2,14 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import {FHERC20FaucetToken} from "../../src/tokens/FHERC20FaucetToken.sol";
+import {FhenixFHERC20Faucet} from "../../src/tokens/FhenixFHERC20Faucet.sol";
 import {FHE, euint128, InEuint128, Common} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
 
-/// @title FHERC20FaucetToken Tests
+/// @title FhenixFHERC20Faucet Tests
 /// @notice Unit tests for the true FHERC20 token implementation
-contract FHERC20FaucetTokenTest is Test, CoFheTest {
-    FHERC20FaucetToken public token;
+contract FhenixFHERC20FaucetTest is Test, CoFheTest {
+    FhenixFHERC20Faucet public token;
 
     address public user = makeAddr("user");
     address public user2 = makeAddr("user2");
@@ -20,7 +20,7 @@ contract FHERC20FaucetTokenTest is Test, CoFheTest {
 
     function setUp() public {
         owner = address(this);
-        token = new FHERC20FaucetToken("FHE Test Token", "fheTEST", DECIMALS);
+        token = new FhenixFHERC20Faucet("FHE Test Token", "fheTEST", DECIMALS);
 
         vm.label(address(token), "FHERC20Token");
         vm.label(user, "user");
@@ -175,7 +175,7 @@ contract FHERC20FaucetTokenTest is Test, CoFheTest {
 
         // Transfer using direct method
         vm.prank(user);
-        token.transferEncryptedDirect(user2, transferAmount);
+        token._transferEncrypted(user2, transferAmount);
 
         // Verify recipient received tokens
         assertTrue(token.hasEncryptedBalance(user2), "Recipient should have balance");

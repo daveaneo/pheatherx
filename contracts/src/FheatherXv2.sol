@@ -224,8 +224,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(token0Amt, address(fheToken0));
         FHE.allow(token1Amt, address(fheToken1));
 
-        fheToken0.transferFromEncryptedDirect(msg.sender, address(this), token0Amt);
-        fheToken1.transferFromEncryptedDirect(msg.sender, address(this), token1Amt);
+        fheToken0._transferFromEncrypted(msg.sender, address(this), token0Amt);
+        fheToken1._transferFromEncrypted(msg.sender, address(this), token1Amt);
 
         // 2. Execute encrypted swap math
         amountOut = _executeSwapMath(dir, amt);
@@ -243,8 +243,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(out0, address(fheToken0));
         FHE.allow(out1, address(fheToken1));
 
-        fheToken0.transferEncryptedDirect(msg.sender, out0);
-        fheToken1.transferEncryptedDirect(msg.sender, out1);
+        fheToken0._transferEncrypted(msg.sender, out0);
+        fheToken1._transferEncrypted(msg.sender, out1);
 
         // 5. Request async reserve sync
         _requestReserveSync();
@@ -281,8 +281,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(token1Lock, address(fheToken1));
 
         // Transfer tokens from user to this contract
-        fheToken0.transferFromEncryptedDirect(msg.sender, address(this), token0Lock);
-        fheToken1.transferFromEncryptedDirect(msg.sender, address(this), token1Lock);
+        fheToken0._transferFromEncrypted(msg.sender, address(this), token0Lock);
+        fheToken1._transferFromEncrypted(msg.sender, address(this), token1Lock);
 
         // Create order
         orderId = nextOrderId++;
@@ -330,8 +330,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(token0Return, address(fheToken0));
         FHE.allow(token1Return, address(fheToken1));
 
-        fheToken0.transferEncryptedDirect(msg.sender, token0Return);
-        fheToken1.transferEncryptedDirect(msg.sender, token1Return);
+        fheToken0._transferEncrypted(msg.sender, token0Return);
+        fheToken1._transferEncrypted(msg.sender, token1Return);
 
         // Clean up tick array
         _removeOrderFromTick(order.triggerTick, orderId);
@@ -429,8 +429,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(amt0, address(fheToken0));
         FHE.allow(amt1, address(fheToken1));
 
-        fheToken0.transferFromEncryptedDirect(msg.sender, address(this), amt0);
-        fheToken1.transferFromEncryptedDirect(msg.sender, address(this), amt1);
+        fheToken0._transferFromEncrypted(msg.sender, address(this), amt0);
+        fheToken1._transferFromEncrypted(msg.sender, address(this), amt1);
 
         // Update encrypted reserves
         encReserve0 = FHE.add(encReserve0, amt0);
@@ -468,8 +468,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(amount0, address(fheToken0));
         FHE.allow(amount1, address(fheToken1));
 
-        fheToken0.transferEncryptedDirect(msg.sender, amount0);
-        fheToken1.transferEncryptedDirect(msg.sender, amount1);
+        fheToken0._transferEncrypted(msg.sender, amount0);
+        fheToken1._transferEncrypted(msg.sender, amount1);
 
         // Request reserve sync
         _requestReserveSync();
@@ -782,8 +782,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(token0Out, address(fheToken0));
         FHE.allow(token1Out, address(fheToken1));
 
-        fheToken0.transferEncryptedDirect(order.owner, token0Out);
-        fheToken1.transferEncryptedDirect(order.owner, token1Out);
+        fheToken0._transferEncrypted(order.owner, token0Out);
+        fheToken1._transferEncrypted(order.owner, token1Out);
 
         // If slippage failed, return input
         ebool slippageFailed = FHE.and(shouldTrigger, FHE.not(slippageOk));
@@ -795,8 +795,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(token0Refund, address(fheToken0));
         FHE.allow(token1Refund, address(fheToken1));
 
-        fheToken0.transferEncryptedDirect(order.owner, token0Refund);
-        fheToken1.transferEncryptedDirect(order.owner, token1Refund);
+        fheToken0._transferEncrypted(order.owner, token0Refund);
+        fheToken1._transferEncrypted(order.owner, token1Refund);
 
         // Calculate and send executor reward (1% of output)
         euint128 executorReward = FHE.div(finalOutput, ENC_HUNDRED);
@@ -806,8 +806,8 @@ contract FheatherXv2 is BaseHook, ReentrancyGuard, IFheatherXv2 {
         FHE.allow(reward0, address(fheToken0));
         FHE.allow(reward1, address(fheToken1));
 
-        fheToken0.transferEncryptedDirect(executor, reward0);
-        fheToken1.transferEncryptedDirect(executor, reward1);
+        fheToken0._transferEncrypted(executor, reward0);
+        fheToken1._transferEncrypted(executor, reward1);
 
         // Mark order as inactive
         order.active = false;

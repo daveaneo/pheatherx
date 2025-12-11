@@ -8,7 +8,7 @@ import "forge-std/Test.sol";
 import {FheatherXv3} from "../src/FheatherXv3.sol";
 import {IFheatherXv3} from "../src/interface/IFheatherXv3.sol";
 import {TickBitmap} from "../src/lib/TickBitmap.sol";
-import {FHERC20FaucetToken} from "../src/tokens/FHERC20FaucetToken.sol";
+import {FhenixFHERC20Faucet} from "../src/tokens/FhenixFHERC20Faucet.sol";
 
 // FHE Imports
 import {FHE, euint128, ebool, InEuint128, InEbool, Common} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
@@ -26,8 +26,8 @@ contract FheatherXv3Test is Test, CoFheTest {
 
     // Contract instances
     FheatherXv3 public fheatherX;
-    FHERC20FaucetToken public token0;
-    FHERC20FaucetToken public token1;
+    FhenixFHERC20Faucet public token0;
+    FhenixFHERC20Faucet public token1;
 
     // Common test amounts
     uint256 constant DEPOSIT_AMOUNT = 100e18;
@@ -42,8 +42,8 @@ contract FheatherXv3Test is Test, CoFheTest {
         // Deploy FHERC20 tokens
         vm.startPrank(owner);
 
-        FHERC20FaucetToken tempToken0 = new FHERC20FaucetToken("Token0", "TK0", 18);
-        FHERC20FaucetToken tempToken1 = new FHERC20FaucetToken("Token1", "TK1", 18);
+        FhenixFHERC20Faucet tempToken0 = new FhenixFHERC20Faucet("Token0", "TK0", 18);
+        FhenixFHERC20Faucet tempToken1 = new FhenixFHERC20Faucet("Token1", "TK1", 18);
 
         // Ensure token0 < token1
         if (address(tempToken0) > address(tempToken1)) {
@@ -82,7 +82,7 @@ contract FheatherXv3Test is Test, CoFheTest {
         _mintAndApprove(user2, DEPOSIT_AMOUNT * 10);
 
         // Initialize FheatherX contract with small token balances
-        // This is needed because transferEncryptedDirect requires initialized balances
+        // This is needed because _transferEncrypted requires initialized balances
         vm.startPrank(owner);
         token0.mintEncrypted(address(fheatherX), 1);
         token1.mintEncrypted(address(fheatherX), 1);

@@ -679,7 +679,7 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer tokens (must be FHERC20)
         address depositToken = side == BucketSide.SELL ? state.token0 : state.token1;
         FHE.allow(amount, depositToken);
-        IFHERC20(depositToken).transferFromEncryptedDirect(msg.sender, address(this), amount);
+        IFHERC20(depositToken)._transferFromEncrypted(msg.sender, address(this), amount);
 
         emit Deposit(poolId, msg.sender, tick, side, keccak256(abi.encode(encryptedAmount)));
     }
@@ -721,7 +721,7 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer tokens (FHERC20 - validated in deposit)
         address withdrawToken = side == BucketSide.SELL ? state.token0 : state.token1;
         FHE.allow(withdrawAmount, withdrawToken);
-        IFHERC20(withdrawToken).transferEncryptedDirect(msg.sender, withdrawAmount);
+        IFHERC20(withdrawToken)._transferEncrypted(msg.sender, withdrawAmount);
 
         emit Withdraw(poolId, msg.sender, tick, side, keccak256(abi.encode(encryptedAmount)));
     }
@@ -761,13 +761,13 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
 
         FHE.allow(totalProceeds, proceedsToken);
         if (proceedsIsFherc20) {
-            IFHERC20(proceedsToken).transferEncryptedDirect(msg.sender, totalProceeds);
+            IFHERC20(proceedsToken)._transferEncrypted(msg.sender, totalProceeds);
         } else {
             // For ERC20 output, we need to decrypt first (or use plaintext estimate)
             // This is a simplification - in production, use async decryption
             // For now, use plaintext transfer with estimated amount
             // TODO: Implement proper async decryption flow for mixed pairs
-            IFHERC20(proceedsToken).transferEncryptedDirect(msg.sender, totalProceeds);
+            IFHERC20(proceedsToken)._transferEncrypted(msg.sender, totalProceeds);
         }
 
         emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));
@@ -821,8 +821,8 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         FHE.allow(unfilled, depositToken);
         FHE.allow(totalProceeds, proceedsToken);
 
-        IFHERC20(depositToken).transferEncryptedDirect(msg.sender, unfilled);
-        IFHERC20(proceedsToken).transferEncryptedDirect(msg.sender, totalProceeds);
+        IFHERC20(depositToken)._transferEncrypted(msg.sender, unfilled);
+        IFHERC20(proceedsToken)._transferEncrypted(msg.sender, totalProceeds);
 
         emit Withdraw(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(unfilled))));
         emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));
@@ -1035,8 +1035,8 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         // Transfer encrypted tokens
         FHE.allow(amt0, state.token0);
         FHE.allow(amt1, state.token1);
-        IFHERC20(state.token0).transferFromEncryptedDirect(msg.sender, address(this), amt0);
-        IFHERC20(state.token1).transferFromEncryptedDirect(msg.sender, address(this), amt1);
+        IFHERC20(state.token0)._transferFromEncrypted(msg.sender, address(this), amt0);
+        IFHERC20(state.token1)._transferFromEncrypted(msg.sender, address(this), amt1);
 
         // Call shared core
         lpAmount = _addLiquidityCore(poolId, amt0, amt1, msg.sender);
@@ -1064,16 +1064,16 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         FHE.allow(amount1, state.token1);
 
         if (state.token0IsFherc20) {
-            IFHERC20(state.token0).transferEncryptedDirect(msg.sender, amount0);
+            IFHERC20(state.token0)._transferEncrypted(msg.sender, amount0);
         } else {
             // For ERC20, need to decrypt - simplified here
-            IFHERC20(state.token0).transferEncryptedDirect(msg.sender, amount0);
+            IFHERC20(state.token0)._transferEncrypted(msg.sender, amount0);
         }
 
         if (state.token1IsFherc20) {
-            IFHERC20(state.token1).transferEncryptedDirect(msg.sender, amount1);
+            IFHERC20(state.token1)._transferEncrypted(msg.sender, amount1);
         } else {
-            IFHERC20(state.token1).transferEncryptedDirect(msg.sender, amount1);
+            IFHERC20(state.token1)._transferEncrypted(msg.sender, amount1);
         }
 
         _requestReserveSync(poolId);
@@ -1106,11 +1106,11 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
 
         if (state.token0IsFherc20) {
             FHE.allow(token0Amt, state.token0);
-            IFHERC20(state.token0).transferFromEncryptedDirect(msg.sender, address(this), token0Amt);
+            IFHERC20(state.token0)._transferFromEncrypted(msg.sender, address(this), token0Amt);
         }
         if (state.token1IsFherc20) {
             FHE.allow(token1Amt, state.token1);
-            IFHERC20(state.token1).transferFromEncryptedDirect(msg.sender, address(this), token1Amt);
+            IFHERC20(state.token1)._transferFromEncrypted(msg.sender, address(this), token1Amt);
         }
 
         // Execute encrypted swap
@@ -1128,11 +1128,11 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
 
         if (state.token0IsFherc20) {
             FHE.allow(out0, state.token0);
-            IFHERC20(state.token0).transferEncryptedDirect(msg.sender, out0);
+            IFHERC20(state.token0)._transferEncrypted(msg.sender, out0);
         }
         if (state.token1IsFherc20) {
             FHE.allow(out1, state.token1);
-            IFHERC20(state.token1).transferEncryptedDirect(msg.sender, out1);
+            IFHERC20(state.token1)._transferEncrypted(msg.sender, out1);
         }
 
         _requestReserveSync(poolId);

@@ -103,7 +103,7 @@ interface IFheatherXv2 {
     ) external returns (uint256 amountOut);
 
     /// @notice Swap with FHERC20 tokens (full privacy - amount never revealed)
-    /// @dev Uses transferFromEncrypted for input, transferEncryptedDirect for output
+    /// @dev Uses transferFromEncrypted for input, _transferEncrypted for output
     /// @param direction Encrypted direction (true = zeroForOne)
     /// @param amountIn Encrypted amount to swap
     /// @param minOutput Encrypted minimum output (slippage protection)

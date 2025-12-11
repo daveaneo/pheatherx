@@ -530,7 +530,7 @@ contract FheatherX is BaseHook, ReentrancyGuard, IFheatherX {
         // Transfer encrypted tokens to user's FHERC20 wallet
         // Allow the token contract to access our amount for transfer
         FHE.allow(amount, address(fheToken));
-        fheToken.transferEncryptedDirect(msg.sender, amount);
+        fheToken._transferEncrypted(msg.sender, amount);
 
         emit WithdrawEncrypted(msg.sender, address(fheToken), amount);
     }
