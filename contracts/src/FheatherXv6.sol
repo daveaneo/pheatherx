@@ -1027,13 +1027,19 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         if (state.token0IsFherc20) {
             IFHERC20(state.token0)._transferEncrypted(msg.sender, amount0);
         } else {
-            // For ERC20, need to decrypt - simplified here
+            // TODO: BUG - This branch incorrectly calls _transferEncrypted on an ERC20 token.
+            // For ERC20 tokens, we need to:
+            // 1. Request async decryption of amount0 via CoFHE callback
+            // 2. In the callback, call IERC20.safeTransfer() with the plaintext amount
+            // Currently this will fail for ERC:FHE pools when using removeLiquidityEncrypted.
+            // Workaround: Use removeLiquidity() instead for ERC:FHE pools.
             IFHERC20(state.token0)._transferEncrypted(msg.sender, amount0);
         }
 
         if (state.token1IsFherc20) {
             IFHERC20(state.token1)._transferEncrypted(msg.sender, amount1);
         } else {
+            // TODO: BUG - Same issue as token0 above. See comment there for details.
             IFHERC20(state.token1)._transferEncrypted(msg.sender, amount1);
         }
 

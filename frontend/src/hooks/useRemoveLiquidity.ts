@@ -21,6 +21,21 @@ import { getPoolIdFromTokens } from '@/lib/poolId';
 import { FHE_TYPES } from '@/lib/fhe-constants';
 import type { Token } from '@/lib/tokens';
 
+// Pool type based on token types
+type PoolType = 'ERC:ERC' | 'ERC:FHE' | 'FHE:FHE';
+
+/**
+ * Determine pool type from token types
+ */
+function getPoolType(token0: Token, token1: Token): PoolType {
+  const t0IsFhe = token0.type === 'fheerc20';
+  const t1IsFhe = token1.type === 'fheerc20';
+
+  if (t0IsFhe && t1IsFhe) return 'FHE:FHE';
+  if (t0IsFhe || t1IsFhe) return 'ERC:FHE';
+  return 'ERC:ERC';
+}
+
 // Debug logger for remove liquidity flow
 const debugLog = (stage: string, data?: unknown) => {
   console.log(`[RemoveLiquidity v6 Debug] ${stage}`, data !== undefined ? data : '');
@@ -34,6 +49,18 @@ type RemoveLiquidityStep =
   | 'error';
 
 interface UseRemoveLiquidityResult {
+  /**
+   * Auto-routing remove liquidity - detects pool type and routes to correct method.
+   * - FHE:FHE pools → removeLiquidityEncrypted (tokens returned to encrypted balance)
+   * - ERC:FHE pools → removeLiquidity (tokens returned to plaintext balance)
+   * - ERC:ERC pools → removeLiquidity
+   */
+  removeLiquidityAuto: (
+    token0: Token,
+    token1: Token,
+    hookAddress: `0x${string}`,
+    lpAmount: bigint
+  ) => Promise<void>;
   // Plaintext removal (works with all pool types)
   removeLiquidity: (
     token0: Token,
@@ -306,9 +333,34 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
     }
   }, [address, writeContractAsync, publicClient, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
 
+  /**
+   * Auto-routing remove liquidity - detects pool type and routes to correct method.
+   * - FHE:FHE pools → removeLiquidityEncrypted (tokens returned to encrypted balance)
+   * - ERC:FHE pools → removeLiquidity (tokens returned to plaintext balance)
+   * - ERC:ERC pools → removeLiquidity
+   */
+  const removeLiquidityAuto = useCallback(async (
+    token0: Token,
+    token1: Token,
+    hookAddress: `0x${string}`,
+    lpAmount: bigint
+  ): Promise<void> => {
+    const poolType = getPoolType(token0, token1);
+    debugLog('removeLiquidityAuto routing', { poolType, token0: token0.symbol, token1: token1.symbol });
+
+    if (poolType === 'FHE:FHE') {
+      // Both tokens are FHERC20 - use encrypted removal (tokens go to encrypted balance)
+      return removeLiquidityEncrypted(token0, token1, hookAddress, lpAmount);
+    } else {
+      // ERC:ERC or ERC:FHE - use plaintext removal (tokens go to plaintext balance)
+      return removeLiquidity(token0, token1, hookAddress, lpAmount);
+    }
+  }, [removeLiquidity, removeLiquidityEncrypted]);
+
   const isLoading = step !== 'idle' && step !== 'complete' && step !== 'error';
 
   return {
+    removeLiquidityAuto,
     removeLiquidity,
     removeLiquidityEncrypted,
     step,

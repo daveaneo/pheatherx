@@ -126,7 +126,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
   });
 
   const {
-    addLiquidity,
+    addLiquidityAuto,
     step,
     isLoading,
     txHash,
@@ -210,8 +210,11 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
     txModal.openModal();
 
     try {
-      // Pass isInitialized so the hook knows whether to initialize the pool first
-      await addLiquidity(token0, token1, hookAddress, amount0, amount1, isInitialized);
+      // Use addLiquidityAuto which routes to correct method based on pool type:
+      // - FHE:FHE pools → addLiquidityEncrypted (with auto-wrap if needed)
+      // - ERC:FHE pools → addLiquidity (with auto-unwrap if needed)
+      // - ERC:ERC pools → addLiquidity
+      await addLiquidityAuto(token0, token1, hookAddress, amount0, amount1, isInitialized);
 
       // Success is handled via useEffect watching step/txHash
     } catch (err) {
@@ -295,14 +298,30 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
         return 'Checking pool...';
       case 'initializing-pool':
         return 'Creating pool...';
+      case 'checking-balances':
+        return 'Checking balances...';
+      case 'wrapping-token0':
+        return `Wrapping ${token0?.symbol || 'Token0'}...`;
+      case 'wrapping-token1':
+        return `Wrapping ${token1?.symbol || 'Token1'}...`;
+      case 'unwrapping-token0':
+        return `Unwrapping ${token0?.symbol || 'Token0'}...`;
+      case 'unwrapping-token1':
+        return `Unwrapping ${token1?.symbol || 'Token1'}...`;
       case 'checking-token0':
         return 'Checking allowance...';
       case 'approving-token0':
         return `Approving ${token0?.symbol || 'Token0'}...`;
+      case 'approving-token0-encrypted':
+        return `Approving ${token0?.symbol || 'Token0'} (encrypted)...`;
       case 'checking-token1':
         return 'Checking allowance...';
       case 'approving-token1':
         return `Approving ${token1?.symbol || 'Token1'}...`;
+      case 'approving-token1-encrypted':
+        return `Approving ${token1?.symbol || 'Token1'} (encrypted)...`;
+      case 'encrypting':
+        return 'Encrypting amounts...';
       case 'adding-liquidity':
         return 'Adding liquidity...';
       case 'complete':

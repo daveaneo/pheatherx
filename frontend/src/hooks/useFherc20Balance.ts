@@ -9,16 +9,20 @@ import { FHE_RETRY_ATTEMPTS } from '@/lib/constants';
 import type { Token } from '@/lib/tokens';
 
 interface UseFherc20BalanceResult {
-  /** The decrypted balance (null if not yet revealed) */
+  /** The decrypted encrypted balance (null if not yet revealed) */
   balance: bigint | null;
-  /** Whether the balance is currently being revealed */
+  /** The plaintext (unwrapped) balance - directly from balanceOf() */
+  plaintextBalance: bigint | null;
+  /** Whether the encrypted balance is currently being revealed */
   isLoading: boolean;
-  /** Whether the balance has been successfully revealed */
+  /** Whether the encrypted balance has been successfully revealed */
   isRevealed: boolean;
   /** Error message if reveal failed */
   error: string | null;
-  /** Manually trigger a reveal */
+  /** Manually trigger a reveal of encrypted balance */
   reveal: () => Promise<void>;
+  /** Refetch the plaintext balance */
+  refetchPlaintext: () => Promise<void>;
 }
 
 /**
@@ -72,6 +76,26 @@ export function useFherc20Balance(
       enabled: isFherc20 && !!token && !!userAddress,
     },
   });
+
+  // Read plaintext (unwrapped) balance from FHERC20 contract
+  // This is the standard ERC20 balanceOf - shows tokens that have been unwrapped
+  const { data: plaintextBalanceData, refetch: refetchPlaintextBalance } = useReadContract({
+    address: token?.address,
+    abi: FHERC20_ABI,
+    functionName: 'balanceOf',
+    args: userAddress ? [userAddress] : undefined,
+    query: {
+      enabled: isFherc20 && !!token && !!userAddress,
+    },
+  });
+
+  const plaintextBalance = isFherc20 && plaintextBalanceData !== undefined
+    ? BigInt(plaintextBalanceData as bigint)
+    : null;
+
+  const refetchPlaintext = useCallback(async () => {
+    await refetchPlaintextBalance();
+  }, [refetchPlaintextBalance]);
 
   const reveal = useCallback(async () => {
     if (!isFherc20 || !token || !userAddress) return;
@@ -157,9 +181,11 @@ export function useFherc20Balance(
 
   return {
     balance: isFherc20 ? balance : null,
+    plaintextBalance,
     isLoading: isFherc20 ? isLoading : false,
     isRevealed: isFherc20 ? balance !== null : false,
     error: isFherc20 ? error : null,
     reveal,
+    refetchPlaintext,
   };
 }

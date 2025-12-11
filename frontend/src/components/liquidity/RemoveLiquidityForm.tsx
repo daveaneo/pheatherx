@@ -52,7 +52,7 @@ export function RemoveLiquidityForm({ position, onSuccess, onCancel }: RemoveLiq
   });
 
   const {
-    removeLiquidity,
+    removeLiquidityAuto,
     step,
     isLoading,
     txHash,
@@ -106,7 +106,11 @@ export function RemoveLiquidityForm({ position, onSuccess, onCancel }: RemoveLiq
     txModal.openModal();
 
     try {
-      await removeLiquidity(token0, token1, hookAddress, lpAmount);
+      // Use removeLiquidityAuto which routes to correct method based on pool type:
+      // - FHE:FHE pools → removeLiquidityEncrypted (tokens go to encrypted balance)
+      // - ERC:FHE pools → removeLiquidity (tokens go to plaintext balance)
+      // - ERC:ERC pools → removeLiquidity
+      await removeLiquidityAuto(token0, token1, hookAddress, lpAmount);
       // Success is handled via useEffect watching step/txHash
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
@@ -147,6 +151,8 @@ export function RemoveLiquidityForm({ position, onSuccess, onCancel }: RemoveLiq
 
   const getButtonText = () => {
     switch (step) {
+      case 'encrypting':
+        return 'Encrypting...';
       case 'removing-liquidity':
         return 'Removing liquidity...';
       case 'complete':
