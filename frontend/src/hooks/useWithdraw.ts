@@ -224,14 +224,16 @@ export function useWithdraw(): UseWithdrawResult {
   }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
-   * Exit completely - withdraw all unfilled + claim all proceeds
+   * Exit completely - claim all proceeds
+   * Note: exit() was removed from contract for size optimization.
+   * This now calls claim() only. For full exit, call withdraw() first, then claim().
    */
   const exit = useCallback(async (
     poolId: `0x${string}`,
     tick: number,
     side: BucketSideType
   ): Promise<`0x${string}`> => {
-    debugLog('exit called', { poolId, tick, side });
+    debugLog('exit called (now uses claim)', { poolId, tick, side });
 
     if (!address || !hookAddress) {
       throw new Error('Wallet not connected or no pool selected');
@@ -241,34 +243,35 @@ export function useWithdraw(): UseWithdrawResult {
     setError(null);
 
     try {
+      // exit() was removed - use claim() instead
       const hash = await writeContractAsync({
         address: hookAddress,
         abi: FHEATHERX_V6_ABI,
-        functionName: 'exit',
+        functionName: 'claim',
         args: [poolId, tick, side],
       });
 
-      debugLog('exit: tx submitted', { hash });
+      debugLog('exit (claim): tx submitted', { hash });
       setWithdrawHash(hash);
 
       addTransaction({
         hash,
         type: 'withdraw',
-        description: `Exit ${side === BucketSide.BUY ? 'buy' : 'sell'} order at tick ${tick}`,
+        description: `Claim ${side === BucketSide.BUY ? 'buy' : 'sell'} order at tick ${tick}`,
       });
 
       await publicClient?.waitForTransactionReceipt({ hash });
 
       updateTransaction(hash, { status: 'confirmed' });
       setStep('complete');
-      successToast('Order closed');
+      successToast('Proceeds claimed');
       return hash;
     } catch (err: unknown) {
-      debugLog('exit: ERROR', err);
-      const message = err instanceof Error ? err.message : 'Exit failed';
+      debugLog('exit (claim): ERROR', err);
+      const message = err instanceof Error ? err.message : 'Claim failed';
       setError(message);
       setStep('error');
-      errorToast('Exit failed', message);
+      errorToast('Claim failed', message);
       throw err;
     }
   }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);

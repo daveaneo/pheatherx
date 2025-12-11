@@ -27,12 +27,13 @@ interface UseClosePositionResult {
 }
 
 /**
- * Hook to close a position (exit) from a limit order bucket.
+ * Hook to close a position (claim) from a limit order bucket.
  *
- * Calls the contract's `exit(poolId, tick, side)` function which:
- * 1. Withdraws any unfilled deposit tokens
- * 2. Claims all proceeds from filled orders
- * 3. Resets the user's position in that bucket
+ * Calls the contract's `claim(poolId, tick, side)` function which:
+ * - Claims all proceeds from filled orders
+ * - Updates the user's position in that bucket
+ *
+ * Note: For full exit (withdraw unfilled + claim), call withdraw() then claim()
  */
 export function useClosePosition(): UseClosePositionResult {
   const { address } = useAccount();
@@ -74,10 +75,11 @@ export function useClosePosition(): UseClosePositionResult {
       const sideLabel = side === BucketSide.BUY ? 'Buy' : 'Sell';
       const price = Math.pow(1.0001, tick).toFixed(4);
 
+      // Use claim to collect proceeds (exit function was removed for contract size optimization)
       const hash = await writeContractAsync({
         address: hookAddress,
         abi: FHEATHERX_V6_ABI,
-        functionName: 'exit',
+        functionName: 'claim',
         args: [poolId, tick, side],
       });
 

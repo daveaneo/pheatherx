@@ -1,10 +1,9 @@
 'use client';
 
 /**
- * useSwap - v6 Multi-Mode Swap Hook
+ * useSwap - v6 Multi-Mode Swap Hook (Optimized - No Default Pool)
  *
- * v6 swap functions:
- * - swap(bool zeroForOne, uint256 amountIn, uint256 minAmountOut) - uses defaultPoolId
+ * v6 swap functions (all require explicit poolId):
  * - swapForPool(PoolId poolId, bool zeroForOne, uint256 amountIn, uint256 minAmountOut)
  * - swapEncrypted(PoolId poolId, InEbool direction, InEuint128 amountIn, InEuint128 minOutput)
  *
@@ -47,11 +46,11 @@ interface UseSwapResult {
 
   // Swap methods
   /**
-   * Direct plaintext swap using hook's defaultPoolId
+   * Direct plaintext swap (uses current pool's poolId)
    */
   swap: (zeroForOne: boolean, amountIn: bigint, minAmountOut: bigint) => Promise<`0x${string}`>;
   /**
-   * Direct plaintext swap for specific pool
+   * Direct plaintext swap for specific pool (explicit poolId)
    */
   swapForPool: (
     poolId: `0x${string}`,
@@ -153,24 +152,28 @@ export function useSwap(): UseSwapResult {
   }, [address, publicClient, writeContractAsync, chainId, addTransaction, updateTransaction]);
 
   /**
-   * Get a quote using the hook's getQuote function
+   * Get a quote using the hook's getQuoteForPool function
    */
   const getQuote = useCallback(async (
     zeroForOne: boolean,
     amountIn: bigint
   ): Promise<SwapQuote | null> => {
-    if (!publicClient || !hookAddress || amountIn === 0n) return null;
+    if (!publicClient || !hookAddress || !token0 || !token1 || amountIn === 0n) return null;
 
     setStep('simulating');
     setError(null);
 
     try {
-      // Use hook's getQuote function
+      // Compute poolId from tokens and hook
+      const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
+      debugLog('getQuote: computed poolId', { poolId, token0: token0.address, token1: token1.address });
+
+      // Use hook's getQuoteForPool function (requires poolId)
       const amountOut = await publicClient.readContract({
         address: hookAddress,
         abi: FHEATHERX_V6_ABI,
-        functionName: 'getQuote',
-        args: [zeroForOne, amountIn],
+        functionName: 'getQuoteForPool',
+        args: [poolId, zeroForOne, amountIn],
       }) as bigint;
 
       // Calculate price impact
@@ -192,10 +195,10 @@ export function useSwap(): UseSwapResult {
       setStep('error');
       return null;
     }
-  }, [publicClient, hookAddress]);
+  }, [publicClient, hookAddress, token0, token1]);
 
   /**
-   * Direct plaintext swap using hook's defaultPoolId
+   * Direct plaintext swap (uses current pool's poolId via swapForPool)
    */
   const swap = useCallback(async (
     zeroForOne: boolean,
@@ -211,6 +214,10 @@ export function useSwap(): UseSwapResult {
     setError(null);
 
     try {
+      // Compute poolId from tokens and hook
+      const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
+      debugLog('swap: computed poolId', { poolId, token0: token0.address, token1: token1.address });
+
       // Get token to approve (input token)
       const tokenIn = zeroForOne ? token0.address : token1.address;
 
@@ -219,11 +226,12 @@ export function useSwap(): UseSwapResult {
 
       setStep('swapping');
 
+      // Use swapForPool with computed poolId
       const hash = await writeContractAsync({
         address: hookAddress,
         abi: FHEATHERX_V6_ABI,
-        functionName: 'swap',
-        args: [zeroForOne, amountIn, minAmountOut],
+        functionName: 'swapForPool',
+        args: [poolId, zeroForOne, amountIn, minAmountOut],
         chainId,
       });
 

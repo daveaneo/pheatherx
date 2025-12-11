@@ -51,13 +51,6 @@ export const FHEATHERX_V6_ABI = [
   },
   {
     type: "function",
-    name: "SYNC_COOLDOWN_BLOCKS",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    type: "function",
     name: "TICK_SPACING",
     inputs: [],
     outputs: [{ name: "", type: "int24" }],
@@ -65,18 +58,6 @@ export const FHEATHERX_V6_ABI = [
   },
 
   // ============ Swap Functions ============
-  // swap() - Plaintext swap using defaultPoolId
-  {
-    type: "function",
-    name: "swap",
-    inputs: [
-      { name: "zeroForOne", type: "bool" },
-      { name: "amountIn", type: "uint256" },
-      { name: "minAmountOut", type: "uint256" }
-    ],
-    outputs: [{ name: "amountOut", type: "uint256" }],
-    stateMutability: "nonpayable"
-  },
   // swapForPool() - Plaintext swap for specific pool
   {
     type: "function",
@@ -271,18 +252,6 @@ export const FHEATHERX_V6_ABI = [
     outputs: [],
     stateMutability: "nonpayable"
   },
-  // exit() - Withdraw all + claim proceeds in one transaction
-  {
-    type: "function",
-    name: "exit",
-    inputs: [
-      { name: "poolId", type: "bytes32" },
-      { name: "tick", type: "int24" },
-      { name: "side", type: "uint8" }
-    ],
-    outputs: [],
-    stateMutability: "nonpayable"
-  },
 
   // ============ View Functions - Pool State ============
   {
@@ -321,44 +290,8 @@ export const FHEATHERX_V6_ABI = [
     ],
     stateMutability: "view"
   },
-  // Legacy reserve getters for default pool
-  {
-    type: "function",
-    name: "reserve0",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    type: "function",
-    name: "reserve1",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    type: "function",
-    name: "defaultPoolId",
-    inputs: [],
-    outputs: [{ name: "", type: "bytes32" }],
-    stateMutability: "view"
-  },
-  {
-    type: "function",
-    name: "defaultPoolSet",
-    inputs: [],
-    outputs: [{ name: "", type: "bool" }],
-    stateMutability: "view"
-  },
 
   // ============ View Functions - Tick/Price ============
-  {
-    type: "function",
-    name: "getCurrentTick",
-    inputs: [],
-    outputs: [{ name: "", type: "int24" }],
-    stateMutability: "view"
-  },
   {
     type: "function",
     name: "getCurrentTickForPool",
@@ -382,16 +315,6 @@ export const FHEATHERX_V6_ABI = [
   },
 
   // ============ View Functions - Quote ============
-  {
-    type: "function",
-    name: "getQuote",
-    inputs: [
-      { name: "zeroForOne", type: "bool" },
-      { name: "amountIn", type: "uint256" }
-    ],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
   {
     type: "function",
     name: "getQuoteForPool",
@@ -533,13 +456,6 @@ export const FHEATHERX_V6_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "address" }],
     stateMutability: "view"
-  },
-  {
-    type: "function",
-    name: "setDefaultPool",
-    inputs: [{ name: "poolId", type: "bytes32" }],
-    outputs: [],
-    stateMutability: "nonpayable"
   },
   {
     type: "function",
@@ -724,11 +640,6 @@ export const FHEATHERX_V6_ABI = [
   },
   {
     type: "event",
-    name: "DefaultPoolSet",
-    inputs: [{ name: "poolId", type: "bytes32", indexed: true }]
-  },
-  {
-    type: "event",
     name: "ReservesSynced",
     inputs: [
       { name: "poolId", type: "bytes32", indexed: true },
@@ -795,8 +706,6 @@ export const FHEATHERX_V6_ABI = [
   { type: "error", name: "BothTokensMustBeFherc20", inputs: [] },
   { type: "error", name: "DeadlineExpired", inputs: [] },
   { type: "error", name: "PriceMoved", inputs: [] },
-  { type: "error", name: "InvalidPoolId", inputs: [] },
-  { type: "error", name: "InsufficientBalance", inputs: [] },
   { type: "error", name: "FeeTooHigh", inputs: [] },
   { type: "error", name: "FeeChangeNotReady", inputs: [] },
   { type: "error", name: "NotPoolManager", inputs: [] },

@@ -37,12 +37,12 @@ const ETH_SEPOLIA_TOKENS = {
 } as const;
 
 // Arbitrum Sepolia Token Addresses (from contracts/deployments/v6-arb-sepolia.json)
-// Updated 2025-12-11 with FhenixFHERC20Faucet (official Fhenix FHERC20 standard)
+// Updated 2025-12-11 with optimized v6 deployment (6 pools)
 const ARB_SEPOLIA_TOKENS = {
-  WETH: '0xf60eB0df91142e31384851b66022833Be2c08007' as `0x${string}`,
-  USDC: '0x5Ffa3F4620aF4434A662aA89e37775d776604D6E' as `0x${string}`,
-  fheWETH: '0xf7dD1ed6f513b22e05645EE8BA3D3A712Cc76128' as `0x${string}`,
-  fheUSDC: '0x43AcAe0A089f3cd188f9fB0731059Eb7bC27D3Aa' as `0x${string}`,
+  WETH: '0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13' as `0x${string}`,
+  USDC: '0x00F7DC53A57b980F839767a6C6214b4089d916b1' as `0x${string}`,
+  fheWETH: '0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0' as `0x${string}`,
+  fheUSDC: '0x987731d456B5996E7414d79474D8aba58d4681DC' as `0x${string}`,
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════

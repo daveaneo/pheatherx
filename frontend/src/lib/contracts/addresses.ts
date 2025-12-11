@@ -18,7 +18,7 @@ export const FHEATHERX_FACTORY_ADDRESSES: Record<number, `0x${string}`> = {
 export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
   11155111: '0xA5C0d461B96aE934699E642e4e654e4790f890c8', // v6 Eth Sepolia (with Uniswap TickMath)
-  421614: '0xaBDB92FAC44c850D6472f82B8d63Bb52947610C8',   // v6 Arb Sepolia (FhenixFHERC20Faucet + official Fhenix standard)
+  421614: '0xa4522Bc1dA1880035835Aa7c281b566EBD2110c8',   // v6 Arb Sepolia (optimized - no default pool)
   8008135: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
 };
 
@@ -41,10 +41,10 @@ export const TOKEN_ADDRESSES: Record<number, { token0: `0x${string}`; token1: `0
     token0: '0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E',  // WETH
     token1: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56',  // USDC
   },
-  // Arb Sepolia v6: WETH/USDC (sorted by address) - FhenixFHERC20Faucet deployment
+  // Arb Sepolia v6: USDC/WETH (sorted by address - USDC < WETH)
   421614: {
-    token0: '0x5Ffa3F4620aF4434A662aA89e37775d776604D6E',  // USDC
-    token1: '0xf60eB0df91142e31384851b66022833Be2c08007',  // WETH
+    token0: '0x00F7DC53A57b980F839767a6C6214b4089d916b1',  // USDC
+    token1: '0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13',  // WETH
   },
   8008135: {
     token0: (process.env.NEXT_PUBLIC_TOKEN0_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
