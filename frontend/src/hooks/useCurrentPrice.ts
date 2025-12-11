@@ -203,6 +203,15 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
     refresh();
   }, [refresh]);
 
+  // Poll for reserve updates every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refresh();
+    }, 10000); // 10 second polling interval
+
+    return () => clearInterval(interval);
+  }, [refresh]);
+
   // Derive current tick from stored values
   const currentTick = storedTick || (currentPrice?.currentTick ?? 0);
 

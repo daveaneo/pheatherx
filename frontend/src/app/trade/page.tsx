@@ -77,7 +77,7 @@ function DirectionToggle({
 }
 
 export default function TradePage() {
-  const { currentPrice, currentTick, isLoading } = useCurrentPrice();
+  const { currentPrice, currentTick, isLoading, refresh: refreshPrice } = useCurrentPrice();
 
   // Global trade direction - true = sell token0, false = sell token1
   const [zeroForOne, setZeroForOne] = useState(true);
@@ -150,6 +150,7 @@ export default function TradePage() {
             onPrefillUsed={clearPrefill}
             zeroForOne={zeroForOne}
             onFlipDirection={handleFlipDirection}
+            onSwapComplete={refreshPrice}
           />
         </div>
       </div>

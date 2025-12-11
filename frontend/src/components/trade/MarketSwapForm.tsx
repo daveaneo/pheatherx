@@ -16,9 +16,10 @@ interface MarketSwapFormProps {
   currentPrice: CurrentPrice | null;
   zeroForOne: boolean;
   onFlipDirection: () => void;
+  onSwapComplete?: () => void;
 }
 
-export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: MarketSwapFormProps) {
+export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSwapComplete }: MarketSwapFormProps) {
   const [sellAmount, setSellAmount] = useState('');
   const [slippage, setSlippage] = useState('0.5');
 
@@ -26,6 +27,9 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
   const { hookAddress, token0, token1 } = useSelectedPool();
   const txModal = useTransactionModal();
   const { address } = useAccount();
+
+  // Get buy token for balance refresh after swap
+  const buyTokenObj = zeroForOne ? token1 : token0;
 
   // Get token symbols from selected pool
   const sellToken = zeroForOne ? (token0?.symbol ?? 'Token0') : (token1?.symbol ?? 'Token1');
@@ -42,16 +46,28 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
 
   // Get wallet balance for sell token
   // For FHERC20 tokens, we need encrypted balance; for ERC20, use standard balance
-  const { data: balanceData, isLoading: isBalanceLoading } = useBalance({
+  const { data: balanceData, isLoading: isBalanceLoading, refetch: refetchSellBalance } = useBalance({
     address,
     token: sellTokenAddress,
   });
 
   // Get encrypted balance for FHERC20 sell token
-  const { balance: encryptedBalance, isLoading: isEncryptedBalanceLoading } = useFherc20Balance(
+  const { balance: encryptedBalance, isLoading: isEncryptedBalanceLoading, invalidateAndRefresh: refreshSellEncrypted } = useFherc20Balance(
     sellTokenObj,
     address
   );
+
+  // Get encrypted balance for FHERC20 buy token (for refresh after swap)
+  const { invalidateAndRefresh: refreshBuyEncrypted } = useFherc20Balance(
+    buyTokenObj,
+    address
+  );
+
+  // Get standard balance for buy token (for refresh after swap)
+  const { refetch: refetchBuyBalance } = useBalance({
+    address,
+    token: buyTokenObj?.address,
+  });
 
   // Use encrypted balance for FHE:FHE pools, plaintext for others
   const sellBalance = isFheFhePool ? encryptedBalance : balanceData?.value;
@@ -146,6 +162,21 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection }: Ma
           { label: 'Received', value: `~${estimatedOutput} ${buyToken}` },
         ]);
         setSellAmount('');
+
+        // Refresh prices/reserves
+        onSwapComplete?.();
+
+        // Refresh balances (both sell and buy tokens)
+        // For FHE tokens, use encrypted balance refresh; for ERC20, use standard refetch
+        if (isFheFhePool) {
+          // Both tokens are FHERC20
+          refreshSellEncrypted?.();
+          refreshBuyEncrypted?.();
+        } else {
+          // Mixed or ERC:ERC pool - refresh standard balances
+          refetchSellBalance?.();
+          refetchBuyBalance?.();
+        }
       }
     } catch (err) {
       // Show error in modal

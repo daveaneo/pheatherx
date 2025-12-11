@@ -13,6 +13,7 @@ interface ExecutionPanelProps {
   onPrefillUsed?: () => void;
   zeroForOne: boolean;
   onFlipDirection: () => void;
+  onSwapComplete?: () => void;
 }
 
 export function ExecutionPanel({
@@ -22,6 +23,7 @@ export function ExecutionPanel({
   onPrefillUsed,
   zeroForOne,
   onFlipDirection,
+  onSwapComplete,
 }: ExecutionPanelProps) {
   const [activeTab, setActiveTab] = useState('market');
 
@@ -49,6 +51,7 @@ export function ExecutionPanel({
               currentPrice={currentPrice}
               zeroForOne={zeroForOne}
               onFlipDirection={onFlipDirection}
+              onSwapComplete={onSwapComplete}
             />
           </TabsContent>
 
