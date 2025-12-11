@@ -237,7 +237,7 @@ export function useDeposit(): UseDepositResult {
       let encryptedAmount: InEuint128;
 
       if (fheMock) {
-        // Mock encryption for testing
+        // Mock encryption for testing (no CoFHE validation)
         encryptedAmount = {
           ctHash: amount,
           securityZone: 0,
@@ -246,15 +246,8 @@ export function useDeposit(): UseDepositResult {
         };
         debugLog('deposit: using mock encryption');
       } else {
-        // Real FHE encryption
-        const encrypted = await encrypt!(amount);
-        // TODO: Parse actual encrypted response format from CoFHE
-        encryptedAmount = {
-          ctHash: BigInt('0x' + Buffer.from(encrypted).toString('hex')),
-          securityZone: 0,
-          utype: FHE_TYPES.EUINT128,
-          signature: '0x' as `0x${string}`,
-        };
+        // Real FHE encryption - returns full struct with signature
+        encryptedAmount = await encrypt!(amount);
         debugLog('deposit: encrypted amount');
       }
 

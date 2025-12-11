@@ -460,7 +460,7 @@ export function useAddLiquidity(): UseAddLiquidityResult {
       let encAmount1: InEuint128;
 
       if (fheMock) {
-        // Mock encryption for testing
+        // Mock encryption for testing (no CoFHE validation)
         encAmount0 = {
           ctHash: amount0,
           securityZone: 0,
@@ -474,22 +474,9 @@ export function useAddLiquidity(): UseAddLiquidityResult {
           signature: '0x' as `0x${string}`,
         };
       } else {
-        // Real FHE encryption
-        const encrypted0 = await encrypt!(amount0);
-        const encrypted1 = await encrypt!(amount1);
-        // TODO: Parse actual encrypted response format
-        encAmount0 = {
-          ctHash: BigInt('0x' + Buffer.from(encrypted0).toString('hex')),
-          securityZone: 0,
-          utype: FHE_TYPES.EUINT128,
-          signature: '0x' as `0x${string}`,
-        };
-        encAmount1 = {
-          ctHash: BigInt('0x' + Buffer.from(encrypted1).toString('hex')),
-          securityZone: 0,
-          utype: FHE_TYPES.EUINT128,
-          signature: '0x' as `0x${string}`,
-        };
+        // Real FHE encryption - returns full struct with signature
+        encAmount0 = await encrypt!(amount0);
+        encAmount1 = await encrypt!(amount1);
       }
 
       debugLog('Calling addLiquidityEncrypted', { poolId, encAmount0, encAmount1 });

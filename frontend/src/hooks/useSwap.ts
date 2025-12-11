@@ -341,7 +341,7 @@ export function useSwap(): UseSwapResult {
       let encMinOutput: InEuint128;
 
       if (fheMock) {
-        // Mock encryption for testing
+        // Mock encryption for testing (no CoFHE validation)
         encDirection = {
           ctHash: zeroForOne ? 1n : 0n,
           securityZone: 0,
@@ -361,29 +361,10 @@ export function useSwap(): UseSwapResult {
           signature: '0x' as `0x${string}`,
         };
       } else {
-        // Real FHE encryption
-        const encDir = await encryptBool!(zeroForOne);
-        const encAmt = await encrypt!(amountIn);
-        const encMin = await encrypt!(minAmountOut);
-
-        encDirection = {
-          ctHash: BigInt('0x' + Buffer.from(encDir).toString('hex')),
-          securityZone: 0,
-          utype: FHE_TYPES.EBOOL,
-          signature: '0x' as `0x${string}`,
-        };
-        encAmountIn = {
-          ctHash: BigInt('0x' + Buffer.from(encAmt).toString('hex')),
-          securityZone: 0,
-          utype: FHE_TYPES.EUINT128,
-          signature: '0x' as `0x${string}`,
-        };
-        encMinOutput = {
-          ctHash: BigInt('0x' + Buffer.from(encMin).toString('hex')),
-          securityZone: 0,
-          utype: FHE_TYPES.EUINT128,
-          signature: '0x' as `0x${string}`,
-        };
+        // Real FHE encryption - returns full struct with signature
+        encDirection = await encryptBool!(zeroForOne);
+        encAmountIn = await encrypt!(amountIn);
+        encMinOutput = await encrypt!(minAmountOut);
       }
 
       setStep('swapping');

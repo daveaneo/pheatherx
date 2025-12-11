@@ -134,11 +134,17 @@ export async function POST(request: NextRequest) {
         }
 
         const encrypted = 'data' in result ? result.data : result;
-        const ctHash = encrypted[0].ctHash.toString();
+        const item = encrypted[0];
 
+        // Return the full encrypted struct including signature
         return NextResponse.json({
           success: true,
-          ciphertext: ctHash,
+          encrypted: {
+            ctHash: item.ctHash.toString(),
+            securityZone: item.securityZone,
+            utype: item.utype,
+            signature: item.signature,
+          },
         });
       }
 

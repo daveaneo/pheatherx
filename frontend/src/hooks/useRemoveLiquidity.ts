@@ -245,6 +245,7 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
       let encLpAmount: InEuint128;
 
       if (fheMock) {
+        // Mock encryption for testing (no CoFHE validation)
         encLpAmount = {
           ctHash: lpAmount,
           securityZone: 0,
@@ -252,13 +253,8 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
           signature: '0x' as `0x${string}`,
         };
       } else {
-        const encrypted = await encrypt!(lpAmount);
-        encLpAmount = {
-          ctHash: BigInt('0x' + Buffer.from(encrypted).toString('hex')),
-          securityZone: 0,
-          utype: FHE_TYPES.EUINT128,
-          signature: '0x' as `0x${string}`,
-        };
+        // Real FHE encryption - returns full struct with signature
+        encLpAmount = await encrypt!(lpAmount);
       }
 
       setStep('removing-liquidity');

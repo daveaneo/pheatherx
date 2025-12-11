@@ -9,6 +9,16 @@
 import type { FheSession } from '@/types/fhe';
 import { FHE_SESSION_DURATION_MS } from '@/lib/constants';
 
+/**
+ * Encrypted input struct matching CoFHE's InEuint128/InEbool format
+ */
+export interface EncryptedInput {
+  ctHash: bigint;
+  securityZone: number;
+  utype: number;
+  signature: `0x${string}`;
+}
+
 // Session state
 let currentSessionId: string | null = null;
 let currentSession: FheSession | null = null;
@@ -197,8 +207,9 @@ export function clearSession(): void {
 
 /**
  * Encrypt a uint128 value via server-side API
+ * Returns the full encrypted struct including signature for CoFHE validation
  */
-export async function encryptUint128(value: bigint): Promise<Uint8Array> {
+export async function encryptUint128(value: bigint): Promise<EncryptedInput> {
   if (!currentSessionId) {
     throw new Error('No valid FHE session');
   }
@@ -223,15 +234,20 @@ export async function encryptUint128(value: bigint): Promise<Uint8Array> {
     throw new Error(result.error || 'Failed to encrypt');
   }
 
-  // Convert ciphertext string to bytes
-  const ctHash = BigInt(result.ciphertext);
-  return bigintToBytes(ctHash);
+  // Return the full encrypted struct with signature
+  return {
+    ctHash: BigInt(result.encrypted.ctHash),
+    securityZone: result.encrypted.securityZone,
+    utype: result.encrypted.utype,
+    signature: (result.encrypted.signature || '0x') as `0x${string}`,
+  };
 }
 
 /**
  * Encrypt a boolean value via server-side API
+ * Returns the full encrypted struct including signature for CoFHE validation
  */
-export async function encryptBool(value: boolean): Promise<Uint8Array> {
+export async function encryptBool(value: boolean): Promise<EncryptedInput> {
   if (!currentSessionId) {
     throw new Error('No valid FHE session');
   }
@@ -256,8 +272,13 @@ export async function encryptBool(value: boolean): Promise<Uint8Array> {
     throw new Error(result.error || 'Failed to encrypt');
   }
 
-  const ctHash = BigInt(result.ciphertext);
-  return bigintToBytes(ctHash);
+  // Return the full encrypted struct with signature
+  return {
+    ctHash: BigInt(result.encrypted.ctHash),
+    securityZone: result.encrypted.securityZone,
+    utype: result.encrypted.utype,
+    signature: (result.encrypted.signature || '0x') as `0x${string}`,
+  };
 }
 
 /**
