@@ -18,7 +18,7 @@ export const FHEATHERX_FACTORY_ADDRESSES: Record<number, `0x${string}`> = {
 export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
   11155111: '0xA5C0d461B96aE934699E642e4e654e4790f890c8', // v6 Eth Sepolia (with Uniswap TickMath)
-  421614: '0x12874fE3D50AE1771C0bcdD764Db5ff36D0D50C8',   // v6 Arb Sepolia (with Uniswap TickMath)
+  421614: '0x9d8ae89ae4CeB89397c4DE52Ef4db7F16131D0c8',   // v6 Arb Sepolia (with Uniswap TickMath + fixed FHERC20 detection)
   8008135: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
 };
 
@@ -41,10 +41,10 @@ export const TOKEN_ADDRESSES: Record<number, { token0: `0x${string}`; token1: `0
     token0: '0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E',  // WETH
     token1: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56',  // USDC
   },
-  // Arb Sepolia v6: WETH/USDC (sorted by address) - with Uniswap TickMath deployment
+  // Arb Sepolia v6: WETH/USDC (sorted by address) - with FHERC20 detection fix
   421614: {
-    token0: '0xf0F8f49b4065A1B01050Fa358d287106B676a25F',  // WETH
-    token1: '0xF6E9f75e0419b7D2adE5AC0eA20B03d84D5e0B0D',  // USDC
+    token0: '0x2438489297695F5b0dAaFdE20B48d513C215e13F',  // USDC
+    token1: '0x446495a5Bde1bFaf269aDE9Fc05f9e5eDE138d44',  // WETH
   },
   8008135: {
     token0: (process.env.NEXT_PUBLIC_TOKEN0_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',

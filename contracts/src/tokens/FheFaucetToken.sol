@@ -122,6 +122,12 @@ contract FheFaucetToken is ERC20, Ownable {
         return encryptedBalances[account];
     }
 
+    /// @notice Alias for getEncryptedBalance (IFHERC20 standard)
+    /// @dev Required for FheatherXv6 hook to detect FHERC20 tokens
+    function balanceOfEncrypted(address account) external view returns (euint128) {
+        return encryptedBalances[account];
+    }
+
     /// @notice Check if an address has an initialized encrypted balance
     /// @param account Address to check
     function hasEncryptedBalance(address account) external view returns (bool) {

@@ -434,9 +434,152 @@ Run with: `forge test --match-contract FHEDivApproxGas -vv`
 
 ---
 
+---
+
+## 4. Official Fhenix FHERC20 Token Support
+
+### Current State
+
+FheatherXv6 uses a custom FHERC20 detection mechanism that is **not compatible** with official Fhenix FHERC20 tokens.
+
+**Our implementation:**
+```solidity
+// FheatherXv6._isFherc20() checks for:
+function balanceOfEncrypted(address account) external view returns (euint128);
+// Selector: 0xc33d0b56
+```
+
+**Official Fhenix FHERC20 standard:**
+```solidity
+// Requires Permission struct for access control:
+function balanceOfEncrypted(address account, Permission memory auth) external view returns (string memory);
+// Selector: 0x60277204 (different due to Permission parameter)
+```
+
+The `Permission` struct provides cryptographic proof that the caller is authorized to view the encrypted balance. Our simplified version skips this because:
+1. We only use it for token type detection (does this function exist?)
+2. The actual balance decryption happens off-chain through CoFHE
+3. Our `balanceOfEncrypted(address)` returns an opaque `euint128` handle, not the decrypted value
+
+### Impact
+
+| Token Type | Detection Result | Limit Orders Work? |
+|------------|------------------|-------------------|
+| Our `FheFaucetToken` | ✅ Detected as FHERC20 | ✅ Yes |
+| Official Fhenix FHERC20 | ❌ Detected as ERC20 | ❌ No (`InputTokenMustBeFherc20`) |
+
+### Solutions (To Be Decided)
+
+#### Option A: Multi-Selector Detection
+
+Update `_isFherc20()` to check for multiple known selectors:
+
+```solidity
+function _isFherc20(address token) internal view returns (bool) {
+    // Check our simplified interface
+    (bool success1, ) = token.staticcall(
+        abi.encodeWithSelector(bytes4(0xc33d0b56), address(0)) // balanceOfEncrypted(address)
+    );
+    if (success1) return true;
+
+    // Check official Fhenix interface (will fail without valid Permission, but selector exists)
+    // Note: This may not work reliably as the call will revert without valid Permission
+    // May need ERC-165 supportsInterface instead
+
+    return false;
+}
+```
+
+**Pros:** Backward compatible, automatic detection
+**Cons:** Fragile, selector-based detection can have false positives
+
+#### Option B: Explicit Token Type Registration
+
+Add admin function to manually set token types:
+
+```solidity
+function setTokenTypes(
+    PoolId poolId,
+    bool token0IsFherc20,
+    bool token1IsFherc20
+) external onlyOwner {
+    PoolState storage state = poolStates[poolId];
+    require(state.initialized, "Pool not initialized");
+    state.token0IsFherc20 = token0IsFherc20;
+    state.token1IsFherc20 = token1IsFherc20;
+    emit TokenTypesUpdated(poolId, token0IsFherc20, token1IsFherc20);
+}
+```
+
+**Pros:** Explicit, works with any token, can fix misdetection
+**Cons:** Manual setup required per pool
+
+#### Option C: hookData Parameter at Pool Init
+
+Pass token types explicitly via Uniswap v4's `hookData`:
+
+```solidity
+function _afterInitialize(
+    address,
+    PoolKey calldata key,
+    uint160,
+    int24,
+    bytes calldata hookData  // <-- decode token types from here
+) internal override returns (bytes4) {
+    (bool t0IsFherc20, bool t1IsFherc20) = abi.decode(hookData, (bool, bool));
+    // Use explicit values instead of detection
+}
+```
+
+**Pros:** Explicit at deploy time, no post-hoc admin calls
+**Cons:** Requires deployment script changes, can't auto-detect
+
+#### Option D: ERC-165 Interface Detection
+
+If Fhenix tokens implement ERC-165, check for a standard interface ID:
+
+```solidity
+function _isFherc20(address token) internal view returns (bool) {
+    try IERC165(token).supportsInterface(FHERC20_INTERFACE_ID) returns (bool supported) {
+        return supported;
+    } catch {
+        return false;
+    }
+}
+```
+
+**Pros:** Standard approach, explicit support declaration
+**Cons:** Requires Fhenix tokens to implement ERC-165
+
+### Additional Work Required
+
+1. **Use official Fhenix token contracts** - Either import `@fhenixprotocol/fhenix-contracts` or create compatible mock tokens that match the official interface
+
+2. **Update IFHERC20 interface** - Align with official Fhenix signatures including `Permission` parameter
+
+3. **Frontend permit handling** - If using official tokens, the frontend must generate and pass `Permission` structs for balance queries
+
+4. **Testing** - Deploy against actual Fhenix testnet tokens to verify compatibility
+
+### Recommended Approach
+
+**Short-term (testnet):** Keep current implementation with our custom tokens. Add Option B (admin override) as a safety valve.
+
+**Medium-term:** Implement Option C (hookData) for explicit declaration at pool creation, keeping Option B for corrections.
+
+**Long-term:** Once Fhenix standardizes on ERC-165 or another detection method, adopt that. Consider contributing to Fhenix standards discussion.
+
+### References
+
+- [Fhenix FHERC20 Contract](https://github.com/FhenixProtocol/fhenix-contracts/blob/main/contracts/experimental/token/FHERC20/FHERC20.sol)
+- [Fhenix Permission Struct](https://docs.fhenix.zone) - Used for sealed/encrypted data access control
+
+---
+
 ## Implementation Priority
 
 1. **High Priority:** FheatherXPeriphery (unlocks ecosystem integration)
 2. **Medium Priority:** Auto-wrap on deposit (improves UX)
 3. **Medium Priority:** FHE.div optimization (reduces gas costs)
-4. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
+4. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
+5. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
