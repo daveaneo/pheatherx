@@ -20,6 +20,7 @@ import { useTransactionStore } from '@/stores/transactionStore';
 import { useSelectedPool } from '@/stores/poolStore';
 import { useFheSession } from './useFheSession';
 import { getPoolIdFromTokens } from '@/lib/poolId';
+import { FHE_TYPES } from '@/lib/fhe-constants';
 
 type PlaceOrderStep = 'idle' | 'checking' | 'approving' | 'encrypting' | 'submitting' | 'complete' | 'error';
 
@@ -156,7 +157,7 @@ export function usePlaceOrder(): UsePlaceOrderResult {
         encryptedAmount = {
           ctHash: amount,
           securityZone: 0,
-          utype: 7, // euint128 type
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       } else {
@@ -165,7 +166,7 @@ export function usePlaceOrder(): UsePlaceOrderResult {
         encryptedAmount = {
           ctHash: BigInt('0x' + Buffer.from(encrypted).toString('hex')),
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       }

@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient, useChainId } from 'wagmi';
 import { FHEATHERX_V6_ABI, type InEuint128, V6_DEFAULTS } from '@/lib/contracts/fheatherXv6Abi';
 import { useFheSession } from './useFheSession';
+import { FHE_TYPES } from '@/lib/fhe-constants';
 import { POOL_MANAGER_ABI } from '@/lib/contracts/poolManagerAbi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { useToast } from '@/stores/uiStore';
@@ -463,13 +464,13 @@ export function useAddLiquidity(): UseAddLiquidityResult {
         encAmount0 = {
           ctHash: amount0,
           securityZone: 0,
-          utype: 7, // euint128 type
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
         encAmount1 = {
           ctHash: amount1,
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       } else {
@@ -480,13 +481,13 @@ export function useAddLiquidity(): UseAddLiquidityResult {
         encAmount0 = {
           ctHash: BigInt('0x' + Buffer.from(encrypted0).toString('hex')),
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
         encAmount1 = {
           ctHash: BigInt('0x' + Buffer.from(encrypted1).toString('hex')),
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       }

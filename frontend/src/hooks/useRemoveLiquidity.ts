@@ -18,6 +18,7 @@ import { useTransactionStore } from '@/stores/transactionStore';
 import { useSmartWriteContract } from './useTestWriteContract';
 import { useFheSession } from './useFheSession';
 import { getPoolIdFromTokens } from '@/lib/poolId';
+import { FHE_TYPES } from '@/lib/fhe-constants';
 import type { Token } from '@/lib/tokens';
 
 // Debug logger for remove liquidity flow
@@ -247,7 +248,7 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
         encLpAmount = {
           ctHash: lpAmount,
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       } else {
@@ -255,7 +256,7 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
         encLpAmount = {
           ctHash: BigInt('0x' + Buffer.from(encrypted).toString('hex')),
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       }

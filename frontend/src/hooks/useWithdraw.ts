@@ -23,6 +23,7 @@ import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSelectedPool } from '@/stores/poolStore';
 import { useFheSession } from './useFheSession';
+import { FHE_TYPES } from '@/lib/fhe-constants';
 
 type WithdrawStep = 'idle' | 'encrypting' | 'withdrawing' | 'complete' | 'error';
 
@@ -129,7 +130,7 @@ export function useWithdraw(): UseWithdrawResult {
         encryptedAmount = {
           ctHash: amount,
           securityZone: 0,
-          utype: 7, // euint128 type
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       } else {
@@ -138,7 +139,7 @@ export function useWithdraw(): UseWithdrawResult {
         encryptedAmount = {
           ctHash: BigInt('0x' + Buffer.from(encrypted).toString('hex')),
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       }

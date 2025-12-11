@@ -23,6 +23,7 @@ import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { usePoolStore, useSelectedPool } from '@/stores/poolStore';
 import { useFheSession } from './useFheSession';
+import { FHE_TYPES } from '@/lib/fhe-constants';
 import { getPoolIdFromTokens } from '@/lib/poolId';
 import type { Token } from '@/lib/tokens';
 
@@ -344,19 +345,19 @@ export function useSwap(): UseSwapResult {
         encDirection = {
           ctHash: zeroForOne ? 1n : 0n,
           securityZone: 0,
-          utype: 0, // ebool type
+          utype: FHE_TYPES.EBOOL,
           signature: '0x' as `0x${string}`,
         };
         encAmountIn = {
           ctHash: amountIn,
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
         encMinOutput = {
           ctHash: minAmountOut,
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       } else {
@@ -368,19 +369,19 @@ export function useSwap(): UseSwapResult {
         encDirection = {
           ctHash: BigInt('0x' + Buffer.from(encDir).toString('hex')),
           securityZone: 0,
-          utype: 0,
+          utype: FHE_TYPES.EBOOL,
           signature: '0x' as `0x${string}`,
         };
         encAmountIn = {
           ctHash: BigInt('0x' + Buffer.from(encAmt).toString('hex')),
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
         encMinOutput = {
           ctHash: BigInt('0x' + Buffer.from(encMin).toString('hex')),
           securityZone: 0,
-          utype: 7,
+          utype: FHE_TYPES.EUINT128,
           signature: '0x' as `0x${string}`,
         };
       }
