@@ -2,55 +2,55 @@
   "version": "v6",
   "network": "arb-sepolia",
   "chainId": 421614,
-  "deployedAt": "1765430000",
+  "deployedAt": "1765475502",
   "contracts": {
-    "hook": "0xaBDB92FAC44c850D6472f82B8d63Bb52947610C8",
+    "hook": "0x61CF5C45FaB2AD8E6845740B0Bd0606B3fc790c8",
     "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     "swapRouter": "0xf3A39C86dbd13C45365E57FB90fe413371F65AF8",
     "positionManager": "0xAc631556d3d4019C95769033B5E719dD77124BAc"
   },
   "tokens": {
-    "WETH": { "address": "0xf60eB0df91142e31384851b66022833Be2c08007", "decimals": 18, "type": "ERC20" },
-    "USDC": { "address": "0x5Ffa3F4620aF4434A662aA89e37775d776604D6E", "decimals": 6, "type": "ERC20" },
-    "fheWETH": { "address": "0xf7dD1ed6f513b22e05645EE8BA3D3A712Cc76128", "decimals": 18, "type": "FHERC20" },
-    "fheUSDC": { "address": "0x43AcAe0A089f3cd188f9fB0731059Eb7bC27D3Aa", "decimals": 6, "type": "FHERC20" }
+    "WETH": { "address": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13", "decimals": 18, "type": "ERC20" },
+    "USDC": { "address": "0x00F7DC53A57b980F839767a6C6214b4089d916b1", "decimals": 6, "type": "ERC20" },
+    "fheWETH": { "address": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0", "decimals": 18, "type": "FHERC20" },
+    "fheUSDC": { "address": "0x987731d456B5996E7414d79474D8aba58d4681DC", "decimals": 6, "type": "FHERC20" }
   },
   "pools": {
     "WETH_USDC": {
-      "poolId": "0xb9a6dd29dc3c6d4b62f884c24897b70d6d809cffab0ed6db311d5b2298476875",
-      "token0": "0x5Ffa3F4620aF4434A662aA89e37775d776604D6E",
-      "token1": "0xf60eB0df91142e31384851b66022833Be2c08007",
+      "poolId": "0xd77027ccc392ab0ebf1af717b9c0c379d6d944ea9e774be3bcbd786a727d753a",
+      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
+      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
       "type": "ERC:ERC"
     },
     "fheWETH_fheUSDC": {
-      "poolId": "0xa14757f1f8704af7e013af1fe0adc201edd591d977449d66c2a903aa481caa8e",
-      "token0": "0x43AcAe0A089f3cd188f9fB0731059Eb7bC27D3Aa",
-      "token1": "0xf7dD1ed6f513b22e05645EE8BA3D3A712Cc76128",
+      "poolId": "0xcbed2e686187c6e2a279b86b694f6febb2e8101230198f6a7783390f04257025",
+      "token0": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
+      "token1": "0x987731d456B5996E7414d79474D8aba58d4681DC",
       "type": "FHE:FHE"
     },
     "WETH_fheUSDC": {
-      "poolId": "0x97789c4b2de33fee0e5e9c7edeb974abf10a0d9d33252000d3051dcd33cad331",
-      "token0": "0x43AcAe0A089f3cd188f9fB0731059Eb7bC27D3Aa",
-      "token1": "0xf60eB0df91142e31384851b66022833Be2c08007",
+      "poolId": "0x1b6de79d9c897272e012e3d9407a7358f9c18632855adcc16b0159a4ec39bc1a",
+      "token0": "0x987731d456B5996E7414d79474D8aba58d4681DC",
+      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
       "type": "ERC:FHE"
     },
     "fheWETH_USDC": {
-      "poolId": "0x98af38f2ce9725d5964b7bb486f50e2803bafdf707516f8adb635ba156bbbc52",
-      "token0": "0x5Ffa3F4620aF4434A662aA89e37775d776604D6E",
-      "token1": "0xf7dD1ed6f513b22e05645EE8BA3D3A712Cc76128",
+      "poolId": "0x5bdc6091ac3466b8763e4341531bf6453d2d4800d1b9347431705a1dd3ef5f9c",
+      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
+      "token1": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
       "type": "FHE:ERC"
     },
     "WETH_fheWETH": {
-      "poolId": "0x86f228267640fc2eb6b8ac7558ec48293799247948b981e493f31bc1dd58ef63",
-      "token0": "0xf60eB0df91142e31384851b66022833Be2c08007",
-      "token1": "0xf7dD1ed6f513b22e05645EE8BA3D3A712Cc76128",
+      "poolId": "0xa8bdf5c06a0d823f07f3f58a99d48dac4d89244de2f8d71ef45670bdb1fedd72",
+      "token0": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
+      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
       "type": "ERC:FHE"
     },
     "USDC_fheUSDC": {
-      "poolId": "0xfdf3b335dfff90e1305efe53ed5216adb6ae76e01597d8adb28a1179e2f1e162",
-      "token0": "0x43AcAe0A089f3cd188f9fB0731059Eb7bC27D3Aa",
-      "token1": "0x5Ffa3F4620aF4434A662aA89e37775d776604D6E",
-      "type": "FHE:ERC"
+      "poolId": "0xe387c577d96253a41ef2456ec765e576e17ca05ab8a09a2c584c33566ac77261",
+      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
+      "token1": "0x987731d456B5996E7414d79474D8aba58d4681DC",
+      "type": "ERC:FHE"
     }
   },
   "poolConfig": {

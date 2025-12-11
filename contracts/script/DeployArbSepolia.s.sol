@@ -65,6 +65,8 @@ contract DeployArbSepolia is Script {
     bytes32 poolIdB;
     bytes32 poolIdC;
     bytes32 poolIdD;
+    bytes32 poolIdE;
+    bytes32 poolIdF;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
@@ -102,9 +104,9 @@ contract DeployArbSepolia is Script {
         fheUsdc = address(fheUsdcToken);
         console.log("fheUSDC deployed at:", fheUsdc);
 
-        // Mint initial supply to deployer
-        uint256 wethMint = 1_000 * 1e18;     // 1000 WETH
-        uint256 usdcMint = 1_000_000 * 1e6;  // 1M USDC
+        // Mint initial supply to deployer (need extra for 6 pools + wrapping pairs)
+        uint256 wethMint = 2_000 * 1e18;     // 2000 WETH (for 4 WETH pools)
+        uint256 usdcMint = 2_000_000 * 1e6;  // 2M USDC (for 4 USDC pools)
 
         wethToken.mint(deployer, wethMint);
         usdcToken.mint(deployer, usdcMint);
@@ -215,6 +217,34 @@ contract DeployArbSepolia is Script {
         poolIdD = PoolId.unwrap(keyD.toId());
         console.log("Pool D (fheWETH/USDC) initialized");
         console.log("  PoolId:", vm.toString(poolIdD));
+
+        // Pool E: WETH/fheWETH (ERC20:FHERC20) - Wrapping pair
+        (address token0E, address token1E) = _sortTokens(weth, fheWeth);
+        PoolKey memory keyE = PoolKey({
+            currency0: Currency.wrap(token0E),
+            currency1: Currency.wrap(token1E),
+            fee: POOL_FEE,
+            tickSpacing: TICK_SPACING,
+            hooks: IHooks(hookAddress)
+        });
+        pm.initialize(keyE, SQRT_PRICE_1_1);
+        poolIdE = PoolId.unwrap(keyE.toId());
+        console.log("Pool E (WETH/fheWETH) initialized");
+        console.log("  PoolId:", vm.toString(poolIdE));
+
+        // Pool F: USDC/fheUSDC (ERC20:FHERC20) - Wrapping pair
+        (address token0F, address token1F) = _sortTokens(usdc, fheUsdc);
+        PoolKey memory keyF = PoolKey({
+            currency0: Currency.wrap(token0F),
+            currency1: Currency.wrap(token1F),
+            fee: POOL_FEE,
+            tickSpacing: TICK_SPACING,
+            hooks: IHooks(hookAddress)
+        });
+        pm.initialize(keyF, SQRT_PRICE_1_1);
+        poolIdF = PoolId.unwrap(keyF.toId());
+        console.log("Pool F (USDC/fheUSDC) initialized");
+        console.log("  PoolId:", vm.toString(poolIdF));
         console.log("");
 
         // ============ Step 4: Seed Liquidity ============
@@ -255,6 +285,20 @@ contract DeployArbSepolia is Script {
         hook.addLiquidity(PoolId.wrap(poolIdD), amt0D, amt1D);
         console.log("Added liquidity to Pool D");
 
+        // Add liquidity to Pool E (WETH/fheWETH) - 1:1 wrapping pair
+        (uint256 amt0E, uint256 amt1E) = _getOrderedAmounts(
+            token0E, token1E, weth, fheWeth, INIT_WETH_AMOUNT, INIT_FHE_WETH_AMOUNT
+        );
+        hook.addLiquidity(PoolId.wrap(poolIdE), amt0E, amt1E);
+        console.log("Added liquidity to Pool E");
+
+        // Add liquidity to Pool F (USDC/fheUSDC) - 1:1 wrapping pair
+        (uint256 amt0F, uint256 amt1F) = _getOrderedAmounts(
+            token0F, token1F, usdc, fheUsdc, INIT_USDC_AMOUNT, INIT_FHE_USDC_AMOUNT
+        );
+        hook.addLiquidity(PoolId.wrap(poolIdF), amt0F, amt1F);
+        console.log("Added liquidity to Pool F");
+
         // Set default pool to Pool A
         hook.setDefaultPool(PoolId.wrap(poolIdA));
         console.log("Set default pool to Pool A (WETH/USDC)");
@@ -267,7 +311,9 @@ contract DeployArbSepolia is Script {
             token0A, token1A,
             token0B, token1B,
             token0C, token1C,
-            token0D, token1D
+            token0D, token1D,
+            token0E, token1E,
+            token0F, token1F
         );
 
         // ============ Print Summary ============
@@ -287,11 +333,13 @@ contract DeployArbSepolia is Script {
         console.log("  fheWETH:", fheWeth);
         console.log("  fheUSDC:", fheUsdc);
         console.log("");
-        console.log("Pools:");
+        console.log("Pools (6 total):");
         console.log("  A (WETH/USDC):", vm.toString(poolIdA));
         console.log("  B (fheWETH/fheUSDC):", vm.toString(poolIdB));
         console.log("  C (WETH/fheUSDC):", vm.toString(poolIdC));
         console.log("  D (fheWETH/USDC):", vm.toString(poolIdD));
+        console.log("  E (WETH/fheWETH):", vm.toString(poolIdE));
+        console.log("  F (USDC/fheUSDC):", vm.toString(poolIdF));
         console.log("");
         console.log("Deployment saved to:", DEPLOYMENTS_PATH);
     }
@@ -320,7 +368,9 @@ contract DeployArbSepolia is Script {
         address t0A, address t1A,
         address t0B, address t1B,
         address t0C, address t1C,
-        address t0D, address t1D
+        address t0D, address t1D,
+        address t0E, address t1E,
+        address t0F, address t1F
     ) internal {
         string memory json = string.concat(
             '{\n',
@@ -362,12 +412,28 @@ contract DeployArbSepolia is Script {
             '      "token0": "', vm.toString(t0C), '",\n',
             '      "token1": "', vm.toString(t1C), '",\n',
             '      "type": "ERC:FHE"\n',
-            '    },\n',
+            '    },\n'
+        );
+
+        json = string.concat(
+            json,
             '    "fheWETH_USDC": {\n',
             '      "poolId": "', vm.toString(poolIdD), '",\n',
             '      "token0": "', vm.toString(t0D), '",\n',
             '      "token1": "', vm.toString(t1D), '",\n',
             '      "type": "FHE:ERC"\n',
+            '    },\n',
+            '    "WETH_fheWETH": {\n',
+            '      "poolId": "', vm.toString(poolIdE), '",\n',
+            '      "token0": "', vm.toString(t0E), '",\n',
+            '      "token1": "', vm.toString(t1E), '",\n',
+            '      "type": "ERC:FHE"\n',
+            '    },\n',
+            '    "USDC_fheUSDC": {\n',
+            '      "poolId": "', vm.toString(poolIdF), '",\n',
+            '      "token0": "', vm.toString(t0F), '",\n',
+            '      "token1": "', vm.toString(t1F), '",\n',
+            '      "type": "ERC:FHE"\n',
             '    }\n',
             '  },\n'
         );
