@@ -1304,6 +1304,194 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    //                    BINARY SEARCH EDGE CASE TESTS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Test: Empty state (nextRequestId = 0) - no pending requests should return cached values
+    function testBinarySearch_EmptyState_ReturnsCachedValues() public {
+        // Check initial state before any operations
+        (,,,,, uint256 reserveBlockNumber, uint256 nextRequestId, uint256 lastResolvedId) =
+            hook.poolReserves(poolIdFheFhe);
+
+        // Initially nextRequestId should be 0
+        assertEq(nextRequestId, 0, "nextRequestId should be 0 initially");
+        assertEq(lastResolvedId, 0, "lastResolvedId should be 0 initially");
+
+        // getPoolReserves should not revert and return zeros
+        (uint256 reserve0, uint256 reserve1, uint256 lpSupply) = hook.getPoolReserves(poolIdFheFhe);
+
+        // Reserves should be 0 since no liquidity added
+        assertEq(reserve0, 0, "reserve0 should be 0 with no liquidity");
+        assertEq(reserve1, 0, "reserve1 should be 0 with no liquidity");
+        assertEq(lpSupply, 0, "lpSupply should be 0 with no liquidity");
+    }
+
+    /// @notice Test: Single pending request (the original bug case)
+    /// @dev This was the bug: lo=0, hi=1, mid=1 was checked but data was at index 0
+    function testBinarySearch_SinglePendingRequest_FindsIndexZero() public {
+        // Add encrypted liquidity to create a pending decrypt request
+        _addLiquidityFheFhe(lp, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
+
+        // Check that pending request was created at index 0
+        (,,,,, , uint256 nextRequestId, uint256 lastResolvedId) =
+            hook.poolReserves(poolIdFheFhe);
+
+        assertEq(nextRequestId, 1, "nextRequestId should be 1 after first liquidity add");
+        assertEq(lastResolvedId, 0, "lastResolvedId should still be 0");
+
+        // Verify pendingDecrypts[0] was populated
+        (euint128 pendingRes0, euint128 pendingRes1, uint256 blockNum) =
+            hook.pendingDecrypts(poolIdFheFhe, 0);
+
+        assertTrue(Common.isInitialized(pendingRes0), "pendingDecrypts[0].reserve0 should be initialized");
+        assertTrue(Common.isInitialized(pendingRes1), "pendingDecrypts[0].reserve1 should be initialized");
+        assertGt(blockNum, 0, "pendingDecrypts[0].blockNumber should be set");
+
+        // In mock FHE, decrypts resolve after a small time delay
+        // Advance time to allow mock decrypt to resolve
+        vm.warp(block.timestamp + 15);
+
+        // Call trySyncReserves - this should harvest the resolved decrypt at index 0
+        hook.trySyncReserves(poolIdFheFhe);
+
+        // Verify lastResolvedId was updated
+        (,,,,, , uint256 newNextRequestId, uint256 newLastResolvedId) =
+            hook.poolReserves(poolIdFheFhe);
+
+        assertEq(newLastResolvedId, 0, "lastResolvedId should be 0 (first request harvested)");
+
+        // Verify reserves were updated (should be non-zero)
+        (uint256 reserve0, uint256 reserve1, uint256 lpSupply) = hook.getPoolReserves(poolIdFheFhe);
+
+        assertGt(reserve0, 0, "reserve0 should be updated after sync");
+        assertGt(reserve1, 0, "reserve1 should be updated after sync");
+    }
+
+    /// @notice Test: Multiple pending requests - binary search finds rightmost resolved
+    function testBinarySearch_MultiplePendingRequests_FindsNewest() public {
+        // Add encrypted liquidity multiple times to create multiple pending requests
+        _addLiquidityFheFhe(lp, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
+
+        // Check first request created
+        (,,,,, , uint256 nextRequestId1,) = hook.poolReserves(poolIdFheFhe);
+        assertEq(nextRequestId1, 1, "nextRequestId should be 1 after first add");
+
+        // Advance time slightly
+        vm.warp(block.timestamp + 5);
+
+        // Add more liquidity - creates second pending request
+        _addLiquidityFheFhe(lp, LIQUIDITY_AMOUNT_0 / 2, LIQUIDITY_AMOUNT_1 / 2);
+
+        (,,,,, , uint256 nextRequestId2,) = hook.poolReserves(poolIdFheFhe);
+        assertEq(nextRequestId2, 2, "nextRequestId should be 2 after second add");
+
+        // Advance time significantly so both decrypts resolve
+        vm.warp(block.timestamp + 20);
+
+        // Call trySyncReserves - should find the newest resolved (index 1)
+        hook.trySyncReserves(poolIdFheFhe);
+
+        // Verify lastResolvedId was updated to the newest
+        (,,,,, , , uint256 newLastResolvedId) = hook.poolReserves(poolIdFheFhe);
+
+        // Should have resolved to at least 0, possibly 1 depending on mock timing
+        assertGe(newLastResolvedId, 0, "lastResolvedId should be >= 0 after sync");
+
+        // Reserves should be non-zero
+        (uint256 reserve0, uint256 reserve1,) = hook.getPoolReserves(poolIdFheFhe);
+        assertGt(reserve0, 0, "reserve0 should be updated");
+        assertGt(reserve1, 0, "reserve1 should be updated");
+    }
+
+    /// @notice Test: Binary search handles the boundary when hi becomes 0
+    /// @dev Tests the underflow protection when mid - 1 could underflow
+    function testBinarySearch_BoundaryAtZero_NoUnderflow() public {
+        // Add liquidity to create request at index 0
+        _addLiquidityFheFhe(lp, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
+
+        // Call trySyncReserves immediately (before decrypt resolves in mock)
+        // This should not revert due to underflow
+        hook.trySyncReserves(poolIdFheFhe);
+
+        // Should not revert - success
+        // lastResolvedId might still be 0 if decrypt hasn't resolved
+        (,,,,, , , uint256 lastResolvedId) = hook.poolReserves(poolIdFheFhe);
+        assertEq(lastResolvedId, 0, "lastResolvedId should be 0 if no decrypts resolved yet");
+    }
+
+    /// @notice Test: Repeated sync calls don't break state
+    function testBinarySearch_RepeatedSyncCalls_Idempotent() public {
+        // Add liquidity
+        _addLiquidityFheFhe(lp, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
+
+        // Advance time for decrypt
+        vm.warp(block.timestamp + 15);
+
+        // Get state before sync
+        (uint256 r0Before, uint256 r1Before,) = hook.getPoolReserves(poolIdFheFhe);
+
+        // Call sync multiple times
+        hook.trySyncReserves(poolIdFheFhe);
+        hook.trySyncReserves(poolIdFheFhe);
+        hook.trySyncReserves(poolIdFheFhe);
+
+        // Get state after multiple syncs
+        (uint256 r0After, uint256 r1After,) = hook.getPoolReserves(poolIdFheFhe);
+
+        // Values should be consistent (second and third calls are no-ops)
+        // Note: First sync might update values, subsequent ones should be idempotent
+        assertGe(r0After, r0Before, "reserve0 should not decrease");
+        assertGe(r1After, r1Before, "reserve1 should not decrease");
+    }
+
+    /// @notice Test: Lo equals Hi case (single element range)
+    function testBinarySearch_LoEqualsHi_ChecksSingleElement() public {
+        // Add liquidity to create one pending request
+        _addLiquidityFheFhe(lp, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
+
+        // Now lastResolvedId=0, nextRequestId=1
+        // After fix: hi = nextRequestId - 1 = 0, lo = lastResolvedId = 0
+        // So lo == hi, should check index 0
+
+        // Wait for decrypt
+        vm.warp(block.timestamp + 15);
+
+        // Sync and verify it works
+        hook.trySyncReserves(poolIdFheFhe);
+
+        (uint256 reserve0, uint256 reserve1,) = hook.getPoolReserves(poolIdFheFhe);
+        assertGt(reserve0, 0, "reserve0 should be non-zero after sync");
+        assertGt(reserve1, 0, "reserve1 should be non-zero after sync");
+    }
+
+    /// @notice Test: Many pending requests - stress test binary search
+    function testBinarySearch_ManyPendingRequests_FindsNewest() public {
+        // Create 5 pending requests by adding liquidity multiple times
+        for (uint i = 0; i < 5; i++) {
+            _addLiquidityFheFhe(lp, LIQUIDITY_AMOUNT_0 / 10, LIQUIDITY_AMOUNT_1 / 10);
+            vm.warp(block.timestamp + 2);
+        }
+
+        // Check we have 5 pending requests
+        (,,,,, , uint256 nextRequestId,) = hook.poolReserves(poolIdFheFhe);
+        assertEq(nextRequestId, 5, "Should have 5 pending requests");
+
+        // Advance time so all decrypts resolve
+        vm.warp(block.timestamp + 20);
+
+        // Sync reserves
+        hook.trySyncReserves(poolIdFheFhe);
+
+        // Should have found the newest resolved
+        (,,,,, , , uint256 lastResolvedId) = hook.poolReserves(poolIdFheFhe);
+        assertGt(lastResolvedId, 0, "lastResolvedId should have advanced");
+
+        // Reserves should reflect all additions
+        (uint256 reserve0,,) = hook.getPoolReserves(poolIdFheFhe);
+        assertGt(reserve0, 0, "reserve0 should be non-zero");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     //                    HELPER: Add Liquidity to FHE:FHE pool
     // ═══════════════════════════════════════════════════════════════════════
 

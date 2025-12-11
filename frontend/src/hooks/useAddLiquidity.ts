@@ -681,6 +681,76 @@ export function useAddLiquidity(): UseAddLiquidityResult {
       await publicClient.waitForTransactionReceipt({ hash: addLiquidityHash });
       updateTransaction(addLiquidityHash, { status: 'confirmed' });
 
+      // For encrypted liquidity, the reserves are updated asynchronously via FHE decrypt.
+      // We need to call trySyncReserves to harvest the resolved decrypt results.
+      // Start polling to sync reserves (async decrypt takes time).
+      debugLog('Starting reserve sync polling for FHE pool');
+
+      // Get initial reserves for comparison
+      let initialReserves: [bigint, bigint, bigint] | null = null;
+      try {
+        initialReserves = await publicClient.readContract({
+          address: hookAddress,
+          abi: FHEATHERX_V6_ABI,
+          functionName: 'getPoolReserves',
+          args: [poolId],
+        }) as [bigint, bigint, bigint];
+        debugLog('Initial reserves before sync', {
+          reserve0: initialReserves[0].toString(),
+          reserve1: initialReserves[1].toString(),
+        });
+      } catch {
+        // Ignore
+      }
+
+      // Poll for up to 60 seconds with 5 second intervals
+      const maxAttempts = 12;
+      const pollInterval = 5000;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        // Wait before trying to sync
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+        try {
+          // Call trySyncReserves to harvest any resolved decrypts
+          await writeContractAsync({
+            address: hookAddress,
+            abi: FHEATHERX_V6_ABI,
+            functionName: 'trySyncReserves',
+            args: [poolId],
+          });
+          debugLog(`Reserve sync attempt ${attempt + 1} completed`);
+        } catch (syncErr) {
+          // trySyncReserves might fail if no new decrypts resolved, that's OK
+          debugLog(`Reserve sync attempt ${attempt + 1} - no new decrypts`, syncErr);
+        }
+
+        // Check if reserves have been updated by reading them
+        try {
+          const reserves = await publicClient.readContract({
+            address: hookAddress,
+            abi: FHEATHERX_V6_ABI,
+            functionName: 'getPoolReserves',
+            args: [poolId],
+          }) as [bigint, bigint, bigint];
+
+          debugLog(`Reserve check attempt ${attempt + 1}`, {
+            reserve0: reserves[0].toString(),
+            reserve1: reserves[1].toString(),
+            lpSupply: reserves[2].toString(),
+          });
+
+          // Check if reserves changed from initial values (decrypt resolved)
+          if (initialReserves &&
+              (reserves[0] !== initialReserves[0] || reserves[1] !== initialReserves[1])) {
+            debugLog('Reserves synced successfully - values changed');
+            break;
+          }
+        } catch {
+          // Ignore read errors
+        }
+      }
+
       setStep('complete');
       successToast('Encrypted liquidity added successfully');
 

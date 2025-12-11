@@ -1149,16 +1149,25 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     ) {
         PoolReserves storage r = poolReserves[poolId];
         uint256 lo = r.lastResolvedId;
-        uint256 hi = r.nextRequestId;
+        // nextRequestId is exclusive (next ID to use), so valid range is [lastResolvedId, nextRequestId - 1]
+        // Use saturating subtraction to avoid underflow when nextRequestId == 0
+        uint256 hi = r.nextRequestId > 0 ? r.nextRequestId - 1 : 0;
         val0 = r.reserve0;
         val1 = r.reserve1;
         newestId = lo;
 
-        while (lo < hi) {
-            uint256 mid = (lo + hi + 1) / 2;
+        // Early exit if no pending requests
+        if (lo > hi) return (newestId, val0, val1);
+
+        // Binary search for rightmost resolved entry
+        // We use a modified approach to avoid underflow: track found state
+        while (lo <= hi) {
+            uint256 mid = lo + (hi - lo + 1) / 2;
             PendingDecrypt storage p = pendingDecrypts[poolId][mid];
 
             if (!Common.isInitialized(p.reserve0)) {
+                // Entry doesn't exist, search lower
+                if (mid == 0) break;
                 hi = mid - 1;
                 continue;
             }
@@ -1167,11 +1176,16 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
             (uint256 v1, bool ready1) = FHE.getDecryptResultSafe(p.reserve1);
 
             if (ready0 && ready1) {
+                // Found resolved entry, record and search higher
                 val0 = v0;
                 val1 = v1;
                 newestId = mid;
-                lo = mid;
+                // If mid == hi, we're done
+                if (mid == hi) break;
+                lo = mid + 1;
             } else {
+                // Not ready, search lower
+                if (mid == 0) break;
                 hi = mid - 1;
             }
         }
