@@ -1206,13 +1206,18 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         _harvestResolvedDecrypts(poolId);
     }
 
-    /// @notice Binary search to find and apply newest resolved pending decrypt
-    function _harvestResolvedDecrypts(PoolId poolId) internal {
+    /// @notice Binary search to find newest resolved pending decrypt (shared helper)
+    function _findNewestResolvedDecrypt(PoolId poolId) internal view returns (
+        uint256 newestId,
+        uint256 val0,
+        uint256 val1
+    ) {
         PoolReserves storage r = poolReserves[poolId];
-
         uint256 lo = r.lastResolvedId;
         uint256 hi = r.nextRequestId;
-        uint256 newestResolved = lo;
+        val0 = r.reserve0;
+        val1 = r.reserve1;
+        newestId = lo;
 
         while (lo < hi) {
             uint256 mid = (lo + hi + 1) / 2;
@@ -1223,26 +1228,31 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
                 continue;
             }
 
-            (uint256 val0, bool ready0) = FHE.getDecryptResultSafe(p.reserve0);
-            (uint256 val1, bool ready1) = FHE.getDecryptResultSafe(p.reserve1);
+            (uint256 v0, bool ready0) = FHE.getDecryptResultSafe(p.reserve0);
+            (uint256 v1, bool ready1) = FHE.getDecryptResultSafe(p.reserve1);
 
             if (ready0 && ready1) {
-                newestResolved = mid;
+                val0 = v0;
+                val1 = v1;
+                newestId = mid;
                 lo = mid;
             } else {
                 hi = mid - 1;
             }
         }
+    }
 
-        if (newestResolved > r.lastResolvedId) {
-            PendingDecrypt storage resolved = pendingDecrypts[poolId][newestResolved];
-            (uint256 val0, ) = FHE.getDecryptResultSafe(resolved.reserve0);
-            (uint256 val1, ) = FHE.getDecryptResultSafe(resolved.reserve1);
+    /// @notice Apply newest resolved decrypt to storage
+    function _harvestResolvedDecrypts(PoolId poolId) internal {
+        (uint256 newestId, uint256 val0, uint256 val1) = _findNewestResolvedDecrypt(poolId);
+        PoolReserves storage r = poolReserves[poolId];
+
+        if (newestId > r.lastResolvedId) {
             r.reserve0 = val0;
             r.reserve1 = val1;
-            r.reserveBlockNumber = resolved.blockNumber;
-            r.lastResolvedId = newestResolved;
-            emit ReservesSynced(poolId, val0, val1, newestResolved);
+            r.reserveBlockNumber = pendingDecrypts[poolId][newestId].blockNumber;
+            r.lastResolvedId = newestId;
+            emit ReservesSynced(poolId, val0, val1, newestId);
         }
     }
 
@@ -1583,42 +1593,14 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     }
 
     /// @notice Get pool reserves, checking for fresher values from pending decrypts
-    /// @dev Uses binary search to find newest resolved pending request (view function, cannot update storage)
+    /// @dev Uses binary search to find newest resolved pending request
     function getPoolReserves(PoolId poolId) external view returns (
         uint256 _reserve0,
         uint256 _reserve1,
         uint256 lpSupply
     ) {
-        PoolReserves storage r = poolReserves[poolId];
-
-        // Binary search to find newest resolved pending request
-        uint256 lo = r.lastResolvedId;
-        uint256 hi = r.nextRequestId;
-        uint256 bestVal0 = r.reserve0;
-        uint256 bestVal1 = r.reserve1;
-
-        while (lo < hi) {
-            uint256 mid = (lo + hi + 1) / 2;
-            PendingDecrypt storage p = pendingDecrypts[poolId][mid];
-
-            if (!Common.isInitialized(p.reserve0)) {
-                hi = mid - 1;
-                continue;
-            }
-
-            (uint256 val0, bool ready0) = FHE.getDecryptResultSafe(p.reserve0);
-            (uint256 val1, bool ready1) = FHE.getDecryptResultSafe(p.reserve1);
-
-            if (ready0 && ready1) {
-                bestVal0 = val0;
-                bestVal1 = val1;
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-
-        return (bestVal0, bestVal1, totalLpSupply[poolId]);
+        (, uint256 val0, uint256 val1) = _findNewestResolvedDecrypt(poolId);
+        return (val0, val1, totalLpSupply[poolId]);
     }
 
     function getTickPrice(int24 tick) external pure returns (uint256) {
