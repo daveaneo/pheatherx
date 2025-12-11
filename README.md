@@ -214,6 +214,10 @@ FheatherXv4 extends Uniswap v4's hook system:
 
 Solo developer hackathon project
 
+## Improvements over iceberg fhe
+
+https://github.com/marronjo/iceberg-cofhe
+
 ## Links
 
 - **Live Demo**: [TBD]

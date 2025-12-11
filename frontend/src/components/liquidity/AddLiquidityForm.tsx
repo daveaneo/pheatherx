@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { parseUnits, formatUnits } from 'viem';
 import { useChainId, useAccount, useBalance } from 'wagmi';
+import { Loader2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -15,6 +16,9 @@ import { useTransactionModal } from '@/hooks/useTransactionModal';
 import { TokenPairSelector } from './TokenPairSelector';
 import { useAddLiquidity } from '@/hooks/useAddLiquidity';
 import { usePoolInfo } from '@/hooks/usePoolInfo';
+import { useFherc20Balance } from '@/hooks/useFherc20Balance';
+import { usePoolReserveSync } from '@/hooks/usePoolReserveSync';
+import { useFheSession } from '@/hooks/useFheSession';
 import { getTokensForChain, type Token } from '@/lib/tokens';
 import { sortTokens } from '@/lib/pairs';
 import { usePoolStore } from '@/stores/poolStore';
@@ -55,21 +59,56 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
   // Get user address for balance queries
   const { address } = useAccount();
 
-  // Fetch user's token balances
-  const { data: balance0 } = useBalance({
+  // FHE session status
+  const { isReady: isFheReady } = useFheSession();
+
+  // Fetch user's ERC20 token balances (standard)
+  const { data: balance0Erc20 } = useBalance({
     address,
     token: token0?.address,
-    query: { enabled: !!token0 && !!address }
+    query: { enabled: !!token0 && !!address && token0?.type !== 'fheerc20' }
   });
 
-  const { data: balance1 } = useBalance({
+  const { data: balance1Erc20 } = useBalance({
     address,
     token: token1?.address,
-    query: { enabled: !!token1 && !!address }
+    query: { enabled: !!token1 && !!address && token1?.type !== 'fheerc20' }
   });
 
+  // Fetch FHERC20 balances (auto-reveals when FHE session ready)
+  const fheBalance0 = useFherc20Balance(token0, address);
+  const fheBalance1 = useFherc20Balance(token1, address);
+
+  // Compute effective balances (FHERC20 decrypted or standard ERC20)
+  const effectiveBalance0 = useMemo(() => {
+    if (token0?.type === 'fheerc20') {
+      return fheBalance0.balance !== null
+        ? { value: fheBalance0.balance, decimals: token0.decimals }
+        : null;
+    }
+    return balance0Erc20 ? { value: balance0Erc20.value, decimals: balance0Erc20.decimals } : null;
+  }, [token0, fheBalance0.balance, balance0Erc20]);
+
+  const effectiveBalance1 = useMemo(() => {
+    if (token1?.type === 'fheerc20') {
+      return fheBalance1.balance !== null
+        ? { value: fheBalance1.balance, decimals: token1.decimals }
+        : null;
+    }
+    return balance1Erc20 ? { value: balance1Erc20.value, decimals: balance1Erc20.decimals } : null;
+  }, [token1, fheBalance1.balance, balance1Erc20]);
+
   // Get pool info for selected pair (includes hook address lookup with fallback)
-  const { poolExists, isInitialized, reserve0, reserve1, totalLpSupply, isLoading: isLoadingPool, hookAddress } = usePoolInfo(token0, token1);
+  const { poolExists, isInitialized, reserve0, reserve1, totalLpSupply, isLoading: isLoadingPool, hookAddress, poolId, refetch: refetchPoolInfo } = usePoolInfo(token0, token1);
+
+  // Auto-sync reserves for FHE pools with 0 plaintext reserves
+  const { isSyncing, syncError } = usePoolReserveSync(
+    poolId,
+    hookAddress,
+    isInitialized,
+    reserve0,
+    refetchPoolInfo
+  );
 
   const {
     register,
@@ -198,7 +237,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
 
   // Handle percentage button clicks
   const handlePercentageClick = (percent: number, isToken0: boolean) => {
-    const balance = isToken0 ? balance0 : balance1;
+    const balance = isToken0 ? effectiveBalance0 : effectiveBalance1;
     const token = isToken0 ? token0 : token1;
     if (!balance || !token) return;
 
@@ -342,11 +381,26 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                 <label className="text-sm font-medium">
                   {token0?.symbol || 'Token0'} Amount
                 </label>
-                {balance0 && (
-                  <span className="text-xs text-feather-white/60">
-                    Balance: {parseFloat(formatUnits(balance0.value, balance0.decimals)).toFixed(4)} {token0?.symbol}
-                  </span>
-                )}
+                <span className="text-xs text-feather-white/60">
+                  Balance:{' '}
+                  {token0?.type === 'fheerc20' ? (
+                    fheBalance0.isLoading ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span className="text-iridescent-violet">decrypting...</span>
+                      </span>
+                    ) : effectiveBalance0 ? (
+                      parseFloat(formatUnits(effectiveBalance0.value, effectiveBalance0.decimals)).toFixed(4)
+                    ) : (
+                      <span className="text-iridescent-violet">encrypted</span>
+                    )
+                  ) : effectiveBalance0 ? (
+                    parseFloat(formatUnits(effectiveBalance0.value, effectiveBalance0.decimals)).toFixed(4)
+                  ) : (
+                    '0'
+                  )}{' '}
+                  {token0?.symbol}
+                </span>
               </div>
               <Input
                 {...register('amount0')}
@@ -365,7 +419,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                     type="button"
                     onClick={() => handlePercentageClick(pct, true)}
                     className="px-2 py-0.5 text-xs bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={!balance0 || isLoading}
+                    disabled={!effectiveBalance0 || isLoading}
                   >
                     {pct}%
                   </button>
@@ -384,11 +438,26 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                 <label className="text-sm font-medium">
                   {token1?.symbol || 'Token1'} Amount
                 </label>
-                {balance1 && (
-                  <span className="text-xs text-feather-white/60">
-                    Balance: {parseFloat(formatUnits(balance1.value, balance1.decimals)).toFixed(4)} {token1?.symbol}
-                  </span>
-                )}
+                <span className="text-xs text-feather-white/60">
+                  Balance:{' '}
+                  {token1?.type === 'fheerc20' ? (
+                    fheBalance1.isLoading ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span className="text-iridescent-violet">decrypting...</span>
+                      </span>
+                    ) : effectiveBalance1 ? (
+                      parseFloat(formatUnits(effectiveBalance1.value, effectiveBalance1.decimals)).toFixed(4)
+                    ) : (
+                      <span className="text-iridescent-violet">encrypted</span>
+                    )
+                  ) : effectiveBalance1 ? (
+                    parseFloat(formatUnits(effectiveBalance1.value, effectiveBalance1.decimals)).toFixed(4)
+                  ) : (
+                    '0'
+                  )}{' '}
+                  {token1?.symbol}
+                </span>
               </div>
               <Input
                 {...register('amount1')}
@@ -407,7 +476,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                     type="button"
                     onClick={() => handlePercentageClick(pct, false)}
                     className="px-2 py-0.5 text-xs bg-ash-gray/50 hover:bg-ash-gray rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={!balance1 || isLoading}
+                    disabled={!effectiveBalance1 || isLoading}
                   >
                     {pct}%
                   </button>
@@ -438,7 +507,27 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                   </div>
                 )}
 
-                {/* Current Price (if pool exists) */}
+                {/* Reserve syncing status for FHE pools */}
+                {isInitialized && reserve0 === 0n && isSyncing && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-feather-white/60">Reserves</span>
+                    <span className="inline-flex items-center gap-1 text-iridescent-violet">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Syncing encrypted reserves...
+                    </span>
+                  </div>
+                )}
+
+                {/* Reserves unavailable (FHE pool, sync not triggered or failed) */}
+                {isInitialized && reserve0 === 0n && !isSyncing && (
+                  <div className="text-amber-400 text-xs">
+                    {syncError
+                      ? `Sync error: ${syncError}`
+                      : 'Reserves syncing... Enter both amounts manually'}
+                  </div>
+                )}
+
+                {/* Current Price (if pool exists and reserves available) */}
                 {isInitialized && reserve0 > 0n && reserve1 > 0n && (
                   <div className="flex justify-between">
                     <span className="text-feather-white/60">Current Price</span>
@@ -448,7 +537,7 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
                   </div>
                 )}
 
-                {/* Current Reserves (if pool exists) */}
+                {/* Current Reserves (if pool exists and reserves available) */}
                 {isInitialized && reserve0 > 0n && (
                   <div className="flex justify-between">
                     <span className="text-feather-white/60">Current Reserves</span>
