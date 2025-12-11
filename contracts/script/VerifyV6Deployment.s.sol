@@ -117,17 +117,9 @@ contract VerifyV6Deployment is Script {
         _verifyPool(hook, "Pool D (fheWETH/USDC)", poolIdD);
         console.log("");
 
-        // ============ Check 4: Default pool ============
-        console.log("--- Check 4: Default Pool ---");
-        try hook.defaultPoolId() returns (PoolId defaultId) {
-            bytes32 defaultIdBytes = PoolId.unwrap(defaultId);
-            bytes32 poolABytes = PoolId.unwrap(poolIdA);
-            _check("Default pool is set", defaultIdBytes != bytes32(0));
-            _check("Default pool is Pool A", defaultIdBytes == poolABytes);
-            console.log("  Default pool ID:", vm.toString(defaultIdBytes));
-        } catch {
-            _check("Can read defaultPoolId", false);
-        }
+        // NOTE: Default pool check removed - abstraction was removed for size optimization
+        console.log("--- Check 4: Default Pool (REMOVED) ---");
+        console.log("  Default pool abstraction removed - frontends pass PoolId explicitly");
         console.log("");
 
         // ============ Check 5: Token approvals ============
@@ -148,12 +140,12 @@ contract VerifyV6Deployment is Script {
 
         // ============ Check 7: Quote function ============
         console.log("--- Check 7: Quote Function ---");
-        try hook.getQuote(true, 1 ether) returns (uint256 quote) {
-            console.log("  Quote for 1 WETH -> USDC:", quote);
-            _check("getQuote returns value", quote > 0 || quote == 0); // May be 0 if no liquidity
+        try hook.getQuoteForPool(poolIdA, true, 1 ether) returns (uint256 quote) {
+            console.log("  Quote for 1 WETH -> USDC (Pool A):", quote);
+            _check("getQuoteForPool returns value", quote > 0 || quote == 0); // May be 0 if no liquidity
         } catch {
-            console.log("  getQuote reverted (likely no liquidity)");
-            _check("getQuote callable", true); // It's ok to revert if no liquidity
+            console.log("  getQuoteForPool reverted (likely no liquidity)");
+            _check("getQuoteForPool callable", true); // It's ok to revert if no liquidity
         }
         console.log("");
 

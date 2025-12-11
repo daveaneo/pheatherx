@@ -518,15 +518,11 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
         vm.stopPrank();
 
-        // Set default pool
-        vm.prank(owner);
-        hook.setDefaultPool(poolIdErcErc);
-
-        // Swap using swap() not swapForPool()
+        // Swap using swapForPool() with explicit poolId
         vm.startPrank(swapper);
         uint256 balanceBefore = usdc.balanceOf(swapper);
 
-        uint256 amountOut = hook.swap(true, SWAP_AMOUNT, 0);
+        uint256 amountOut = hook.swapForPool(poolIdErcErc, true, SWAP_AMOUNT, 0);
 
         assertGt(amountOut, 0, "Should receive output tokens");
         assertGt(usdc.balanceOf(swapper), balanceBefore, "USDC balance should increase");
@@ -860,10 +856,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.stopPrank();
     }
 
-    function testSetDefaultPool() public {
-        hook.setDefaultPool(poolIdErcErc);
-        assertTrue(hook.defaultPoolSet());
-    }
+    // NOTE: testSetDefaultPool removed - default pool abstraction was removed for size optimization
 
     // ═══════════════════════════════════════════════════════════════════════
     //                          VIEW FUNCTION TESTS
@@ -1011,11 +1004,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.queueProtocolFee(poolIdErcErc, 10);
     }
 
-    function testOnlyOwnerCanSetDefaultPool() public {
-        vm.prank(user1);
-        vm.expectRevert(); // OwnableUnauthorizedAccount
-        hook.setDefaultPool(poolIdErcErc);
-    }
+    // NOTE: testOnlyOwnerCanSetDefaultPool removed - default pool abstraction was removed
 
     // ═══════════════════════════════════════════════════════════════════════
     //                          GAS USAGE TESTS

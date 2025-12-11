@@ -332,9 +332,7 @@ contract DeployV6Complete is Script {
             console.log("Run: cast send <token> 'faucet()' --rpc-url $ETH_SEPOLIA_RPC --private-key $PRIVATE_KEY");
         }
 
-        // Set default pool to Pool A
-        hook.setDefaultPool(PoolId.wrap(poolIdA));
-        console.log("Set default pool to Pool A (WETH/USDC)");
+        // NOTE: Default pool abstraction removed - frontends pass PoolId explicitly
 
         vm.stopBroadcast();
 

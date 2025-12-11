@@ -1,0 +1,72 @@
+// STASHED: Default Pool Abstraction from FheatherXv6.sol
+// Removed for contract size optimization
+// Frontends should pass PoolId explicitly to all functions
+
+// ═══════════════════════════════════════════════════════════════════════
+// STATE VARIABLES (were in STATE section)
+// ═══════════════════════════════════════════════════════════════════════
+
+    // ─────────────────── Default Pool (v6 NEW) ───────────────────
+    PoolId public defaultPoolId;
+    bool public defaultPoolSet;
+
+// ═══════════════════════════════════════════════════════════════════════
+// EVENT (was in EVENTS section)
+// ═══════════════════════════════════════════════════════════════════════
+
+    event DefaultPoolSet(PoolId indexed poolId);
+
+// ═══════════════════════════════════════════════════════════════════════
+// AUTO-SET LOGIC (was in _afterInitialize)
+// ═══════════════════════════════════════════════════════════════════════
+
+        // Set as default pool if not set
+        if (!defaultPoolSet) {
+            defaultPoolId = poolId;
+            defaultPoolSet = true;
+            emit DefaultPoolSet(poolId);
+        }
+
+// ═══════════════════════════════════════════════════════════════════════
+// WRAPPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Execute a swap directly through the hook
+    /// @dev Useful for simpler UX without V4 router
+    function swap(
+        bool zeroForOne,
+        uint256 amountIn,
+        uint256 minAmountOut
+    ) external whenNotPaused returns (uint256 amountOut) {
+        return swapForPool(defaultPoolId, zeroForOne, amountIn, minAmountOut);
+    }
+
+    /// @notice Get reserve0 for the default pool
+    function reserve0() external view returns (uint256) {
+        return poolReserves[defaultPoolId].reserve0;
+    }
+
+    /// @notice Get reserve1 for the default pool
+    function reserve1() external view returns (uint256) {
+        return poolReserves[defaultPoolId].reserve1;
+    }
+
+    /// @notice Get current tick for default pool
+    function getCurrentTick() external view returns (int24) {
+        return _getCurrentTick(defaultPoolId);
+    }
+
+    /// @notice Get expected output for a swap (default pool)
+    function getQuote(bool zeroForOne, uint256 amountIn) external view returns (uint256) {
+        return _estimateOutput(defaultPoolId, zeroForOne, amountIn);
+    }
+
+// ═══════════════════════════════════════════════════════════════════════
+// ADMIN FUNCTION
+// ═══════════════════════════════════════════════════════════════════════
+
+    function setDefaultPool(PoolId poolId) external onlyOwner {
+        defaultPoolId = poolId;
+        defaultPoolSet = true;
+        emit DefaultPoolSet(poolId);
+    }

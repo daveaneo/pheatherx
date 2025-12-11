@@ -1,0 +1,58 @@
+// STASHED: exit() function from FheatherXv6.sol
+// Removed for contract size optimization (saved ~833 bytes)
+// Can be restored if needed - frontends can use multicall for withdraw() + claim() instead
+
+    /// @notice Exit entire position
+    function exit(
+        PoolId poolId,
+        int24 tick,
+        BucketSide side
+    ) external whenNotPaused {
+        PoolState storage state = poolStates[poolId];
+        if (!state.initialized) revert PoolNotInitialized();
+
+        Bucket storage bucket = buckets[poolId][tick][side];
+        UserPosition storage position = positions[poolId][msg.sender][tick][side];
+
+        euint128 unfilled = _calculateUnfilled(position, bucket);
+        euint128 currentProceeds = _calculateProceeds(position, bucket);
+        euint128 totalProceeds;
+        if (Common.isInitialized(position.realizedProceeds)) {
+            totalProceeds = FHE.add(currentProceeds, position.realizedProceeds);
+        } else {
+            totalProceeds = currentProceeds;
+        }
+
+        FHE.allowThis(unfilled);
+        FHE.allowThis(totalProceeds);
+
+        // Update bucket
+        bucket.totalShares = FHE.sub(bucket.totalShares, position.shares);
+        bucket.liquidity = FHE.sub(bucket.liquidity, unfilled);
+        FHE.allowThis(bucket.totalShares);
+        FHE.allowThis(bucket.liquidity);
+
+        // Reset position
+        position.shares = ENC_ZERO;
+        position.realizedProceeds = ENC_ZERO;
+        position.proceedsPerShareSnapshot = bucket.proceedsPerShare;
+        position.filledPerShareSnapshot = bucket.filledPerShare;
+
+        FHE.allowThis(position.shares);
+        FHE.allow(position.shares, msg.sender);
+        FHE.allowThis(position.realizedProceeds);
+        FHE.allow(position.realizedProceeds, msg.sender);
+
+        // Transfer tokens
+        address depositToken = side == BucketSide.SELL ? state.token0 : state.token1;
+        address proceedsToken = side == BucketSide.SELL ? state.token1 : state.token0;
+
+        FHE.allow(unfilled, depositToken);
+        FHE.allow(totalProceeds, proceedsToken);
+
+        IFHERC20(depositToken)._transferEncrypted(msg.sender, unfilled);
+        IFHERC20(proceedsToken)._transferEncrypted(msg.sender, totalProceeds);
+
+        emit Withdraw(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(unfilled))));
+        emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));
+    }

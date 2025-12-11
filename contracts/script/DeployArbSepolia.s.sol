@@ -299,9 +299,7 @@ contract DeployArbSepolia is Script {
         hook.addLiquidity(PoolId.wrap(poolIdF), amt0F, amt1F);
         console.log("Added liquidity to Pool F");
 
-        // Set default pool to Pool A
-        hook.setDefaultPool(PoolId.wrap(poolIdA));
-        console.log("Set default pool to Pool A (WETH/USDC)");
+        // NOTE: Default pool abstraction removed - frontends pass PoolId explicitly
 
         vm.stopBroadcast();
 

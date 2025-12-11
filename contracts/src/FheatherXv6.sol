@@ -146,9 +146,8 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     mapping(PoolId => PoolState) public poolStates;
     mapping(PoolId => PendingFee) public pendingFees;
 
-    // ─────────────────── Default Pool (v6 NEW) ───────────────────
-    PoolId public defaultPoolId;
-    bool public defaultPoolSet;
+    // NOTE: Default pool abstraction removed for size optimization
+    // Stashed at: src/stashed/default_pool_abstraction.sol.stash
 
     // ─────────────────── Encrypted AMM Reserves ───────────────────
     mapping(PoolId => PoolReserves) public poolReserves;
@@ -192,7 +191,6 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     event ProtocolFeeQueued(PoolId indexed poolId, uint256 newFeeBps, uint256 effectiveTimestamp);
     event ProtocolFeeApplied(PoolId indexed poolId, uint256 newFeeBps);
     event FeeCollectorUpdated(address newCollector);
-    event DefaultPoolSet(PoolId indexed poolId);
 
     // ═══════════════════════════════════════════════════════════════════════
     //                           CONSTRUCTOR
@@ -296,13 +294,6 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         // v6 NEW: Approve PoolManager to take tokens from hook (for V4 settlement)
         IERC20(token0Addr).approve(address(poolManager), type(uint256).max);
         IERC20(token1Addr).approve(address(poolManager), type(uint256).max);
-
-        // Set as default pool if not set
-        if (!defaultPoolSet) {
-            defaultPoolId = poolId;
-            defaultPoolSet = true;
-            emit DefaultPoolSet(poolId);
-        }
 
         emit PoolInitialized(poolId, token0Addr, token1Addr, t0IsFherc20, t1IsFherc20);
 
@@ -573,17 +564,6 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     //                   v6 NEW: DIRECT SWAP (Bypasses V4 Router)
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Execute a swap directly through the hook
-    /// @dev Useful for simpler UX without V4 router
-    /// @dev No nonReentrant here - swapForPool has it (avoids nested guard error)
-    function swap(
-        bool zeroForOne,
-        uint256 amountIn,
-        uint256 minAmountOut
-    ) external whenNotPaused returns (uint256 amountOut) {
-        return swapForPool(defaultPoolId, zeroForOne, amountIn, minAmountOut);
-    }
-
     /// @notice Execute a swap for a specific pool
     function swapForPool(
         PoolId poolId,
@@ -805,60 +785,9 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));
     }
 
-    /// @notice Exit entire position
-    function exit(
-        PoolId poolId,
-        int24 tick,
-        BucketSide side
-    ) external whenNotPaused {
-        PoolState storage state = poolStates[poolId];
-        if (!state.initialized) revert PoolNotInitialized();
-
-        Bucket storage bucket = buckets[poolId][tick][side];
-        UserPosition storage position = positions[poolId][msg.sender][tick][side];
-
-        euint128 unfilled = _calculateUnfilled(position, bucket);
-        euint128 currentProceeds = _calculateProceeds(position, bucket);
-        euint128 totalProceeds;
-        if (Common.isInitialized(position.realizedProceeds)) {
-            totalProceeds = FHE.add(currentProceeds, position.realizedProceeds);
-        } else {
-            totalProceeds = currentProceeds;
-        }
-
-        FHE.allowThis(unfilled);
-        FHE.allowThis(totalProceeds);
-
-        // Update bucket
-        bucket.totalShares = FHE.sub(bucket.totalShares, position.shares);
-        bucket.liquidity = FHE.sub(bucket.liquidity, unfilled);
-        FHE.allowThis(bucket.totalShares);
-        FHE.allowThis(bucket.liquidity);
-
-        // Reset position
-        position.shares = ENC_ZERO;
-        position.realizedProceeds = ENC_ZERO;
-        position.proceedsPerShareSnapshot = bucket.proceedsPerShare;
-        position.filledPerShareSnapshot = bucket.filledPerShare;
-
-        FHE.allowThis(position.shares);
-        FHE.allow(position.shares, msg.sender);
-        FHE.allowThis(position.realizedProceeds);
-        FHE.allow(position.realizedProceeds, msg.sender);
-
-        // Transfer tokens
-        address depositToken = side == BucketSide.SELL ? state.token0 : state.token1;
-        address proceedsToken = side == BucketSide.SELL ? state.token1 : state.token0;
-
-        FHE.allow(unfilled, depositToken);
-        FHE.allow(totalProceeds, proceedsToken);
-
-        IFHERC20(depositToken)._transferEncrypted(msg.sender, unfilled);
-        IFHERC20(proceedsToken)._transferEncrypted(msg.sender, totalProceeds);
-
-        emit Withdraw(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(unfilled))));
-        emit Claim(poolId, msg.sender, tick, side, keccak256(abi.encode(euint128.unwrap(totalProceeds))));
-    }
+    // NOTE: exit() function removed for size optimization (saved ~833 bytes)
+    // Stashed at: src/stashed/exit_function.sol.stash
+    // Frontends can use multicall to batch withdraw() + claim() atomically
 
     // ═══════════════════════════════════════════════════════════════════════
     //                   LP FUNCTIONS (v6: Unified Core Pattern)
@@ -1272,18 +1201,8 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //                   v6 NEW: VIEW FUNCTIONS
+    //                   VIEW FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
-
-    /// @notice Get reserve0 for the default pool
-    function reserve0() external view returns (uint256) {
-        return poolReserves[defaultPoolId].reserve0;
-    }
-
-    /// @notice Get reserve1 for the default pool
-    function reserve1() external view returns (uint256) {
-        return poolReserves[defaultPoolId].reserve1;
-    }
 
     /// @notice Get reserves for a specific pool
     function getReserves(PoolId poolId) external view returns (uint256 r0, uint256 r1) {
@@ -1291,19 +1210,9 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         return (r.reserve0, r.reserve1);
     }
 
-    /// @notice Get current tick for default pool
-    function getCurrentTick() external view returns (int24) {
-        return _getCurrentTick(defaultPoolId);
-    }
-
     /// @notice Get current tick for a specific pool
     function getCurrentTickForPool(PoolId poolId) external view returns (int24) {
         return _getCurrentTick(poolId);
-    }
-
-    /// @notice Get expected output for a swap (default pool)
-    function getQuote(bool zeroForOne, uint256 amountIn) external view returns (uint256) {
-        return _estimateOutput(defaultPoolId, zeroForOne, amountIn);
     }
 
     /// @notice Get expected output for a swap (specific pool)
@@ -1535,12 +1444,6 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     function setFeeCollector(address _feeCollector) external onlyOwner {
         feeCollector = _feeCollector;
         emit FeeCollectorUpdated(_feeCollector);
-    }
-
-    function setDefaultPool(PoolId poolId) external onlyOwner {
-        defaultPoolId = poolId;
-        defaultPoolSet = true;
-        emit DefaultPoolSet(poolId);
     }
 
     function setMaxBucketsPerSwap(PoolId poolId, uint256 _maxBuckets) external onlyOwner {
