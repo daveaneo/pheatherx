@@ -214,9 +214,50 @@ FheatherXv4 extends Uniswap v4's hook system:
 
 Solo developer hackathon project
 
-## Improvements over iceberg fhe
+## Improvements over iceberg-cofhe (Legacy FHE Orderbooks)
 
 https://github.com/marronjo/iceberg-cofhe
+
+FheatherX represents a paradigm shift from first-generation FHE DEXs. While implementations like `iceberg-cofhe` proved the concept of hidden orders, they suffer from fundamental $O(N)$ scaling issues and "Walled Garden" isolation. FheatherX solves these via **Uniswap V4 Hooks**, **Tick-Based Bucketing**, and **Transient Storage**.
+
+### 1. Algorithmic Matching: O(1) Deterministic vs. O(N) Blind Search
+**The Scalability Bottleneck (Iceberg):**
+Because an encrypted contract cannot "see" prices to sort them, legacy FHE orderbooks act like an unsorted list (a "Haystack"). To find a match, the contract must pay gas to blind-compare the taker's price against every single maker order ($O(N)$ complexity).
+*   *Failure Mode:* If there are 50 open orders, a taker transaction often runs out of gas before finding the matching order, causing the trade to fail even if liquidity exists.
+
+**The FheatherX Solution: Pre-Sorted Tick Buckets.**
+FheatherX shifts the sorting burden to the user via "Tick Buckets" (like slots in a vending machine).
+*   *Mechanism:* The contract uses `TickMath` to map the current price directly to a specific bucket index.
+*   *Result:* **$O(1)$ Constant Gas Cost.** The contract grabs the exact bucket for the current price instantly. It does not search; it fetches. This makes the system scalable to thousands of orders.
+
+### 2. Execution UX: Synchronous "JIT" vs. Asynchronous Keepers
+**The "Frozen Market" Problem (Iceberg):**
+Matching is **Asynchronous**. A user places an order (Tx 1), but nothing happens until a second transaction (Tx 2) explicitly attempts to match it.
+*   *Friction:* Markets remain "frozen" without off-chain Keepers paying gas to run the matching engine.
+
+**The FheatherX Solution: Atomic "Crank" Hooks.**
+FheatherX leverages the Uniswap V4 `afterSwap` hook to turn every standard swap into an **Atomic Crank**.
+*   *Mechanism:* Every time a user swaps against the pool, the contract synchronously checks the `TickBitmap`. If the price crosses a populated bucket, the limit orders are filled *in the same transaction*.
+*   *Result:* "Just-In-Time" (JIT) Liquidity. Takers get deeper liquidity automatically, and Makers get instant fills without waiting for Keepers.
+
+### 3. MEV Protection: Transient Storage vs. Atomic Sandwiches
+**The "Sandwich" Vulnerability (Standard AMMs & FHE DEXs):**
+Even with encrypted amounts, MEV bots can blindly attack trades by ordering transactions: 1. Buy (Push Price Up) -> 2. Victim Buy -> 3. Sell (Profit).
+
+**The FheatherX Solution: Transient Direction Lock.**
+FheatherX introduces a **Transient Storage** check (EIP-1153 pattern) to enforce unidirectional trading per transaction.
+*   *Mechanism:* When a transaction initiates a swap (e.g., `Token A -> B`), the hook sets a transient flag. If the same transaction attempts to swap back (`Token B -> A`), the hook reverts.
+*   *Result:* It becomes impossible for a single contract to perform an atomic sandwich attack (Buy-and-Sell in one go), forcing attackers to take multi-block market risk.
+
+### 4. Integration: Cross-Pool Composability vs. Walled Gardens
+**The Isolation Problem (Iceberg):**
+Legacy systems act as isolated islands. They usually support `FHERC20` only and cannot communicate with other DEXs. To trade `ETH -> PrivateToken`, a user must perform multiple manual steps across different dApps.
+
+**The FheatherX Solution: V4 Router Integration.**
+By building on Uniswap V4, FheatherX pools become natively composable with the entire DeFi ecosystem.
+*   *Mechanism:* FheatherX plugs into the **Universal Router**.
+*   *Result:* **Cross-Swapping.** A user can execute a single transaction that routes `ETH` through a standard Uniswap V3 pool, converts it to `USDC`, and then swaps that `USDC` into a private `FHE-Token` inside FheatherX. The privacy layer is fully integrated into the global liquidity layer.
+* 
 
 ## Links
 

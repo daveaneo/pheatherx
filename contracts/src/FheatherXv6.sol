@@ -18,6 +18,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {SwapLock} from "./lib/SwapLock.sol";
 
 /// @title FheatherX v6 - Hybrid Encrypted AMM + Private Limit Orders with V4 Composability
 /// @author FheatherX Team
@@ -109,6 +110,13 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         uint256 protocolFeeBps;
     }
 
+    /// @notice Pending decrypt request for reserve sync
+    struct PendingDecrypt {
+        euint128 reserve0;           // Encrypted reserve0 handle at time of request
+        euint128 reserve1;           // Encrypted reserve1 handle at time of request
+        uint256 blockNumber;         // Block when this request was made
+    }
+
     /// @notice Pool-specific encrypted AMM reserves
     struct PoolReserves {
         euint128 encReserve0;       // Encrypted reserve of token0
@@ -116,9 +124,9 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         euint128 encTotalLpSupply;  // Encrypted total LP supply (source of truth)
         uint256 reserve0;            // Public cache for display/estimation
         uint256 reserve1;            // Public cache for display/estimation
-        uint256 lastSyncBlock;       // Last block when sync was requested
-        euint128 pendingReserve0;    // Pending decryption result
-        euint128 pendingReserve1;    // Pending decryption result
+        uint256 reserveBlockNumber;  // Block when reserves were last updated
+        uint256 nextRequestId;       // Counter for new decrypt requests (starts at 1)
+        uint256 lastResolvedId;      // Highest ID known to be resolved (starts at 0)
     }
 
     /// @notice Pending fee change for a pool
@@ -148,6 +156,7 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
 
     // ─────────────────── Encrypted AMM Reserves ───────────────────
     mapping(PoolId => PoolReserves) public poolReserves;
+    mapping(PoolId => mapping(uint256 => PendingDecrypt)) public pendingDecrypts;
 
     // ─────────────────── LP Tracking ───────────────────
     mapping(PoolId => mapping(address => uint256)) public lpBalances;      // Plaintext cache
@@ -182,8 +191,8 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     event LiquidityRemoved(PoolId indexed poolId, address indexed user, uint256 amount0, uint256 amount1, uint256 lpAmount);
     event LiquidityAddedEncrypted(PoolId indexed poolId, address indexed user);
     event LiquidityRemovedEncrypted(PoolId indexed poolId, address indexed user);
-    event ReserveSyncRequested(PoolId indexed poolId, uint256 blockNumber);
-    event ReservesSynced(PoolId indexed poolId, uint256 reserve0, uint256 reserve1);
+    event ReserveSyncRequested(PoolId indexed poolId, uint256 indexed requestId, uint256 blockNumber);
+    event ReservesSynced(PoolId indexed poolId, uint256 reserve0, uint256 reserve1, uint256 indexed requestId);
     event ProtocolFeeQueued(PoolId indexed poolId, uint256 newFeeBps, uint256 effectiveTimestamp);
     event ProtocolFeeApplied(PoolId indexed poolId, uint256 newFeeBps);
     event FeeCollectorUpdated(address newCollector);
@@ -280,15 +289,13 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         reserves.encTotalLpSupply = ENC_ZERO;
         reserves.reserve0 = 0;
         reserves.reserve1 = 0;
-        reserves.lastSyncBlock = 0;
-        reserves.pendingReserve0 = ENC_ZERO;
-        reserves.pendingReserve1 = ENC_ZERO;
+        reserves.reserveBlockNumber = 0;
+        reserves.nextRequestId = 0;
+        reserves.lastResolvedId = 0;
 
         FHE.allowThis(reserves.encReserve0);
         FHE.allowThis(reserves.encReserve1);
         FHE.allowThis(reserves.encTotalLpSupply);
-        FHE.allowThis(reserves.pendingReserve0);
-        FHE.allowThis(reserves.pendingReserve1);
 
         // v6 NEW: Approve PoolManager to take tokens from hook (for V4 settlement)
         IERC20(token0Addr).approve(address(poolManager), type(uint256).max);
@@ -321,6 +328,9 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         if (!state.initialized) {
             return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
         }
+
+        // One swap per pool per TX - prevents atomic sandwich attacks
+        SwapLock.enforceOnce(poolId);
 
         bool zeroForOne = params.zeroForOne;
 
@@ -567,6 +577,9 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         PoolState storage state = poolStates[poolId];
         if (!state.initialized) revert PoolNotInitialized();
         if (amountIn == 0) revert ZeroAmount();
+
+        // One swap per pool per TX - prevents atomic sandwich attacks
+        SwapLock.enforceOnce(poolId);
 
         // 1. Calculate output BEFORE updating reserves
         amountOut = _estimateOutput(poolId, zeroForOne, amountIn);
@@ -1097,6 +1110,9 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         PoolState storage state = poolStates[poolId];
         if (!state.initialized) revert PoolNotInitialized();
 
+        // One swap per pool per TX - prevents atomic sandwich attacks
+        SwapLock.enforceOnce(poolId);
+
         ebool dir = FHE.asEbool(direction);
         euint128 amt = FHE.asEuint128(amountIn);
         FHE.allowThis(dir);
@@ -1146,32 +1162,103 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     //                      RESERVE SYNC
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Request a new reserve sync with binary search to harvest any resolved pending requests
+    /// @dev Uses counter + mapping pattern to avoid losing pending handles during high traffic
     function _requestReserveSync(PoolId poolId) internal {
-        PoolReserves storage reserves = poolReserves[poolId];
+        PoolReserves storage r = poolReserves[poolId];
 
-        if (block.number < reserves.lastSyncBlock + SYNC_COOLDOWN_BLOCKS) {
-            return;
+        // Binary search to find newest resolved between lastResolvedId and nextRequestId
+        // Max ~10 iterations even with thousands of pending requests
+        uint256 lo = r.lastResolvedId;
+        uint256 hi = r.nextRequestId;
+        uint256 newestResolved = lo;
+
+        while (lo < hi) {
+            uint256 mid = (lo + hi + 1) / 2;  // Round up to find highest
+            PendingDecrypt storage p = pendingDecrypts[poolId][mid];
+
+            if (!Common.isInitialized(p.reserve0)) {
+                hi = mid - 1;
+                continue;
+            }
+
+            (uint256 val0, bool ready0) = FHE.getDecryptResultSafe(p.reserve0);
+            (uint256 val1, bool ready1) = FHE.getDecryptResultSafe(p.reserve1);
+
+            if (ready0 && ready1) {
+                newestResolved = mid;
+                lo = mid;  // Search higher half
+            } else {
+                hi = mid - 1;  // Search lower half
+            }
         }
 
-        reserves.pendingReserve0 = reserves.encReserve0;
-        reserves.pendingReserve1 = reserves.encReserve1;
-        FHE.decrypt(reserves.pendingReserve0);
-        FHE.decrypt(reserves.pendingReserve1);
+        // Update reserves if we found something newer than last known
+        if (newestResolved > r.lastResolvedId) {
+            PendingDecrypt storage resolved = pendingDecrypts[poolId][newestResolved];
+            (uint256 val0, ) = FHE.getDecryptResultSafe(resolved.reserve0);
+            (uint256 val1, ) = FHE.getDecryptResultSafe(resolved.reserve1);
+            r.reserve0 = val0;
+            r.reserve1 = val1;
+            r.reserveBlockNumber = resolved.blockNumber;
+            r.lastResolvedId = newestResolved;
+            emit ReservesSynced(poolId, val0, val1, newestResolved);
+        }
 
-        reserves.lastSyncBlock = block.number;
-        emit ReserveSyncRequested(poolId, block.number);
+        // Store new pending request
+        uint256 newId = r.nextRequestId;
+        r.nextRequestId = newId + 1;
+        pendingDecrypts[poolId][newId] = PendingDecrypt({
+            reserve0: r.encReserve0,
+            reserve1: r.encReserve1,
+            blockNumber: block.number
+        });
+        FHE.decrypt(r.encReserve0);
+        FHE.decrypt(r.encReserve1);
+
+        emit ReserveSyncRequested(poolId, newId, block.number);
     }
 
+    /// @notice Manually trigger reserve sync - harvests any resolved pending requests
+    /// @dev Can be called by anyone to update plaintext reserve cache
     function trySyncReserves(PoolId poolId) external {
-        PoolReserves storage reserves = poolReserves[poolId];
+        PoolReserves storage r = poolReserves[poolId];
 
-        (uint256 val0, bool ready0) = FHE.getDecryptResultSafe(reserves.pendingReserve0);
-        (uint256 val1, bool ready1) = FHE.getDecryptResultSafe(reserves.pendingReserve1);
+        // Binary search to find newest resolved
+        uint256 lo = r.lastResolvedId;
+        uint256 hi = r.nextRequestId;
+        uint256 newestResolved = lo;
 
-        if (ready0 && ready1) {
-            reserves.reserve0 = val0;
-            reserves.reserve1 = val1;
-            emit ReservesSynced(poolId, val0, val1);
+        while (lo < hi) {
+            uint256 mid = (lo + hi + 1) / 2;
+            PendingDecrypt storage p = pendingDecrypts[poolId][mid];
+
+            if (!Common.isInitialized(p.reserve0)) {
+                hi = mid - 1;
+                continue;
+            }
+
+            (uint256 val0, bool ready0) = FHE.getDecryptResultSafe(p.reserve0);
+            (uint256 val1, bool ready1) = FHE.getDecryptResultSafe(p.reserve1);
+
+            if (ready0 && ready1) {
+                newestResolved = mid;
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+
+        // Update reserves if we found something newer
+        if (newestResolved > r.lastResolvedId) {
+            PendingDecrypt storage resolved = pendingDecrypts[poolId][newestResolved];
+            (uint256 val0, ) = FHE.getDecryptResultSafe(resolved.reserve0);
+            (uint256 val1, ) = FHE.getDecryptResultSafe(resolved.reserve1);
+            r.reserve0 = val0;
+            r.reserve1 = val1;
+            r.reserveBlockNumber = resolved.blockNumber;
+            r.lastResolvedId = newestResolved;
+            emit ReservesSynced(poolId, val0, val1, newestResolved);
         }
     }
 
@@ -1521,13 +1608,43 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         );
     }
 
+    /// @notice Get pool reserves, checking for fresher values from pending decrypts
+    /// @dev Uses binary search to find newest resolved pending request (view function, cannot update storage)
     function getPoolReserves(PoolId poolId) external view returns (
         uint256 _reserve0,
         uint256 _reserve1,
         uint256 lpSupply
     ) {
-        PoolReserves storage reserves = poolReserves[poolId];
-        return (reserves.reserve0, reserves.reserve1, totalLpSupply[poolId]);
+        PoolReserves storage r = poolReserves[poolId];
+
+        // Binary search to find newest resolved pending request
+        uint256 lo = r.lastResolvedId;
+        uint256 hi = r.nextRequestId;
+        uint256 bestVal0 = r.reserve0;
+        uint256 bestVal1 = r.reserve1;
+
+        while (lo < hi) {
+            uint256 mid = (lo + hi + 1) / 2;
+            PendingDecrypt storage p = pendingDecrypts[poolId][mid];
+
+            if (!Common.isInitialized(p.reserve0)) {
+                hi = mid - 1;
+                continue;
+            }
+
+            (uint256 val0, bool ready0) = FHE.getDecryptResultSafe(p.reserve0);
+            (uint256 val1, bool ready1) = FHE.getDecryptResultSafe(p.reserve1);
+
+            if (ready0 && ready1) {
+                bestVal0 = val0;
+                bestVal1 = val1;
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+
+        return (bestVal0, bestVal1, totalLpSupply[poolId]);
     }
 
     function getTickPrice(int24 tick) external pure returns (uint256) {
