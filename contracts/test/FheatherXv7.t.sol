@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-// FheatherXv6 Unit Tests
-// Tests for FheatherXv6 - Hybrid AMM + Private Limit Orders with V4 Settlement
+// FheatherXv7 Unit Tests
+// Tests for FheatherXv7 - Hybrid AMM + Private Limit Orders with V4 Settlement
 
 // Foundry Imports
 import "forge-std/Test.sol";
@@ -22,7 +22,8 @@ import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/Pool
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 
 // Local Imports
-import {FheatherXv6} from "../src/FheatherXv6.sol";
+import {FheatherXv7} from "../src/FheatherXv7.sol";
+import {FheatherXv7Lens, IFheatherXv7} from "../src/FheatherXv7Lens.sol";
 import {SwapLock} from "../src/lib/SwapLock.sol";
 import {FhenixFHERC20Faucet} from "../src/tokens/FhenixFHERC20Faucet.sol";
 import {FaucetToken} from "../src/tokens/FaucetToken.sol";
@@ -38,7 +39,7 @@ import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
 // OpenZeppelin Imports
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract FheatherXv6Test is Test, Fixtures, CoFheTest {
+contract FheatherXv7Test is Test, Fixtures, CoFheTest {
     using EasyPosm for IPositionManager;
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -53,7 +54,8 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
     address private lp = makeAddr("lp");
 
     // Contract instances
-    FheatherXv6 hook;
+    FheatherXv7 hook;
+    FheatherXv7Lens lens;
     PoolId poolIdErcErc;
     PoolId poolIdFheFhe;
     PoolId poolIdErcFhe;
@@ -140,15 +142,19 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         // Calculate target address with flags
         address targetAddr = address(hookFlags ^ (0x4444 << 144));
 
-        // Constructor args for FheatherXv6: (IPoolManager, address owner, uint256 swapFeeBps)
+        // Constructor args for FheatherXv7: (IPoolManager, address owner, uint256 swapFeeBps)
         uint256 swapFeeBps = 30; // 0.3% swap fee
         bytes memory constructorArgs = abi.encode(manager, owner, swapFeeBps);
 
         // Deploy to target address using deployCodeTo
-        deployCodeTo("FheatherXv6.sol:FheatherXv6", constructorArgs, targetAddr);
-        hook = FheatherXv6(payable(targetAddr));
+        deployCodeTo("FheatherXv7.sol:FheatherXv7", constructorArgs, targetAddr);
+        hook = FheatherXv7(payable(targetAddr));
 
-        vm.label(address(hook), "FheatherXv6Hook");
+        // Deploy the Lens contract
+        lens = new FheatherXv7Lens(address(hook));
+
+        vm.label(address(hook), "FheatherXv7Hook");
+        vm.label(address(lens), "FheatherXv7Lens");
 
         // Initialize all 4 pool types
         _initializePoolErcErc();
@@ -318,7 +324,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
             bool initialized,
             uint256 maxBuckets,
             uint256 protocolFeeBps
-        ) = hook.getPoolState(poolIdErcErc);
+        ) = lens.getPoolState(poolIdErcErc);
 
         assertEq(poolToken0, address(weth));
         assertEq(poolToken1, address(usdc));
@@ -335,7 +341,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
             bool token1IsFherc20,
             bool initialized,
             ,
-        ) = hook.getPoolState(poolIdFheFhe);
+        ) = lens.getPoolState(poolIdFheFhe);
 
         assertTrue(initialized, "FHE:FHE pool should be initialized");
         assertTrue(token0IsFherc20, "FHE:FHE pool token0 should be FHERC20");
@@ -350,7 +356,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
             bool token1IsFherc20,
             bool initialized,
             ,
-        ) = hook.getPoolState(poolIdErcFhe);
+        ) = lens.getPoolState(poolIdErcFhe);
 
         assertTrue(initialized, "ERC:FHE pool should be initialized");
         // One should be ERC20, one should be FHERC20
@@ -365,7 +371,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
             bool token1IsFherc20,
             bool initialized,
             ,
-        ) = hook.getPoolState(poolIdFheErc);
+        ) = lens.getPoolState(poolIdFheErc);
 
         assertTrue(initialized, "FHE:ERC pool should be initialized");
         // One should be ERC20, one should be FHERC20
@@ -374,13 +380,13 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
     function testTickPricesInitialized() public view {
         // Check tick 0 = 1e18
-        assertEq(hook.getTickPrice(0), 1e18);
+        assertEq(lens.getTickPrice(0), 1e18);
 
         // Check positive tick 60
-        assertGt(hook.getTickPrice(60), 1e18); // Should be > 1.0
+        assertGt(lens.getTickPrice(60), 1e18); // Should be > 1.0
 
         // Check negative tick -60
-        assertLt(hook.getTickPrice(-60), 1e18); // Should be < 1.0
+        assertLt(lens.getTickPrice(-60), 1e18); // Should be < 1.0
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -394,7 +400,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
         assertGt(lpAmount, 0, "Should receive LP tokens");
 
-        (uint256 reserve0, uint256 reserve1, uint256 lpSupply) = hook.getPoolReserves(poolIdErcErc);
+        (uint256 reserve0, uint256 reserve1, uint256 lpSupply) = lens.getPoolReserves(poolIdErcErc);
         assertEq(reserve0, LIQUIDITY_AMOUNT_0, "Reserve0 should match");
         assertEq(reserve1, LIQUIDITY_AMOUNT_1, "Reserve1 should match");
         assertGt(lpSupply, 0, "LP supply should be > 0");
@@ -405,10 +411,10 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
     function testAddLiquidity_RevertsZeroAmount() public {
         vm.startPrank(lp);
 
-        vm.expectRevert(FheatherXv6.ZeroAmount.selector);
+        vm.expectRevert(FheatherXv7.ZeroAmount.selector);
         hook.addLiquidity(poolIdErcErc, 0, LIQUIDITY_AMOUNT_1);
 
-        vm.expectRevert(FheatherXv6.ZeroAmount.selector);
+        vm.expectRevert(FheatherXv7.ZeroAmount.selector);
         hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, 0);
 
         vm.stopPrank();
@@ -433,7 +439,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.startPrank(lp);
         hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
 
-        vm.expectRevert(FheatherXv6.ZeroAmount.selector);
+        vm.expectRevert(FheatherXv7.ZeroAmount.selector);
         hook.removeLiquidity(poolIdErcErc, 0);
 
         vm.stopPrank();
@@ -443,7 +449,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.startPrank(lp);
         hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
 
-        vm.expectRevert(FheatherXv6.InsufficientLiquidity.selector);
+        vm.expectRevert(FheatherXv7.InsufficientLiquidity.selector);
         hook.removeLiquidity(poolIdErcErc, type(uint256).max);
 
         vm.stopPrank();
@@ -483,7 +489,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         InEuint128 memory encAmt1 = createInEuint128(uint128(10_000e6), user1);
 
         // Should revert on ERC:ERC pool
-        vm.expectRevert(FheatherXv6.BothTokensMustBeFherc20.selector);
+        vm.expectRevert(FheatherXv7.BothTokensMustBeFherc20.selector);
         hook.addLiquidityEncrypted(poolIdErcErc, encAmt0, encAmt1);
 
         vm.stopPrank();
@@ -540,7 +546,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.stopPrank();
 
         vm.startPrank(swapper);
-        vm.expectRevert(FheatherXv6.ZeroAmount.selector);
+        vm.expectRevert(FheatherXv7.ZeroAmount.selector);
         hook.swapForPool(poolIdErcErc, true, 0, 0);
         vm.stopPrank();
     }
@@ -552,7 +558,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
         vm.startPrank(swapper);
         // Request impossibly high minimum output
-        vm.expectRevert(FheatherXv6.SlippageExceeded.selector);
+        vm.expectRevert(FheatherXv7.SlippageExceeded.selector);
         hook.swapForPool(poolIdErcErc, true, SWAP_AMOUNT, type(uint256).max);
         vm.stopPrank();
     }
@@ -570,7 +576,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         );
         PoolId invalidPoolId = invalidKey.toId();
 
-        vm.expectRevert(FheatherXv6.PoolNotInitialized.selector);
+        vm.expectRevert(FheatherXv7.PoolNotInitialized.selector);
         hook.swapForPool(invalidPoolId, true, SWAP_AMOUNT, 0);
         vm.stopPrank();
     }
@@ -580,7 +586,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
         vm.stopPrank();
 
-        uint256 quote = hook.getQuoteForPool(poolIdErcErc, true, SWAP_AMOUNT);
+        uint256 quote = lens.getQuoteForPool(poolIdErcErc, true, SWAP_AMOUNT);
         assertGt(quote, 0, "Quote should be > 0");
     }
 
@@ -593,7 +599,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
         vm.stopPrank();
 
-        (uint256 r0, uint256 r1) = hook.getReserves(poolIdErcErc);
+        (uint256 r0, uint256 r1) = lens.getReserves(poolIdErcErc);
         assertEq(r0, LIQUIDITY_AMOUNT_0);
         assertEq(r1, LIQUIDITY_AMOUNT_1);
     }
@@ -603,7 +609,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.addLiquidity(poolIdErcErc, LIQUIDITY_AMOUNT_0, LIQUIDITY_AMOUNT_1);
         vm.stopPrank();
 
-        int24 tick = hook.getCurrentTickForPool(poolIdErcErc);
+        int24 tick = lens.getCurrentTickForPool(poolIdErcErc);
         // With liquidity, tick should be within valid range (using Uniswap's full TickMath range)
         // Note: With WETH (18 decimals) and USDC (6 decimals), initial tick may vary significantly
         assertTrue(tick >= -887272 && tick <= 887272, "Tick should be within valid range");
@@ -624,14 +630,14 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.deposit(
             poolIdFheFhe,
             TEST_TICK,
-            FheatherXv6.BucketSide.SELL,
+            FheatherXv7.BucketSide.SELL,
             amount,
             deadline,
             maxDrift
         );
 
         // Verify bucket has active orders
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, TEST_TICK, IFheatherXv7.BucketSide.SELL));
 
         vm.stopPrank();
     }
@@ -646,13 +652,13 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.deposit(
             poolIdFheFhe,
             -TEST_TICK, // Buy below current price
-            FheatherXv6.BucketSide.BUY,
+            FheatherXv7.BucketSide.BUY,
             amount,
             deadline,
             maxDrift
         );
 
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, -TEST_TICK, FheatherXv6.BucketSide.BUY));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, -TEST_TICK, IFheatherXv7.BucketSide.BUY));
 
         vm.stopPrank();
     }
@@ -664,8 +670,8 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         uint256 deadline = block.timestamp - 1; // Expired
         int24 maxDrift = 10000;
 
-        vm.expectRevert(FheatherXv6.DeadlineExpired.selector);
-        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL, amount, deadline, maxDrift);
+        vm.expectRevert(FheatherXv7.DeadlineExpired.selector);
+        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv7.BucketSide.SELL, amount, deadline, maxDrift);
 
         vm.stopPrank();
     }
@@ -677,8 +683,8 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         uint256 deadline = block.timestamp + 1 hours;
         int24 maxDrift = 10000;
 
-        vm.expectRevert(FheatherXv6.InvalidTick.selector);
-        hook.deposit(poolIdFheFhe, 61, FheatherXv6.BucketSide.SELL, amount, deadline, maxDrift); // 61 not divisible by 60
+        vm.expectRevert(FheatherXv7.InvalidTick.selector);
+        hook.deposit(poolIdFheFhe, 61, FheatherXv7.BucketSide.SELL, amount, deadline, maxDrift); // 61 not divisible by 60
 
         vm.stopPrank();
     }
@@ -692,8 +698,8 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
         // With Uniswap's TickMath, MAX_TICK is 887272
         // Test with a tick beyond that range
-        vm.expectRevert(FheatherXv6.InvalidTick.selector);
-        hook.deposit(poolIdFheFhe, 887280, FheatherXv6.BucketSide.SELL, amount, deadline, maxDrift); // Beyond MAX_TICK
+        vm.expectRevert(FheatherXv7.InvalidTick.selector);
+        hook.deposit(poolIdFheFhe, 887280, FheatherXv7.BucketSide.SELL, amount, deadline, maxDrift); // Beyond MAX_TICK
 
         vm.stopPrank();
     }
@@ -707,11 +713,11 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         int24 maxDrift = 10000;
 
         // ERC:ERC pool - should revert for both sides
-        vm.expectRevert(FheatherXv6.InputTokenMustBeFherc20.selector);
-        hook.deposit(poolIdErcErc, TEST_TICK, FheatherXv6.BucketSide.SELL, amount, deadline, maxDrift);
+        vm.expectRevert(FheatherXv7.InputTokenMustBeFherc20.selector);
+        hook.deposit(poolIdErcErc, TEST_TICK, FheatherXv7.BucketSide.SELL, amount, deadline, maxDrift);
 
-        vm.expectRevert(FheatherXv6.InputTokenMustBeFherc20.selector);
-        hook.deposit(poolIdErcErc, -TEST_TICK, FheatherXv6.BucketSide.BUY, amount, deadline, maxDrift);
+        vm.expectRevert(FheatherXv7.InputTokenMustBeFherc20.selector);
+        hook.deposit(poolIdErcErc, -TEST_TICK, FheatherXv7.BucketSide.BUY, amount, deadline, maxDrift);
 
         vm.stopPrank();
     }
@@ -720,17 +726,17 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         // User1 deposits
         vm.startPrank(user1);
         InEuint128 memory amount1 = createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL, amount1, block.timestamp + 1 hours, 10000);
+        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv7.BucketSide.SELL, amount1, block.timestamp + 1 hours, 10000);
         vm.stopPrank();
 
         // User2 deposits to same bucket
         vm.startPrank(user2);
         InEuint128 memory amount2 = createInEuint128(uint128(DEPOSIT_AMOUNT), user2);
-        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL, amount2, block.timestamp + 1 hours, 10000);
+        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv7.BucketSide.SELL, amount2, block.timestamp + 1 hours, 10000);
         vm.stopPrank();
 
         // Both users should have positions
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, TEST_TICK, IFheatherXv7.BucketSide.SELL));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -741,14 +747,14 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         // First deposit
         vm.startPrank(user1);
         InEuint128 memory depositAmount = createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL, depositAmount, block.timestamp + 1 hours, 10000);
+        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv7.BucketSide.SELL, depositAmount, block.timestamp + 1 hours, 10000);
 
         // Withdraw half
         InEuint128 memory withdrawAmount = createInEuint128(uint128(DEPOSIT_AMOUNT / 2), user1);
-        hook.withdraw(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL, withdrawAmount);
+        hook.withdraw(poolIdFheFhe, TEST_TICK, FheatherXv7.BucketSide.SELL, withdrawAmount);
 
         // Bucket should still have orders (half remaining)
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, TEST_TICK, IFheatherXv7.BucketSide.SELL));
 
         vm.stopPrank();
     }
@@ -796,14 +802,14 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
     }
 
     function testQueueProtocolFeeRevertsFeeTooHigh() public {
-        vm.expectRevert(FheatherXv6.FeeTooHigh.selector);
+        vm.expectRevert(FheatherXv7.FeeTooHigh.selector);
         hook.queueProtocolFee(poolIdErcErc, 101); // > 1%
     }
 
     function testApplyProtocolFeeRevertsBeforeTimelock() public {
         hook.queueProtocolFee(poolIdErcErc, 10);
 
-        vm.expectRevert(FheatherXv6.FeeChangeNotReady.selector);
+        vm.expectRevert(FheatherXv7.FeeChangeNotReady.selector);
         hook.applyProtocolFee(poolIdErcErc);
     }
 
@@ -817,7 +823,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         // Apply fee
         hook.applyProtocolFee(poolIdErcErc);
 
-        (,,,,,, uint256 protocolFeeBps) = hook.getPoolState(poolIdErcErc);
+        (,,,,,, uint256 protocolFeeBps) = lens.getPoolState(poolIdErcErc);
         assertEq(protocolFeeBps, 10);
     }
 
@@ -828,15 +834,15 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
     function testSetMaxBucketsPerSwap() public {
         hook.setMaxBucketsPerSwap(poolIdErcErc, 10);
 
-        (,,,,, uint256 maxBuckets,) = hook.getPoolState(poolIdErcErc);
+        (,,,,, uint256 maxBuckets,) = lens.getPoolState(poolIdErcErc);
         assertEq(maxBuckets, 10);
     }
 
     function testSetMaxBucketsPerSwapRevertsInvalidRange() public {
-        vm.expectRevert(FheatherXv6.InvalidMaxBuckets.selector);
+        vm.expectRevert("Invalid value");
         hook.setMaxBucketsPerSwap(poolIdErcErc, 0);
 
-        vm.expectRevert(FheatherXv6.InvalidMaxBuckets.selector);
+        vm.expectRevert("Invalid value");
         hook.setMaxBucketsPerSwap(poolIdErcErc, 21);
     }
 
@@ -871,37 +877,37 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
     function testHasActiveOrders() public {
         // Initially no orders
-        assertFalse(hook.hasActiveOrders(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL));
+        assertFalse(lens.hasActiveOrders(poolIdFheFhe, TEST_TICK, IFheatherXv7.BucketSide.SELL));
 
         // After deposit, should have orders
         vm.startPrank(user1);
         InEuint128 memory amount = createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL, amount, block.timestamp + 1 hours, 10000);
+        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv7.BucketSide.SELL, amount, block.timestamp + 1 hours, 10000);
         vm.stopPrank();
 
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, TEST_TICK, IFheatherXv7.BucketSide.SELL));
     }
 
     function testGetTickPrice() public view {
         // Tick 0 should be 1.0 (1e18)
-        assertEq(hook.getTickPrice(0), 1e18);
+        assertEq(lens.getTickPrice(0), 1e18);
 
         // Positive tick should be > 1.0
-        assertGt(hook.getTickPrice(60), 1e18);
+        assertGt(lens.getTickPrice(60), 1e18);
 
         // Negative tick should be < 1.0
-        assertLt(hook.getTickPrice(-60), 1e18);
+        assertLt(lens.getTickPrice(-60), 1e18);
     }
 
     function testHasOrdersAtTick() public {
-        assertFalse(hook.hasOrdersAtTick(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL));
+        assertFalse(lens.hasOrdersAtTick(poolIdFheFhe, TEST_TICK, IFheatherXv7.BucketSide.SELL));
 
         vm.startPrank(user1);
         InEuint128 memory amount = createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL, amount, block.timestamp + 1 hours, 10000);
+        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv7.BucketSide.SELL, amount, block.timestamp + 1 hours, 10000);
         vm.stopPrank();
 
-        assertTrue(hook.hasOrdersAtTick(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL));
+        assertTrue(lens.hasOrdersAtTick(poolIdFheFhe, TEST_TICK, IFheatherXv7.BucketSide.SELL));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -918,14 +924,14 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
             bool token1IsFherc20,
             ,
             ,
-        ) = hook.getPoolState(poolIdErcFhe);
+        ) = lens.getPoolState(poolIdErcFhe);
 
         // If token1 is FHERC20, BUY side should work (deposits token1)
         if (token1IsFherc20) {
             vm.startPrank(user1);
             InEuint128 memory amount = createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-            hook.deposit(poolIdErcFhe, -TEST_TICK, FheatherXv6.BucketSide.BUY, amount, block.timestamp + 1 hours, 10000);
-            assertTrue(hook.hasActiveOrders(poolIdErcFhe, -TEST_TICK, FheatherXv6.BucketSide.BUY));
+            hook.deposit(poolIdErcFhe, -TEST_TICK, FheatherXv7.BucketSide.BUY, amount, block.timestamp + 1 hours, 10000);
+            assertTrue(lens.hasActiveOrders(poolIdErcFhe, -TEST_TICK, IFheatherXv7.BucketSide.BUY));
             vm.stopPrank();
         }
     }
@@ -939,14 +945,14 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
             ,
             ,
             ,
-        ) = hook.getPoolState(poolIdFheErc);
+        ) = lens.getPoolState(poolIdFheErc);
 
         // If token0 is FHERC20, SELL side should work (deposits token0)
         if (token0IsFherc20) {
             vm.startPrank(user1);
             InEuint128 memory amount = createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
-            hook.deposit(poolIdFheErc, TEST_TICK, FheatherXv6.BucketSide.SELL, amount, block.timestamp + 1 hours, 10000);
-            assertTrue(hook.hasActiveOrders(poolIdFheErc, TEST_TICK, FheatherXv6.BucketSide.SELL));
+            hook.deposit(poolIdFheErc, TEST_TICK, FheatherXv7.BucketSide.SELL, amount, block.timestamp + 1 hours, 10000);
+            assertTrue(lens.hasActiveOrders(poolIdFheErc, TEST_TICK, IFheatherXv7.BucketSide.SELL));
             vm.stopPrank();
         }
     }
@@ -964,7 +970,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.deposit(
             poolIdFheFhe,
             -TEST_TICK,
-            FheatherXv6.BucketSide.BUY,
+            FheatherXv7.BucketSide.BUY,
             buyAmount,
             block.timestamp + 1 hours,
             10000
@@ -977,7 +983,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.deposit(
             poolIdFheFhe,
             TEST_TICK,
-            FheatherXv6.BucketSide.SELL,
+            FheatherXv7.BucketSide.SELL,
             sellAmount,
             block.timestamp + 1 hours,
             10000
@@ -985,8 +991,8 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.stopPrank();
 
         // Verify all orders are active
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, -TEST_TICK, FheatherXv6.BucketSide.BUY));
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, -TEST_TICK, IFheatherXv7.BucketSide.BUY));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, TEST_TICK, IFheatherXv7.BucketSide.SELL));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1040,7 +1046,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         InEuint128 memory amount = createInEuint128(uint128(DEPOSIT_AMOUNT), user1);
 
         uint256 gasBefore = gasleft();
-        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv6.BucketSide.SELL, amount, block.timestamp + 1 hours, 10000);
+        hook.deposit(poolIdFheFhe, TEST_TICK, FheatherXv7.BucketSide.SELL, amount, block.timestamp + 1 hours, 10000);
         uint256 gasUsed = gasBefore - gasleft();
 
         // FHE operations are gas-intensive, expect ~500k+
@@ -1061,13 +1067,13 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.deposit(
             poolIdFheFhe,
             -6000,
-            FheatherXv6.BucketSide.BUY,
+            FheatherXv7.BucketSide.BUY,
             amount,
             block.timestamp + 1 hours,
             10000
         );
 
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, -6000, FheatherXv6.BucketSide.BUY));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, -6000, IFheatherXv7.BucketSide.BUY));
         vm.stopPrank();
     }
 
@@ -1079,13 +1085,13 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         hook.deposit(
             poolIdFheFhe,
             6000,
-            FheatherXv6.BucketSide.SELL,
+            FheatherXv7.BucketSide.SELL,
             amount,
             block.timestamp + 1 hours,
             10000
         );
 
-        assertTrue(hook.hasActiveOrders(poolIdFheFhe, 6000, FheatherXv6.BucketSide.SELL));
+        assertTrue(lens.hasActiveOrders(poolIdFheFhe, 6000, IFheatherXv7.BucketSide.SELL));
         vm.stopPrank();
     }
 
@@ -1245,7 +1251,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.stopPrank();
 
         // getPoolReserves should return the cached values
-        (uint256 reserve0, uint256 reserve1, uint256 lpSupply) = hook.getPoolReserves(poolIdErcErc);
+        (uint256 reserve0, uint256 reserve1, uint256 lpSupply) = lens.getPoolReserves(poolIdErcErc);
 
         assertGt(reserve0, 0, "reserve0 should be non-zero after adding liquidity");
         assertGt(reserve1, 0, "reserve1 should be non-zero after adding liquidity");
@@ -1262,7 +1268,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.stopPrank();
 
         // Get initial reserves
-        (uint256 initReserve0, uint256 initReserve1,) = hook.getPoolReserves(poolIdErcErc);
+        (uint256 initReserve0, uint256 initReserve1,) = lens.getPoolReserves(poolIdErcErc);
 
         // Do a single swap
         vm.startPrank(swapper);
@@ -1270,7 +1276,7 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
         vm.stopPrank();
 
         // Get final reserves
-        (uint256 finalReserve0, uint256 finalReserve1,) = hook.getPoolReserves(poolIdErcErc);
+        (uint256 finalReserve0, uint256 finalReserve1,) = lens.getPoolReserves(poolIdErcErc);
 
         // reserve0 should have increased (swapper sent weth)
         assertGt(finalReserve0, initReserve0, "reserve0 should increase after buying");
@@ -1346,12 +1352,12 @@ contract FheatherXv6Test is Test, Fixtures, CoFheTest {
 
 /// @notice Contract that attempts to swap twice in same transaction (should fail)
 contract SwapLockAttacker {
-    FheatherXv6 public hook;
+    FheatherXv7 public hook;
     PoolId public poolId;
     IERC20 public token0;
     IERC20 public token1;
 
-    constructor(FheatherXv6 _hook, PoolId _poolId, address _token0, address _token1) {
+    constructor(FheatherXv7 _hook, PoolId _poolId, address _token0, address _token1) {
         hook = _hook;
         poolId = _poolId;
         token0 = IERC20(_token0);
@@ -1374,12 +1380,12 @@ contract SwapLockAttacker {
 
 /// @notice Contract that simulates a sandwich attack (should fail)
 contract SandwichAttacker {
-    FheatherXv6 public hook;
+    FheatherXv7 public hook;
     PoolId public poolId;
     IERC20 public token0;
     IERC20 public token1;
 
-    constructor(FheatherXv6 _hook, PoolId _poolId, address _token0, address _token1) {
+    constructor(FheatherXv7 _hook, PoolId _poolId, address _token0, address _token1) {
         hook = _hook;
         poolId = _poolId;
         token0 = IERC20(_token0);
@@ -1404,7 +1410,7 @@ contract SandwichAttacker {
 
 /// @notice Contract that swaps on two different pools (should succeed)
 contract MultiPoolSwapper {
-    FheatherXv6 public hook;
+    FheatherXv7 public hook;
     PoolId public poolId1;
     PoolId public poolId2;
     IERC20 public token0Pool1;
@@ -1413,7 +1419,7 @@ contract MultiPoolSwapper {
     IERC20 public token1Pool2;
 
     constructor(
-        FheatherXv6 _hook,
+        FheatherXv7 _hook,
         PoolId _poolId1,
         PoolId _poolId2,
         address _token0Pool1,

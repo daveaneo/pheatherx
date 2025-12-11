@@ -10,6 +10,9 @@ library SwapLock {
     // keccak256("fheatherx.swap.lock.v1")
     bytes32 private constant SWAP_LOCK_SEED = 0x7a2c4f8e9d3b1a0c5f2e8d7b6a9c4f3e2d1b0a9c8f7e6d5c4b3a2918d7c6b5a4;
 
+    /// @notice Thrown when attempting multiple swaps on the same pool in one transaction
+    error SwapLockViolation();
+
     /// @notice Ensures only one swap per pool per transaction
     /// @dev First swap on a pool sets the lock, subsequent swaps on the same pool revert
     /// @param poolId The pool being swapped on
@@ -19,7 +22,7 @@ library SwapLock {
         assembly {
             locked := tload(slot)
         }
-        require(locked == 0, "SwapLock: one swap per pool per tx");
+        if (locked != 0) revert SwapLockViolation();
         assembly {
             tstore(slot, 1)
         }
