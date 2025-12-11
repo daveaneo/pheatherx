@@ -56,10 +56,10 @@ export const ETH_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
 
 // Faucet tokens deployed on Arbitrum Sepolia (Chain ID: 421614)
 // Source: contracts/deployments/v6-arb-sepolia.json (synced with tokens.ts)
-// Updated: 2024-12-11 with FHERC20 detection fix (balanceOfEncrypted function)
+// Updated: 2025-12-11 with FhenixFHERC20Faucet (official Fhenix FHERC20 standard)
 export const ARB_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
   {
-    address: '0x2438489297695F5b0dAaFdE20B48d513C215e13F',
+    address: '0x5Ffa3F4620aF4434A662aA89e37775d776604D6E',
     symbol: 'USDC',
     name: 'USDC',
     decimals: 6,
@@ -67,7 +67,7 @@ export const ARB_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
     faucetAmount: 100,
   },
   {
-    address: '0x446495a5Bde1bFaf269aDE9Fc05f9e5eDE138d44',
+    address: '0xf60eB0df91142e31384851b66022833Be2c08007',
     symbol: 'WETH',
     name: 'WETH',
     decimals: 18,
@@ -75,7 +75,7 @@ export const ARB_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
     faucetAmount: 100,
   },
   {
-    address: '0x09b422AaF3E752fCe835a31E82591376d65Ea97d',
+    address: '0x43AcAe0A089f3cd188f9fB0731059Eb7bC27D3Aa',
     symbol: 'fheUSDC',
     name: 'FHE USDC',
     decimals: 6,
@@ -83,7 +83,7 @@ export const ARB_SEPOLIA_FAUCET_TOKENS: FaucetToken[] = [
     faucetAmount: 100,
   },
   {
-    address: '0x99617eF246AF8541d528D7BcFB777ea99659ba35',
+    address: '0xf7dD1ed6f513b22e05645EE8BA3D3A712Cc76128',
     symbol: 'fheWETH',
     name: 'FHE WETH',
     decimals: 18,

@@ -63,9 +63,13 @@ async function main() {
   console.log('fheUSDC:', FHE_USDC_ADDRESS);
   console.log('');
 
-  // Import cofhejs - use the CJS node entry
+  // Import cofhejs - use the CJS node entry (v0.3.1 API)
   console.log('--- Initializing cofhejs ---');
-  const { cofhejs } = require('cofhejs/node');
+  const { cofhejs, Encryptable } = require('cofhejs/node');
+
+  // Get chain info
+  const network = await provider.getNetwork();
+  console.log('Chain ID:', network.chainId.toString());
 
   const cofheResult = await cofhejs.initializeWithEthers({
     ethersProvider: provider,
@@ -74,8 +78,11 @@ async function main() {
     generatePermit: true,
   });
 
-  if (!cofheResult.success) {
-    throw new Error(`cofhejs initialization failed: ${cofheResult.error}`);
+  console.log('Init result:', JSON.stringify(cofheResult, null, 2));
+
+  if ('error' in cofheResult && cofheResult.error) {
+    console.error('Full error:', cofheResult.error);
+    throw new Error(`cofhejs initialization failed: ${cofheResult.error.message || JSON.stringify(cofheResult.error)}`);
   }
   console.log('cofhejs initialized successfully');
 
@@ -103,24 +110,35 @@ async function main() {
   console.log('Amount0:', amt0.toString());
   console.log('Amount1:', amt1.toString());
 
-  const encAmt0Result = await cofhejs.encrypt(amt0, { type: 'euint128' });
-  const encAmt1Result = await cofhejs.encrypt(amt1, { type: 'euint128' });
+  // Use v0.3.1 API with Encryptable helpers (same as frontend)
+  const encResult = await cofhejs.encrypt([
+    Encryptable.uint128(amt0),
+    Encryptable.uint128(amt1),
+  ]);
 
-  if (!encAmt0Result.success || !encAmt1Result.success) {
-    console.error('Encryption failed! This usually means the Fhenix ZK verification service is down.');
-    console.error('Amount0 result:', encAmt0Result);
-    console.error('Amount1 result:', encAmt1Result);
-    throw new Error('Encryption failed - try again later when Fhenix service is available');
+  if ('error' in encResult && encResult.error) {
+    console.error('Encryption failed!');
+    console.error('Error:', encResult.error);
+    throw new Error(`Encryption failed: ${encResult.error.message || encResult.error}`);
   }
 
-  const encAmt0 = encAmt0Result.data;
-  const encAmt1 = encAmt1Result.data;
+  const encrypted = 'data' in encResult ? encResult.data : encResult;
+  const encAmt0 = encrypted[0];
+  const encAmt1 = encrypted[1];
   console.log('Encrypted amount0:', encAmt0);
   console.log('Encrypted amount1:', encAmt1);
 
   // Approve encrypted for FHERC20 tokens
   console.log('\n--- Approving Encrypted Allowances ---');
-  const maxApproval = await cofhejs.encrypt(ethers.MaxUint256, { type: 'euint128' });
+  // Max uint128 for approval
+  const maxU128 = BigInt('340282366920938463463374607431768211455');
+  const maxApprovalResult = await cofhejs.encrypt([Encryptable.uint128(maxU128)]);
+
+  if ('error' in maxApprovalResult && maxApprovalResult.error) {
+    throw new Error(`Max approval encryption failed: ${maxApprovalResult.error.message || maxApprovalResult.error}`);
+  }
+  const maxApprovalData = 'data' in maxApprovalResult ? maxApprovalResult.data : maxApprovalResult;
+  const maxApproval = maxApprovalData[0];
 
   const approveTx1 = await fheWeth.approveEncrypted(HOOK_ADDRESS, maxApproval);
   await approveTx1.wait();

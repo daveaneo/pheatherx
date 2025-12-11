@@ -64,6 +64,42 @@
   ```
 - **Status**: ✅ FIXED
 
+### Issue 5: SEAL_OUTPUT_RETURNED_NULL when revealing FHERC20 balances ✅ FIXED
+- **Page**: /portfolio (TokenBalanceTable component)
+- **Error**: `CofhejsError: SEAL_OUTPUT_RETURNED_NULL` when clicking "Reveal" on encrypted balances
+- **Symptoms**:
+  - FHE session initialized successfully
+  - Encrypted balance handle retrieved from contract
+  - Unseal failed after 3 retry attempts
+- **Root Cause**: **Permit signature mismatch**
+  - The FHERC20 contract calls `FHE.allow(ciphertext, userAddress)` granting unseal permission to the user's wallet address
+  - The server-side API (`/api/fhe`) was creating a **random wallet** to sign the permit
+  - CoFHE service rejected the unseal because the permit signer (`0xRandomWallet...`) didn't match the address granted permission (`0xUserWallet...`)
+  - Per Fhenix docs: "If you forget `allow()`, `unseal()` will silently fail with `SEAL_OUTPUT_RETURNED_NULL`" - same error occurs when permit signer doesn't match allowed address
+- **Investigation Steps**:
+  1. Created test script to verify contract has `FHE.allow()` calls ✅
+  2. Verified user's wallet address matches permit issuer - **MISMATCH FOUND**
+  3. Created `/test-cofhejs-web` page to test client-side cofhejs with user's actual wallet
+  4. Confirmed unseal works when permit is signed by user's wallet
+- **Fix**: Rewrote `src/lib/fhe/singleton.ts` to use `cofhejs/web` client-side instead of server-side API
+  - **Before**: Server created random wallet → signed permit → user couldn't unseal (wrong signer)
+  - **After**: Client uses user's actual wallet (via wagmi signer) → signs permit → unseal works
+  ```typescript
+  // Now uses cofhejs/web client-side with user's actual wallet
+  const { cofhejs } = await import('cofhejs/web');
+  const result = await cofhejs.initializeWithEthers({
+    ethersProvider: provider,
+    ethersSigner: signer,  // User's actual wallet from wagmi
+    environment: 'TESTNET',
+    generatePermit: true,
+  });
+  ```
+- **Files Changed**:
+  - `src/lib/fhe/singleton.ts` - Complete rewrite to use cofhejs/web client-side
+  - `src/app/api/fhe/route.ts` - No longer used for permit generation (kept for backwards compatibility)
+- **Related Documentation**: [Fhenix CoFHE Access Control](https://dev.to/fhenix_io/privacy-isnt-private-by-default-understanding-access-control-in-cofhe-38l0)
+- **Status**: ✅ FIXED
+
 ---
 ## Remaining Warnings (Non-blocking)
 These are informational warnings that don't affect functionality:

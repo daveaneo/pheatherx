@@ -1,9 +1,8 @@
 /**
  * Global FHE Client Singleton
  *
- * This module provides FHE functionality via server-side API routes
- * because cofhejs/web has WASM initialization issues in browsers.
- * The server runs cofhejs/node which works correctly.
+ * This module provides FHE functionality using cofhejs/web client-side.
+ * The user's wallet signs the permit, which is required for unsealing.
  */
 
 import type { FheSession } from '@/types/fhe';
@@ -19,8 +18,10 @@ export interface EncryptedInput {
   signature: `0x${string}`;
 }
 
+// Cached cofhejs module
+let cofheModule: typeof import('cofhejs/web') | null = null;
+
 // Session state
-let currentSessionId: string | null = null;
 let currentSession: FheSession | null = null;
 let sessionExpiry: number | null = null;
 let initializationInProgress: Promise<FheSession> | null = null;
@@ -37,10 +38,24 @@ function notifyListeners(status: typeof currentStatus, error?: Error) {
 }
 
 /**
+ * Load cofhejs/web module dynamically
+ */
+async function loadCofhe(): Promise<typeof import('cofhejs/web')> {
+  if (cofheModule) return cofheModule;
+
+  // Only load in browser
+  if (typeof window === 'undefined') {
+    throw new Error('cofhejs/web can only be loaded in browser');
+  }
+
+  cofheModule = await import('cofhejs/web');
+  return cofheModule;
+}
+
+/**
  * Get the current status
  */
 export function getLoadStatus(): 'idle' | 'loading' | 'loaded' | 'error' {
-  // Map to legacy status names for compatibility
   switch (currentStatus) {
     case 'idle': return 'idle';
     case 'initializing': return 'loading';
@@ -77,7 +92,6 @@ export function getSession(): FheSession | null {
   if (sessionExpiry && Date.now() > sessionExpiry) {
     currentSession = null;
     sessionExpiry = null;
-    currentSessionId = null;
     return null;
   }
   return currentSession;
@@ -98,24 +112,28 @@ export function getSessionExpiry(): number | null {
 }
 
 /**
- * Preload - for API-based approach, this is a no-op
- * The actual initialization happens in initializeSession
+ * Preload cofhejs module
  */
-export function preloadCofhe(): Promise<any> {
-  // No preloading needed for API approach
-  // Just mark as ready to proceed
-  return Promise.resolve({ ready: true });
+export async function preloadCofhe(): Promise<any> {
+  try {
+    await loadCofhe();
+    return { ready: true };
+  } catch (error) {
+    console.warn('[FHE] Preload failed:', error);
+    return { ready: false, error };
+  }
 }
 
 /**
- * Get cofhe module - for API approach, returns a stub
+ * Get cofhe module
  */
-export async function getCofhe(): Promise<any> {
-  return { ready: true, api: true };
+export async function getCofhe(): Promise<typeof import('cofhejs/web')> {
+  return loadCofhe();
 }
 
 /**
- * Initialize FHE session via server-side API
+ * Initialize FHE session using cofhejs/web client-side
+ * User's wallet signs the permit - required for unsealing
  */
 export async function initializeSession(
   provider: any,
@@ -138,44 +156,36 @@ export async function initializeSession(
     notifyListeners('initializing');
 
     try {
-      // Get chain ID from provider
-      const network = await provider.getNetwork();
-      const chainId = Number(network.chainId);
+      // Load cofhejs/web
+      const { cofhejs } = await loadCofhe();
 
-      // Get user address from signer
       const userAddress = await signer.getAddress();
+      console.log('[FHE] Initializing session with user wallet...', { userAddress });
 
-      console.log('[FHE] Initializing session via API...', { chainId, userAddress });
-
-      // Call server-side API to initialize
-      const response = await fetch('/api/fhe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'initialize',
-          chainId,
-          userAddress,
-        }),
+      // Initialize with user's actual wallet - this signs the permit
+      const result = await cofhejs.initializeWithEthers({
+        ethersProvider: provider,
+        ethersSigner: signer,
+        environment: 'TESTNET',
+        generatePermit: true,
       });
 
-      const result = await response.json();
-
       if (!result.success) {
-        throw new Error(result.error?.message || result.error || 'Failed to initialize FHE session');
+        throw new Error(result.error?.message || 'Failed to initialize cofhejs');
       }
 
-      console.log('[FHE] Session initialized:', result.sessionId);
+      console.log('[FHE] Session initialized, permit issuer:', result.data?.issuer);
 
       // Store session
-      currentSessionId = result.sessionId;
-      sessionExpiry = result.expiresAt;
+      const expiresAt = Date.now() + FHE_SESSION_DURATION_MS;
+      sessionExpiry = expiresAt;
 
       const session: FheSession = {
-        permit: result.permit,
-        client: { sessionId: result.sessionId, api: true },
+        permit: result.data,
+        client: cofhejs,
         contractAddress,
         createdAt: Date.now(),
-        expiresAt: result.expiresAt,
+        expiresAt,
       };
 
       currentSession = session;
@@ -200,122 +210,91 @@ export async function initializeSession(
 export function clearSession(): void {
   currentSession = null;
   sessionExpiry = null;
-  currentSessionId = null;
   initializationInProgress = null;
+  cofheModule = null; // Clear module to force re-initialization
   notifyListeners('idle');
 }
 
 /**
- * Encrypt a uint128 value via server-side API
+ * Encrypt a uint128 value using cofhejs/web
  * Returns the full encrypted struct including signature for CoFHE validation
  */
 export async function encryptUint128(value: bigint): Promise<EncryptedInput> {
-  if (!currentSessionId) {
+  if (!currentSession) {
     throw new Error('No valid FHE session');
   }
 
-  const response = await fetch('/api/fhe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'encrypt',
-      chainId: 0, // Not needed for encrypt
-      data: {
-        sessionId: currentSessionId,
-        value: value.toString(),
-        type: 'uint128',
-      },
-    }),
-  });
+  const { cofhejs, Encryptable } = await loadCofhe();
 
-  const result = await response.json();
+  const result = await cofhejs.encrypt([Encryptable.uint128(value)]);
 
-  if (!result.success) {
-    throw new Error(result.error || 'Failed to encrypt');
+  if ('error' in result && result.error) {
+    throw new Error(result.error.message || 'Failed to encrypt uint128');
   }
 
-  // Return the full encrypted struct with signature
+  const encrypted = 'data' in result ? result.data : result;
+  const item = encrypted[0];
+
   return {
-    ctHash: BigInt(result.encrypted.ctHash),
-    securityZone: result.encrypted.securityZone,
-    utype: result.encrypted.utype,
-    signature: (result.encrypted.signature || '0x') as `0x${string}`,
+    ctHash: BigInt(item.ctHash),
+    securityZone: item.securityZone,
+    utype: item.utype,
+    signature: (item.signature || '0x') as `0x${string}`,
   };
 }
 
 /**
- * Encrypt a boolean value via server-side API
+ * Encrypt a boolean value using cofhejs/web
  * Returns the full encrypted struct including signature for CoFHE validation
  */
 export async function encryptBool(value: boolean): Promise<EncryptedInput> {
-  if (!currentSessionId) {
+  if (!currentSession) {
     throw new Error('No valid FHE session');
   }
 
-  const response = await fetch('/api/fhe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'encrypt',
-      chainId: 0,
-      data: {
-        sessionId: currentSessionId,
-        value,
-        type: 'bool',
-      },
-    }),
-  });
+  const { cofhejs, Encryptable } = await loadCofhe();
 
-  const result = await response.json();
+  const result = await cofhejs.encrypt([Encryptable.bool(value)]);
 
-  if (!result.success) {
-    throw new Error(result.error || 'Failed to encrypt');
+  if ('error' in result && result.error) {
+    throw new Error(result.error.message || 'Failed to encrypt bool');
   }
 
-  // Return the full encrypted struct with signature
+  const encrypted = 'data' in result ? result.data : result;
+  const item = encrypted[0];
+
   return {
-    ctHash: BigInt(result.encrypted.ctHash),
-    securityZone: result.encrypted.securityZone,
-    utype: result.encrypted.utype,
-    signature: (result.encrypted.signature || '0x') as `0x${string}`,
+    ctHash: BigInt(item.ctHash),
+    securityZone: item.securityZone,
+    utype: item.utype,
+    signature: (item.signature || '0x') as `0x${string}`,
   };
 }
 
 /**
- * Unseal (decrypt) a ciphertext via server-side API
+ * Unseal (decrypt) a ciphertext using cofhejs/web
+ * Requires the permit to be signed by the user who has FHE.allow() permission
  */
 export async function unseal(ciphertext: string, maxRetries: number = 3): Promise<bigint> {
-  if (!currentSessionId) {
+  if (!currentSession) {
     throw new Error('No valid FHE session');
   }
+
+  const { cofhejs, FheTypes } = await loadCofhe();
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetch('/api/fhe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'unseal',
-          chainId: 0,
-          data: {
-            sessionId: currentSessionId,
-            ciphertext,
-            type: 'uint128',
-          },
-        }),
-      });
+      const ctHash = BigInt(ciphertext);
 
-      const result = await response.json();
+      const result = await cofhejs.unseal(ctHash, FheTypes.Uint128);
 
-      if (!result.success) {
-        const errorMsg = typeof result.error === 'string'
-          ? result.error
-          : result.error?.message || JSON.stringify(result.error) || 'Failed to unseal';
-        throw new Error(errorMsg);
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message || JSON.stringify(result.error) || 'Failed to unseal');
       }
 
-      return BigInt(result.value);
+      const unsealed = 'data' in result ? result.data : result;
+      return BigInt(unsealed.toString());
     } catch (error) {
       lastError = error;
       console.warn(`FHE unseal attempt ${attempt}/${maxRetries} failed:`, error);
@@ -325,14 +304,4 @@ export async function unseal(ciphertext: string, maxRetries: number = 3): Promis
     }
   }
   throw new Error(`Failed to decrypt after ${maxRetries} attempts`);
-}
-
-// Helper to convert bigint to Uint8Array (32 bytes)
-function bigintToBytes(value: bigint): Uint8Array {
-  const hex = value.toString(16).padStart(64, '0');
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
 }

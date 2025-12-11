@@ -1,17 +1,21 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useAccount, useBalance, useChainId } from 'wagmi';
+import { useAccount, useBalance, useChainId, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
-import { Wallet, Lock, Loader2, Droplets } from 'lucide-react';
+import { Wallet, Lock, Loader2, Droplets, Copy, Check } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Progress } from '@/components/ui/Progress';
-import { getFaucetTokens } from '@/lib/faucetTokens';
+import { getFaucetTokens, type FaucetToken } from '@/lib/faucetTokens';
 import { useFaucet } from '@/hooks/useFaucet';
 import { useAggregatedBalanceReveal } from '@/hooks/useAggregatedBalanceReveal';
 import { useAllTokens, usePoolStore } from '@/stores/poolStore';
+import { useFheSession } from '@/hooks/useFheSession';
+import { useFheStore } from '@/stores/fheStore';
+import { FHERC20_ABI } from '@/lib/contracts/fherc20Abi';
+import { FHE_RETRY_ATTEMPTS } from '@/lib/constants';
 import type { Token } from '@/types/pool';
 
 // Token type styling
@@ -33,6 +37,7 @@ interface WalletTokenProps {
 
 function WalletToken({ symbol, name, decimals, tokenAddress, isNative }: WalletTokenProps) {
   const { address } = useAccount();
+  const [copied, setCopied] = useState(false);
   const { data: balance, isLoading } = useBalance({
     address,
     token: isNative ? undefined : tokenAddress,
@@ -44,6 +49,17 @@ function WalletToken({ symbol, name, decimals, tokenAddress, isNative }: WalletT
         maximumFractionDigits: symbol.includes('USDC') ? 2 : 4,
       })
     : '0';
+
+  const handleCopyAddress = useCallback(async () => {
+    if (!tokenAddress) return;
+    try {
+      await navigator.clipboard.writeText(tokenAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy address:', err);
+    }
+  }, [tokenAddress]);
 
   return (
     <div className="flex items-center justify-between py-2">
@@ -61,6 +77,19 @@ function WalletToken({ symbol, name, decimals, tokenAddress, isNative }: WalletT
                 {style.badge}
               </Badge>
             )}
+            {tokenAddress && (
+              <button
+                onClick={handleCopyAddress}
+                className="p-1 rounded hover:bg-feather-white/10 transition-colors"
+                title={`Copy ${symbol} address`}
+              >
+                {copied ? (
+                  <Check className="w-3 h-3 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3 h-3 text-feather-white/40 hover:text-feather-white/70" />
+                )}
+              </button>
+            )}
           </div>
           <p className="text-xs text-feather-white/40">{name}</p>
         </div>
@@ -76,11 +105,211 @@ function WalletToken({ symbol, name, decimals, tokenAddress, isNative }: WalletT
   );
 }
 
+/**
+ * FHERC20 wallet token with encrypted balance reveal
+ * For fheWETH, fheUSDC etc - reads balanceOfEncrypted from token contract
+ */
+interface WalletFherc20TokenProps {
+  token: FaucetToken;
+}
+
+function WalletFherc20Token({ token }: WalletFherc20TokenProps) {
+  const { address } = useAccount();
+  const chainId = useChainId();
+  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'revealing' | 'revealed' | 'error'>('idle');
+  const [revealedBalance, setRevealedBalance] = useState<bigint | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const { unseal, isReady, isMock } = useFheSession();
+  const { cacheBalance, getCachedBalance } = useFheStore();
+
+  const style = TOKEN_STYLES[token.symbol] || { gradient: 'from-gray-500 to-gray-600' };
+  const cacheKey = `wallet-${address}-${chainId}-${token.address}`;
+
+  // Read encrypted balance from token contract
+  const { refetch: refetchEncryptedBalance } = useReadContract({
+    address: token.address,
+    abi: FHERC20_ABI,
+    functionName: 'balanceOfEncrypted',
+    args: address ? [address] : undefined,
+    query: { enabled: false },
+  });
+
+  const handleCopyAddress = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(token.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy address:', err);
+    }
+  }, [token.address]);
+
+  const reveal = useCallback(async () => {
+    if (!address) {
+      setError('Wallet not connected');
+      setStatus('error');
+      return;
+    }
+
+    // Check cache first
+    const cached = getCachedBalance(cacheKey);
+    if (cached) {
+      setRevealedBalance(cached.value);
+      setStatus('revealed');
+      setProgress(100);
+      return;
+    }
+
+    try {
+      setError(null);
+      setStatus('revealing');
+      setProgress(10);
+
+      // Mock mode
+      if (isMock) {
+        await new Promise(r => setTimeout(r, 800));
+        setProgress(50);
+        await new Promise(r => setTimeout(r, 700));
+        const mockValue = BigInt(100) * BigInt(10 ** token.decimals);
+        setRevealedBalance(mockValue);
+        cacheBalance(cacheKey, mockValue);
+        setStatus('revealed');
+        setProgress(100);
+        return;
+      }
+
+      // Real FHE mode
+      if (!unseal || !isReady) {
+        throw new Error('FHE session not ready. Please initialize first.');
+      }
+
+      // Fetch encrypted balance handle
+      const { data: encrypted } = await refetchEncryptedBalance();
+      setProgress(30);
+
+      if (encrypted === undefined || encrypted === null) {
+        throw new Error('Failed to fetch encrypted balance');
+      }
+
+      const encryptedBigInt = typeof encrypted === 'bigint' ? encrypted : BigInt(String(encrypted));
+      if (encryptedBigInt === 0n) {
+        setRevealedBalance(0n);
+        cacheBalance(cacheKey, 0n);
+        setStatus('revealed');
+        setProgress(100);
+        return;
+      }
+
+      // Progress simulation
+      const progressInterval = setInterval(() => {
+        setProgress(p => Math.min(p + 5, 90));
+      }, 500);
+
+      // Unseal (decrypt)
+      const encryptedHex = `0x${encryptedBigInt.toString(16)}`;
+      const decrypted = await unseal(encryptedHex, FHE_RETRY_ATTEMPTS);
+
+      clearInterval(progressInterval);
+      setProgress(100);
+
+      setRevealedBalance(decrypted);
+      cacheBalance(cacheKey, decrypted);
+      setStatus('revealed');
+    } catch (err) {
+      console.error('Wallet balance reveal failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to reveal');
+      setStatus('error');
+      setProgress(0);
+    }
+  }, [address, cacheKey, getCachedBalance, cacheBalance, isMock, unseal, isReady, refetchEncryptedBalance, token.decimals]);
+
+  const hide = useCallback(() => {
+    setRevealedBalance(null);
+    setStatus('idle');
+    setProgress(0);
+    setError(null);
+  }, []);
+
+  const formattedBalance = revealedBalance !== null
+    ? Number(formatUnits(revealedBalance, token.decimals)).toLocaleString(undefined, {
+        maximumFractionDigits: token.symbol.includes('USDC') ? 2 : 4,
+      })
+    : null;
+
+  return (
+    <div className="flex items-center justify-between py-2">
+      <div className="flex items-center gap-3">
+        <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${style.gradient} flex items-center justify-center shadow-lg relative`}>
+          <span className="text-white text-sm font-bold">{token.symbol.charAt(0)}</span>
+          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-iridescent-violet rounded-full flex items-center justify-center">
+            <Lock className="w-2.5 h-2.5 text-white" />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-feather-white">{token.symbol}</span>
+            {style.badge && (
+              <Badge variant={style.badgeVariant} className="text-[10px] px-1.5 py-0">
+                {style.badge}
+              </Badge>
+            )}
+            <button
+              onClick={handleCopyAddress}
+              className="p-1 rounded hover:bg-feather-white/10 transition-colors"
+              title={`Copy ${token.symbol} address`}
+            >
+              {copied ? (
+                <Check className="w-3 h-3 text-emerald-400" />
+              ) : (
+                <Copy className="w-3 h-3 text-feather-white/40 hover:text-feather-white/70" />
+              )}
+            </button>
+          </div>
+          <p className="text-xs text-feather-white/40">{token.name}</p>
+        </div>
+      </div>
+      <div className="text-right">
+        {status === 'error' && (
+          <div className="text-deep-magenta text-xs">
+            {error}
+            <button onClick={reveal} className="ml-2 underline">Retry</button>
+          </div>
+        )}
+
+        {status === 'revealing' && (
+          <div className="space-y-1 w-20">
+            <span className="text-feather-white/60 text-xs">Decrypting...</span>
+            <Progress value={progress} className="h-1" />
+          </div>
+        )}
+
+        {status === 'revealed' && formattedBalance !== null && (
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-feather-white font-medium">{formattedBalance}</span>
+            <button onClick={hide} className="text-xs text-iridescent-violet hover:underline">Hide</button>
+          </div>
+        )}
+
+        {status === 'idle' && (
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-iridescent-violet">******</span>
+            <button onClick={reveal} className="text-xs text-phoenix-ember hover:underline">Reveal</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface FheatherXTokenProps {
   token: Token;
 }
 
 function FheatherXToken({ token }: FheatherXTokenProps) {
+  const [copied, setCopied] = useState(false);
   const style = TOKEN_STYLES[token.symbol] || { gradient: 'from-gray-500 to-gray-600' };
   const {
     status,
@@ -99,6 +328,16 @@ function FheatherXToken({ token }: FheatherXTokenProps) {
       })
     : null;
 
+  const handleCopyAddress = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(token.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy address:', err);
+    }
+  }, [token.address]);
+
   return (
     <div className="flex items-center justify-between p-3 bg-gradient-to-r from-iridescent-violet/5 to-transparent border border-iridescent-violet/20 rounded-xl">
       <div className="flex items-center gap-3">
@@ -115,6 +354,17 @@ function FheatherXToken({ token }: FheatherXTokenProps) {
               {style.badge}
             </Badge>
           )}
+          <button
+            onClick={handleCopyAddress}
+            className="p-1 rounded hover:bg-feather-white/10 transition-colors"
+            title={`Copy ${token.symbol} address`}
+          >
+            {copied ? (
+              <Check className="w-3 h-3 text-emerald-400" />
+            ) : (
+              <Copy className="w-3 h-3 text-feather-white/40 hover:text-feather-white/70" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -221,13 +471,17 @@ export function TokenBalanceTable() {
             {/* Faucet/Pool Tokens */}
             {faucetTokens.length > 0 ? (
               faucetTokens.map((token) => (
-                <WalletToken
-                  key={token.address}
-                  symbol={token.symbol}
-                  name={token.name}
-                  decimals={token.decimals}
-                  tokenAddress={token.address}
-                />
+                token.type === 'fheerc20' ? (
+                  <WalletFherc20Token key={token.address} token={token} />
+                ) : (
+                  <WalletToken
+                    key={token.address}
+                    symbol={token.symbol}
+                    name={token.name}
+                    decimals={token.decimals}
+                    tokenAddress={token.address}
+                  />
+                )
               ))
             ) : (
               poolTokens.map((token) => (

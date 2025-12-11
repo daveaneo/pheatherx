@@ -52,6 +52,7 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     /// @notice Delay for fee changes (user protection)
     uint256 public constant FEE_CHANGE_DELAY = 2 days;
 
+    // TODO -- review
     /// @notice Minimum blocks between reserve sync requests
     uint256 public constant SYNC_COOLDOWN_BLOCKS = 5;
 
@@ -260,6 +261,7 @@ contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
         bool t0IsFherc20 = _isFherc20(token0Addr);
         bool t1IsFherc20 = _isFherc20(token1Addr);
 
+        // TODO--Re
         // Initialize pool state with token type flags
         poolStates[poolId] = PoolState({
             token0: token0Addr,

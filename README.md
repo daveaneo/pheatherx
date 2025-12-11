@@ -2,7 +2,7 @@
 
 **Trade in Silence. Your orders, encrypted on-chain.**
 
-FheatherX is a private decentralized exchange built as a **Uniswap v4 Hook** using **Fhenix's Fully Homomorphic Encryption (FHE)**. All order amounts and balances are encrypted - no one can see your trading strategies, not even validators.
+FheatherX is a private decentralized exchange built as a **Uniswap v4 Hook** using **Fhenix's Fully Homomorphic Encryption (FHE)**. All order amounts and balances are encrypted - no one can see your trading strategies, not even validators. [improve: FheatherX supports 4 types of limit orders for fhe tokens: [list them] and swapping between erc20 and fheerc20, compatibly with existing pools]
 
 ## Problem
 

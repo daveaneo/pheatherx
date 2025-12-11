@@ -233,8 +233,16 @@ export async function POST(request: NextRequest) {
             }, { status: 400 });
         }
 
+        // Extract user address from session ID (format: chainId-userAddress-timestamp)
+        const sessionParts = sessionId.split('-');
+        const userAddress = sessionParts.length >= 2 ? sessionParts[1] : undefined;
+
         const ctHash = BigInt(ciphertext);
-        const result = await cofhejs.unseal(ctHash, fheType);
+        console.log('[FHE API] Unseal request:', { ctHash: ctHash.toString(), type, userAddress, sessionId });
+
+        // Pass account parameter so CoFHE knows which permit to verify against
+        const result = await cofhejs.unseal(ctHash, fheType, userAddress);
+        console.log('[FHE API] Unseal result:', JSON.stringify(result));
 
         if ('error' in result && result.error) {
           return NextResponse.json({
