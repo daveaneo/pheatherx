@@ -23,6 +23,8 @@ interface UseFherc20BalanceResult {
   reveal: () => Promise<void>;
   /** Refetch the plaintext balance */
   refetchPlaintext: () => Promise<void>;
+  /** Invalidate cache and force fresh reveal - use after transactions */
+  invalidateAndRefresh: () => Promise<void>;
 }
 
 /**
@@ -67,7 +69,7 @@ export function useFherc20Balance(
   }, [token?.address]);
 
   // Read encrypted balance handle from FHERC20 contract
-  const { data: encryptedHandle, refetch: refetchEncrypted } = useReadContract({
+  const { data: encryptedHandle, refetch: refetchEncrypted, isSuccess: encryptedQuerySuccess } = useReadContract({
     address: token?.address,
     abi: FHERC20_ABI,
     functionName: 'balanceOfEncrypted',
@@ -128,11 +130,14 @@ export function useFherc20Balance(
       }
 
       // Refetch to get latest encrypted handle
-      const { data: freshHandle } = await refetchEncrypted();
+      const refetchResult = await refetchEncrypted();
+      const freshHandle = refetchResult.data;
       const handle = freshHandle ?? encryptedHandle;
 
+      // If both are undefined, the query may not have completed - wait and retry
       if (handle === undefined || handle === null) {
-        throw new Error('Failed to fetch encrypted balance');
+        console.log('[useFherc20Balance] Handle undefined, waiting for query...', { freshHandle, encryptedHandle });
+        throw new Error('Encrypted balance not yet available - please try again');
       }
 
       const handleBigInt = typeof handle === 'bigint' ? handle : BigInt(String(handle));
@@ -158,12 +163,31 @@ export function useFherc20Balance(
     }
   }, [isFherc20, token, userAddress, cacheKey, getCachedBalance, cacheBalance, isMock, unseal, isReady, refetchEncrypted, encryptedHandle]);
 
-  // Auto-reveal when FHE session becomes ready
+  // Invalidate cache and force a fresh reveal - useful after transactions
+  const invalidateAndRefresh = useCallback(async () => {
+    if (!isFherc20 || !token || !userAddress) return;
+
+    // Set balance to null to trigger UI update
+    setBalance(null);
+    setError(null);
+
+    // Reset attempt flag so auto-reveal can trigger again
+    hasAttemptedRef.current = false;
+
+    // Refetch plaintext balance
+    await refetchPlaintextBalance();
+
+    // Trigger fresh reveal (will refetch encrypted and unseal)
+    await reveal();
+  }, [isFherc20, token, userAddress, refetchPlaintextBalance, reveal]);
+
+  // Auto-reveal when FHE session becomes ready AND initial query has completed
   useEffect(() => {
     if (!isFherc20 || !token || !userAddress) return;
     if (balance !== null) return; // Already revealed
     if (hasAttemptedRef.current) return; // Already attempted
     if (!isReady && !isMock) return; // Session not ready
+    if (!encryptedQuerySuccess && !isMock) return; // Wait for initial query to complete
 
     // Check cache first
     if (cacheKey) {
@@ -177,7 +201,7 @@ export function useFherc20Balance(
     // Auto-reveal
     hasAttemptedRef.current = true;
     reveal();
-  }, [isFherc20, token, userAddress, isReady, isMock, balance, cacheKey, getCachedBalance, reveal]);
+  }, [isFherc20, token, userAddress, isReady, isMock, balance, cacheKey, getCachedBalance, reveal, encryptedQuerySuccess]);
 
   return {
     balance: isFherc20 ? balance : null,
@@ -187,5 +211,6 @@ export function useFherc20Balance(
     error: isFherc20 ? error : null,
     reveal,
     refetchPlaintext,
+    invalidateAndRefresh,
   };
 }
