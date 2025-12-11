@@ -34,17 +34,35 @@ export function LimitOrderForm({
   const [amount, setAmount] = useState('');
   const [targetTick, setTargetTick] = useState<string>('');
   const [priceInput, setPriceInput] = useState<string>('');
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   const { placeOrder, step, isSubmitting, error, reset } = usePlaceOrder();
   const { address } = useAccount();
   const { token0, token1 } = useSelectedPool();
   const txModal = useTransactionModal();
 
-  // Update order type when global direction changes
+  // Helper to reset target price to current market price (direction-aware)
+  const resetToCurrentPrice = (direction: boolean) => {
+    const normalizedTick = Math.round(currentTick / TICK_SPACING) * TICK_SPACING;
+    if (isValidTick(normalizedTick)) {
+      setTargetTick(normalizedTick.toString());
+      // Display price based on direction
+      const rawPrice = Number(tickToPrice(normalizedTick)) / 1e18;
+      const displayPrice = direction ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
+      setPriceInput(displayPrice.toFixed(4));
+    }
+  };
+
+  // Update order type AND reset price when global direction changes
   useEffect(() => {
     setOrderType(zeroForOne ? 'limit-sell' : 'limit-buy');
     setAmount(''); // Clear amount when direction changes
-  }, [zeroForOne]);
+    // Only reset price if already initialized (i.e., user flipped direction)
+    if (hasInitialized) {
+      resetToCurrentPrice(zeroForOne);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zeroForOne]); // Only trigger on direction change, not currentTick
 
   // Handle prefill from Quick Limit Order panel
   useEffect(() => {
@@ -112,32 +130,37 @@ export function LimitOrderForm({
     setAmount(trimmed);
   };
 
-  // Adjust tick by delta (for up/down buttons) - also updates price display
+  // Adjust tick by delta (for up/down buttons) - also updates price display (direction-aware)
   const adjustTick = (delta: number) => {
     const current = parseInt(targetTick) || 0;
     const newTick = current + delta;
     if (isValidTick(newTick)) {
       setTargetTick(newTick.toString());
-      const newPrice = tickToPrice(newTick);
-      setPriceInput((Number(newPrice) / 1e18).toFixed(4));
+      const rawPrice = Number(tickToPrice(newTick)) / 1e18;
+      const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
+      setPriceInput(displayPrice.toFixed(4));
     }
   };
 
-  // Handle price input blur - snap to nearest valid tick
+  // Handle price input blur - snap to nearest valid tick (direction-aware)
   const handlePriceBlur = () => {
     if (!priceInput) return;
-    const priceNum = parseFloat(priceInput);
-    if (isNaN(priceNum) || priceNum <= 0) return;
+    const displayPriceNum = parseFloat(priceInput);
+    if (isNaN(displayPriceNum) || displayPriceNum <= 0) return;
+
+    // Convert display price back to raw price (token0/token1)
+    const rawPrice = zeroForOne ? displayPriceNum : (1 / displayPriceNum);
 
     // Convert to 1e18 scaled bigint and get nearest tick
-    const priceBigInt = BigInt(Math.floor(priceNum * 1e18));
+    const priceBigInt = BigInt(Math.floor(rawPrice * 1e18));
     const tick = priceToTick(priceBigInt);
     const clampedTick = Math.max(MIN_TICK, Math.min(MAX_TICK, tick));
 
     setTargetTick(clampedTick.toString());
-    // Update price input to show the actual tick price
-    const actualPrice = tickToPrice(clampedTick);
-    setPriceInput((Number(actualPrice) / 1e18).toFixed(4));
+    // Update price input to show the actual tick price (in display direction)
+    const actualRawPrice = Number(tickToPrice(clampedTick)) / 1e18;
+    const actualDisplayPrice = zeroForOne ? actualRawPrice : (actualRawPrice > 0 ? 1 / actualRawPrice : 0);
+    setPriceInput(actualDisplayPrice.toFixed(4));
   };
 
   // Calculate receive amount (when filled) based on tick price
@@ -201,20 +224,16 @@ export function LimitOrderForm({
     }
   }, [orderTypeOptions, orderType]);
 
-  // Initialize default tick to current price (0-slip equivalent) when no tick is set
+  // Initialize target price on first valid currentTick (only once)
   useEffect(() => {
-    // Don't override if we have a prefill or if there's already a tick
-    if (prefill || targetTick) return;
+    // Only initialize once, skip if we have a prefill, or if already initialized
+    if (hasInitialized || prefill) return;
+    if (currentTick === 0) return; // Wait for valid tick data
 
-    // Default to current tick (normalized to tick spacing)
-    const normalizedCurrentTick = Math.round(currentTick / TICK_SPACING) * TICK_SPACING;
-
-    if (isValidTick(normalizedCurrentTick)) {
-      setTargetTick(normalizedCurrentTick.toString());
-      const price = tickToPrice(normalizedCurrentTick);
-      setPriceInput((Number(price) / 1e18).toFixed(4));
-    }
-  }, [currentTick, prefill, targetTick]);
+    resetToCurrentPrice(zeroForOne);
+    setHasInitialized(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTick, prefill, hasInitialized, zeroForOne]); // resetToCurrentPrice intentionally excluded
 
   const handlePlaceOrder = async () => {
     const tick = parseInt(targetTick);
@@ -391,7 +410,15 @@ export function LimitOrderForm({
         </div>
         <div className="flex justify-between">
           <span className="text-feather-white/60">Target Price</span>
-          <span>{formatPrice(tickToPrice(selectedTick))} {token1?.symbol ?? ''}</span>
+          <span>
+            {(() => {
+              const rawPrice = Number(tickToPrice(selectedTick)) / 1e18;
+              const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
+              const quoteToken = zeroForOne ? token1 : token0;
+              const baseToken = zeroForOne ? token0 : token1;
+              return `${displayPrice.toFixed(4)} ${quoteToken?.symbol ?? ''} per ${baseToken?.symbol ?? ''}`;
+            })()}
+          </span>
         </div>
         <div className="flex justify-between">
           <span className="text-feather-white/60">Bucket Side</span>
