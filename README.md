@@ -2,7 +2,7 @@
 
 **Trade in Silence. Your orders, encrypted on-chain.**
 
-FheatherX is a private decentralized exchange built as a **Uniswap v4 Hook** using **Fhenix's Fully Homomorphic Encryption (FHE)**. All order amounts and balances are encrypted - no one can see your trading strategies, not even validators. [improve: FheatherX supports 4 types of limit orders for fhe tokens: [list them] and swapping between erc20 and fheerc20, compatibly with existing pools]
+FheatherX is a private decentralized exchange built as a **Uniswap v4 Hook** using **Fhenix's Fully Homomorphic Encryption (FHE)**. FheatherXv6 combines a **Hybrid Encrypted AMM** with **Private Limit Orders** - supporting swaps and liquidity provision across ERC20 and FHERC20 token pairs. All order amounts and balances are encrypted - no one can see your trading strategies, not even validators.
 
 ## Problem
 
@@ -24,21 +24,31 @@ FheatherX encrypts everything using FHE:
 
 ### Uniswap v4 Hook Integration
 
-FheatherXv4 is a proper Uniswap v4 Hook that extends the PoolManager:
+FheatherXv6 is a Hybrid AMM + Limit Order system implemented as a Uniswap v4 Hook:
 
 ```solidity
-contract FheatherXv4 is BaseHook, ReentrancyGuard, Pausable, Ownable {
+contract FheatherXv6 is BaseHook, ReentrancyGuard, Pausable, Ownable {
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
-            afterInitialize: true,      // Set up encrypted pool state
-            beforeSwap: false,
-            afterSwap: true,            // Match limit orders
+            afterInitialize: true,      // Initialize encrypted pool state
+            beforeSwap: true,           // Execute AMM swap logic
+            afterSwap: true,            // Process triggered limit orders
+            beforeSwapReturnsDelta: true, // Return swap amounts
             // ...
         });
     }
 }
 ```
+
+### v6 Hybrid Architecture
+
+FheatherXv6 combines two systems:
+
+1. **Encrypted AMM**: x*y=k constant product formula with FHE math on encrypted reserves
+2. **Private Limit Orders**: Tick-based bucketed orders with proceeds-per-share fair fills
+
+Every swap routes through the AMM first (always-available liquidity), then triggers any limit orders at crossed price ticks.
 
 ### Fhenix FHE Integration
 
@@ -49,6 +59,20 @@ We use Fhenix's CoFHE (Coprocessor FHE) for encryption:
 - **FHERC20**: ERC20 tokens with fully encrypted balances
 - **Client-side encryption**: Amounts encrypted before submission
 
+### CoFHE Async Decryption Performance
+
+FheatherX uses Fhenix's CoFHE for asynchronous decryption of encrypted values. Observed performance on **Arbitrum Sepolia**:
+
+| Metric | Value |
+|--------|-------|
+| Decrypt Latency | ~42 minutes |
+| Block Delay | ~7,870 blocks |
+| Time (seconds) | ~2,500s |
+
+**Note**: Decryption is asynchronous - `FHE.decrypt()` requests decryption, and `FHE.getDecryptResultSafe()` polls for the result. The contract uses a binary search algorithm to efficiently find the newest resolved decrypt among pending requests.
+
+This latency is acceptable for reserve synchronization (used for UI price display) but not for time-sensitive operations. All encrypted operations (swaps, liquidity) execute immediately with encrypted math - only the plaintext reserve cache update is delayed.
+
 ### Bucketed Limit Order System
 
 Orders are placed at specific tick price levels (buckets):
@@ -58,11 +82,15 @@ Orders are placed at specific tick price levels (buckets):
 
 ## Features
 
-- **Encrypted Swaps**: Trade token pairs with hidden amounts
-- **Private Limit Orders**: Place hidden buy/sell orders at specific prices
+- **Hybrid AMM + Limit Orders**: Encrypted constant-product AMM with private limit order book
+- **Multi-Pool Support**: ERC:ERC, ERC:FHE, FHE:FHE pool types with automatic routing
+- **Encrypted Swaps**: Trade with hidden amounts via `swapEncrypted()`
+- **Private Limit Orders**: Place buy/sell orders at specific ticks with encrypted amounts
+- **LP Functions**: `addLiquidity` / `addLiquidityEncrypted` for providing liquidity
+- **MEV Protection**: SwapLock prevents atomic sandwich attacks (one swap per pool per tx)
 - **Portfolio Dashboard**: View encrypted balances with FHE decryption
-- **Testnet Faucet**: Get test tokens (tWETH, tUSDC, fheWETH, fheUSDC)
-- **Multi-network**: Supports Ethereum Sepolia, Arbitrum Sepolia, Local Anvil
+- **Testnet Faucet**: Get test tokens (WETH, USDC, fheWETH, fheUSDC)
+- **Multi-network**: Supports Ethereum Sepolia, Arbitrum Sepolia
 
 ## Getting Started
 
@@ -205,10 +233,10 @@ FheatherX is built on **Fhenix's CoFHE** infrastructure:
 
 ### Uniswap v4
 
-FheatherXv4 extends Uniswap v4's hook system:
+FheatherXv6 extends Uniswap v4's hook system:
 - Implements `BaseHook` interface
-- Uses `afterSwap` callback to process limit orders
-- Integrates with `PoolManager` for liquidity
+- Uses `beforeSwap` for AMM logic, `afterSwap` for limit order processing
+- Integrates with `PoolManager` for liquidity and settlement
 
 ## Team
 
@@ -259,13 +287,42 @@ By building on Uniswap V4, FheatherX pools become natively composable with the e
 *   *Result:* **Cross-Swapping.** A user can execute a single transaction that routes `ETH` through a standard Uniswap V3 pool, converts it to `USDC`, and then swaps that `USDC` into a private `FHE-Token` inside FheatherX. The privacy layer is fully integrated into the global liquidity layer.
 * 
 
+## Current Deployment (Arbitrum Sepolia)
+
+**Chain ID**: 421614
+
+### Contracts
+
+| Contract | Address |
+|----------|---------|
+| FheatherXv6 Hook | `0xa4522Bc1dA1880035835Aa7c281b566EBD2110c8` |
+| Pool Manager | `0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317` |
+| Swap Router | `0xf3A39C86dbd13C45365E57FB90fe413371F65AF8` |
+
+### Tokens
+
+| Token | Address | Type | Decimals |
+|-------|---------|------|----------|
+| WETH | `0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13` | ERC20 | 18 |
+| USDC | `0x00F7DC53A57b980F839767a6C6214b4089d916b1` | ERC20 | 6 |
+| fheWETH | `0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0` | FHERC20 | 18 |
+| fheUSDC | `0x987731d456B5996E7414d79474D8aba58d4681DC` | FHERC20 | 6 |
+
+### Pools
+
+| Pool | Type | Pool ID |
+|------|------|---------|
+| WETH/USDC | ERC:ERC | `0x3b4ccdc9...` |
+| fheWETH/fheUSDC | FHE:FHE | `0xb3449a4b...` |
+| WETH/fheUSDC | ERC:FHE | `0x73e4eda6...` |
+| fheWETH/USDC | FHE:ERC | `0x4d086d67...` |
+
 ## Links
 
-- **Live Demo**: [TBD]
-- **GitHub**: https://github.com/[username]/fheatherx
+- **GitHub**: https://github.com/davidjsonn/fheatherx
 - **Fhenix Docs**: https://docs.fhenix.zone
 - **Uniswap v4**: https://docs.uniswap.org/contracts/v4/overview
 
 ---
 
-Built for Hookathon 2024. Private trading, powered by FHE.
+Built with Fhenix CoFHE. Private trading, powered by FHE.
