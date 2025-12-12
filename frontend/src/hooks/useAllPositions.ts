@@ -52,7 +52,10 @@ const ClaimEvent = parseAbiItem('event Claim(bytes32 indexed poolId, address ind
 export function useAllPositions() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
-  const pools = usePoolStore(state => state.pools);
+  // Access raw state to ensure proper reactivity (computed getters don't subscribe well)
+  const poolsByChain = usePoolStore(state => state.poolsByChain);
+  const currentChainId = usePoolStore(state => state.currentChainId);
+  const pools = currentChainId ? (poolsByChain[currentChainId] || []) : [];
 
   const [positionsByPool, setPositionsByPool] = useState<Map<string, PoolPositionGroup>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
@@ -232,7 +235,15 @@ export function useAllPositions() {
 
   // Fetch all positions across all pools
   const fetchAllPositions = useCallback(async () => {
+    console.log('[useAllPositions] fetchAllPositions called:', {
+      address,
+      publicClient: !!publicClient,
+      poolsLength: pools.length,
+      currentChainId,
+    });
+
     if (!address || !publicClient || pools.length === 0) {
+      console.log('[useAllPositions] Skipping - missing deps or no pools');
       setPositionsByPool(new Map());
       return;
     }
@@ -241,7 +252,7 @@ export function useAllPositions() {
     setError(null);
 
     try {
-      console.log('[useAllPositions] Fetching positions across', pools.length, 'pools');
+      console.log('[useAllPositions] Fetching positions across', pools.length, 'pools:', pools.map(p => `${p.token0Meta?.symbol}/${p.token1Meta?.symbol}`));
 
       const newPositionsByPool = new Map<string, PoolPositionGroup>();
 
@@ -282,7 +293,7 @@ export function useAllPositions() {
     } finally {
       setIsLoading(false);
     }
-  }, [address, publicClient, pools, fetchPoolPositions]);
+  }, [address, publicClient, pools, currentChainId, fetchPoolPositions]);
 
   // Fetch on mount and when dependencies change
   useEffect(() => {
