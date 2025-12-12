@@ -4,27 +4,41 @@
  * useActiveOrders - v6 Active Orders Hook
  *
  * In v6, orders are stored as positions in buckets at specific ticks.
- * To find active orders, we:
- * 1. Query Deposit events from the contract to find user's positions
- * 2. Query the positions mapping to check if shares > 0
+ * A position is "active" if it has:
+ * - shares > 0 (unfilled order), OR
+ * - claimable proceeds (from filled orders)
+ *
+ * Detection uses:
+ * 1. Deposit events to find user's positions
+ * 2. positions mapping for shares and realizedProceeds handles
+ * 3. BucketFilled events to detect filled buckets
+ * 4. Claim events to exclude already claimed positions
  *
  * Position key: positions[poolId][user][tick][side]
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, usePublicClient, useReadContract } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
 import { FHEATHERX_V6_ABI, BucketSide } from '@/lib/contracts/fheatherXv6Abi';
 import { useSelectedPool } from '@/stores/poolStore';
 import { getPoolIdFromTokens } from '@/lib/poolId';
+import { parseAbiItem } from 'viem';
 
 export interface ActivePosition {
   poolId: `0x${string}`;
   tick: number;
   side: number; // 0 = BUY, 1 = SELL
   sharesHandle: bigint; // euint128 handle (encrypted)
+  // Proceeds detection
+  realizedProceedsHandle: bigint; // euint128 handle for accumulated proceeds
+  hasClaimableProceeds: boolean; // true if user can claim proceeds
   // UI display
   sideLabel: 'BUY' | 'SELL';
 }
+
+// Event signatures for claimable detection
+const BucketFilledEvent = parseAbiItem('event BucketFilled(bytes32 indexed poolId, int24 indexed tick, uint8 side)');
+const ClaimEvent = parseAbiItem('event Claim(bytes32 indexed poolId, address indexed user, int24 indexed tick, uint8 side, bytes32 amountHash)');
 
 export function useActiveOrders() {
   const { address } = useAccount();
@@ -40,7 +54,7 @@ export function useActiveOrders() {
     ? getPoolIdFromTokens(token0, token1, hookAddress)
     : null;
 
-  // Fetch user's positions by querying Deposit events
+  // Fetch user's positions by querying Deposit events and checking for claimable proceeds
   const fetchPositions = useCallback(async () => {
     if (!address || !hookAddress || !publicClient || !poolId) {
       console.log('[useActiveOrders] Missing deps:', { address, hookAddress, publicClient: !!publicClient, poolId });
@@ -60,27 +74,72 @@ export function useActiveOrders() {
       // Get current block number for range calculation
       const currentBlock = await publicClient.getBlockNumber();
       // Look back ~24 hours worth of blocks (Arbitrum ~250ms blocks = ~345,600 blocks/day)
-      // Use a smaller lookback for initial testing
       const fromBlock = currentBlock - 50000n; // ~3.5 hours of blocks
+      const fromBlockHex = `0x${(fromBlock > 0n ? fromBlock : 0n).toString(16)}` as `0x${string}`;
+      const toBlockHex = `0x${currentBlock.toString(16)}` as `0x${string}`;
 
-      // Get Deposit events using raw RPC request for proper topic filtering
-      // topics[0] = event sig, topics[1] = poolId, topics[2] = user, topics[3] = tick
-      const depositLogs = await publicClient.request({
-        method: 'eth_getLogs',
-        params: [{
+      // Query events in parallel: Deposits, BucketFilled, and Claims
+      const [depositLogs, filledLogs, claimLogs] = await Promise.all([
+        // Get Deposit events for this user
+        publicClient.request({
+          method: 'eth_getLogs',
+          params: [{
+            address: hookAddress,
+            topics: [
+              DEPOSIT_EVENT_SIG,
+              poolId,
+              `0x000000000000000000000000${address.slice(2).toLowerCase()}` as `0x${string}`,
+              null, // tick - all ticks
+            ],
+            fromBlock: fromBlockHex,
+            toBlock: toBlockHex,
+          }],
+        }) as Promise<Array<{ topics: string[]; data: string }>>,
+
+        // Get BucketFilled events for this pool
+        publicClient.getLogs({
           address: hookAddress,
-          topics: [
-            DEPOSIT_EVENT_SIG,
-            poolId,
-            `0x000000000000000000000000${address.slice(2).toLowerCase()}`,
-            null, // tick - all ticks
-          ],
-          fromBlock: `0x${(fromBlock > 0n ? fromBlock : 0n).toString(16)}`,
-          toBlock: `0x${currentBlock.toString(16)}`,
-        }],
-      }) as Array<{ topics: string[]; data: string }>;
+          event: BucketFilledEvent,
+          args: { poolId: poolId as `0x${string}` },
+          fromBlock: fromBlock > 0n ? fromBlock : 0n,
+          toBlock: 'latest',
+        }),
 
-      console.log('[useActiveOrders] Found deposit logs:', depositLogs.length);
+        // Get Claim events for this user
+        publicClient.getLogs({
+          address: hookAddress,
+          event: ClaimEvent,
+          args: { poolId: poolId as `0x${string}`, user: address },
+          fromBlock: fromBlock > 0n ? fromBlock : 0n,
+          toBlock: 'latest',
+        }),
+      ]);
+
+      console.log('[useActiveOrders] Found events:', {
+        deposits: depositLogs.length,
+        filled: filledLogs.length,
+        claims: claimLogs.length,
+      });
+
+      // Build set of filled buckets (tick:side -> true)
+      const filledBuckets = new Set<string>();
+      for (const log of filledLogs) {
+        const tick = log.args.tick;
+        const side = log.args.side;
+        if (tick !== undefined && side !== undefined) {
+          filledBuckets.add(`${tick}:${side}`);
+        }
+      }
+
+      // Build set of already claimed positions (tick:side -> true)
+      const claimedPositions = new Set<string>();
+      for (const log of claimLogs) {
+        const tick = log.args.tick;
+        const side = log.args.side;
+        if (tick !== undefined && side !== undefined) {
+          claimedPositions.add(`${tick}:${side}`);
+        }
+      }
 
       // Build set of unique positions from deposits
       const positionMap = new Map<string, { tick: number; side: number }>();
@@ -101,21 +160,17 @@ export function useActiveOrders() {
         // data format: side (uint8) + amountHash (bytes32)
         const side = parseInt(log.data.slice(2, 66), 16); // First 32 bytes = side (padded)
 
-        console.log('[useActiveOrders] Parsed deposit:', { tick, side, tickHex });
-
         const key = `${tick}-${side}`;
         positionMap.set(key, { tick, side });
       }
 
-      // For each position, query the contract to check if it still has shares
+      // For each position, query the contract and determine if active
       const activePositions: ActivePosition[] = [];
 
       console.log('[useActiveOrders] Querying positions for', positionMap.size, 'unique tick/side combos');
 
       for (const [key, pos] of positionMap) {
         try {
-          console.log('[useActiveOrders] Querying position:', { poolId, address, tick: pos.tick, side: pos.side });
-
           // Query positions mapping: positions(bytes32, address, int24, uint8)
           const result = await publicClient.readContract({
             address: hookAddress,
@@ -125,17 +180,39 @@ export function useActiveOrders() {
           }) as [bigint, bigint, bigint, bigint]; // [shares, proceedsPerShareSnapshot, filledPerShareSnapshot, realizedProceeds]
 
           const sharesHandle = result[0];
-          console.log('[useActiveOrders] Position result:', { tick: pos.tick, side: pos.side, sharesHandle: sharesHandle.toString() });
+          const realizedProceedsHandle = result[3];
 
-          // If shares handle is non-zero, position is active
-          // (The handle being non-zero means there's an encrypted value)
-          if (sharesHandle > 0n) {
+          // Determine if position has claimable proceeds
+          // 1. realizedProceeds handle exists (accumulated proceeds)
+          // 2. OR bucket was filled and user hasn't claimed yet
+          const bucketKey = `${pos.tick}:${pos.side}`;
+          const hasBucketFilled = filledBuckets.has(bucketKey);
+          const hasAlreadyClaimed = claimedPositions.has(bucketKey);
+          const hasUnclaimedFilledBucket = hasBucketFilled && !hasAlreadyClaimed;
+
+          const hasClaimableProceeds =
+            realizedProceedsHandle > 0n || // Has accumulated proceeds
+            hasUnclaimedFilledBucket;       // Bucket filled but not claimed
+
+          // Position is "active" if it has shares OR claimable proceeds
+          const isActive = sharesHandle > 0n || hasClaimableProceeds;
+
+          if (isActive) {
             activePositions.push({
               poolId: poolId as `0x${string}`,
               tick: pos.tick,
               side: pos.side,
               sharesHandle,
+              realizedProceedsHandle,
+              hasClaimableProceeds,
               sideLabel: pos.side === 0 ? 'BUY' : 'SELL',
+            });
+
+            console.log('[useActiveOrders] Active position:', {
+              tick: pos.tick,
+              side: pos.side,
+              sharesHandle: sharesHandle.toString(),
+              hasClaimableProceeds,
             });
           }
         } catch (err) {
