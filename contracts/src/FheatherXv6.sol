@@ -581,6 +581,55 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         FHE.allowThis(bucket.filledPerShare);
     }
 
+    /// @dev Process limit orders triggered by encrypted swap (reverse tick calculation)
+    function _processTriggeredOrdersEncrypted(PoolId poolId, uint256 oldR0, uint256 oldR1) internal {
+        PoolReserves storage r = poolReserves[poolId];
+        uint256 maxB = poolStates[poolId].maxBucketsPerSwap;
+        int24 prev = lastProcessedTick[poolId];
+
+        for (uint8 s = 0; s < 2; s++) {
+            BucketSide side = BucketSide(s);
+            uint256 cnt = 0;
+            for (uint8 d = 0; d < 2; d++) {
+                bool up = (d == 0);
+                int24 t = prev;
+                while (cnt < maxB) {
+                    int24 next = _findNextActiveTick(poolId, t, side, up);
+                    if (next == type(int24).max || next == type(int24).min) break;
+                    _tryFillBucketEncrypted(poolId, next, side, oldR0, oldR1, r.encReserve0, r.encReserve1);
+                    t = up ? next + TICK_SPACING : next - TICK_SPACING;
+                    cnt++;
+                }
+            }
+        }
+    }
+
+    function _tryFillBucketEncrypted(
+        PoolId poolId, int24 tick, BucketSide side,
+        uint256 oldR0, uint256 oldR1, euint128 newR0, euint128 newR1
+    ) internal {
+        Bucket storage b = buckets[poolId][tick][side];
+        if (!b.initialized) return;
+
+        uint256 tp = _calculateTickPrice(tick);
+        euint128 sR0 = FHE.div(newR0, FHE.asEuint128(1e9));
+        euint128 sR1 = FHE.div(newR1, FHE.asEuint128(1e9));
+        FHE.allowThis(sR0);
+        FHE.allowThis(sR1);
+
+        ebool x = FHE.xor(
+            FHE.asEbool(oldR1 * PRECISION >= tp * oldR0),
+            FHE.gte(sR1, FHE.mul(FHE.asEuint128(uint128(tp / 1e9)), sR0))
+        );
+        FHE.allowThis(x);
+
+        euint128 f = FHE.select(x, b.liquidity, ENC_ZERO);
+        FHE.allowThis(f);
+        _updateBucketOnFill(b, f, _executeSwapMathForPool(poolId, FHE.asEbool(side == BucketSide.SELL), f));
+        b.liquidity = FHE.select(x, ENC_ZERO, b.liquidity);
+        FHE.allowThis(b.liquidity);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //                   v6 NEW: DIRECT SWAP (Bypasses V4 Router)
     // ═══════════════════════════════════════════════════════════════════════
@@ -1115,6 +1164,14 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         // Execute encrypted swap
         amountOut = _executeSwapMathForPool(poolId, dir, amt);
 
+        // Trigger limit orders synchronously using reverse tick calculation
+        PoolReserves storage reserves = poolReserves[poolId];
+        _processTriggeredOrdersEncrypted(
+            poolId,
+            reserves.reserve0,   // Old plaintext reserves (may be stale - that's ok)
+            reserves.reserve1
+        );
+
         // Slippage check
         euint128 encMinOut = FHE.asEuint128(minOutput);
         ebool slippageOk = FHE.gte(amountOut, encMinOut);
@@ -1164,10 +1221,10 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         emit ReserveSyncRequested(poolId, newId, block.number);
     }
 
-    /// @notice Manually trigger reserve sync - harvests any resolved pending requests
-    /// @dev Can be called by anyone to update plaintext reserve cache
+    /// @notice Manually trigger reserve sync and process any triggered orders
     function trySyncReserves(PoolId poolId) external {
         _harvestResolvedDecrypts(poolId);
+        _processTriggeredOrders(poolId, true);
     }
 
     /// @notice Binary search to find newest resolved pending decrypt (shared helper)

@@ -713,11 +713,199 @@ No unsealing needed. Transaction success guarantees position is fully closed.
 
 ---
 
+## 6. Hybrid Order Book + AMM: Direct Order Matching
+
+### Current State
+
+FheatherXv6 limit orders are "triggered" by price movement but **never match directly** with incoming swaps. The current flow:
+
+```
+1. User submits swap (10 ETH → USDC)
+2. Entire swap goes through AMM (x*y=k math)
+3. Price moves from tick 100 → tick 95
+4. AFTER swap: _processTriggeredOrders() finds orders at crossed ticks
+5. Those orders ALSO swap against AMM
+```
+
+**Problem:** A BUY order wanting ETH at tick 97 exists, but instead of directly matching with the incoming SELL, both sides hit the AMM separately. This is:
+- Inefficient (double AMM math)
+- Worse execution (slippage on both sides)
+- Not how order books work
+
+### Proposed Architecture: Tick-by-Tick Order Matching
+
+Incoming swaps should **first consume opposite-direction limit orders** at each price level, then use AMM for any remainder.
+
+```
+User wants to sell 10 ETH, starting at tick 100
+
+Tick 100: Check for BUY orders → Found 2 ETH worth
+  → Match directly at tick 100 price (no AMM)
+  → Remaining: 8 ETH
+
+Tick 99: Check for BUY orders → None
+  → Trade against AMM (some portion consumed)
+  → Price drops, continue...
+
+Tick 98: Check for BUY orders → Found 3 ETH worth
+  → Match directly at tick 98 price
+  → Remaining: 5 ETH
+
+Tick 97: Has SELL orders (same direction)
+  → Skip for now (they trigger AFTER)
+  → Trade remaining against AMM
+
+... continues until swap amount exhausted ...
+
+Finally: Trigger SELL orders (same direction) at crossed ticks
+  → These fill against AMM as counterparty
+```
+
+### Key Concepts
+
+| Order Direction | Relationship to Swap | Behavior |
+|-----------------|---------------------|----------|
+| **Opposite** (BUY when swapping SELL) | Acts as liquidity | Match directly at agreed price, no AMM |
+| **Same** (SELL when swapping SELL) | Gets triggered | Fill against AMM after price moves through |
+
+### Benefits
+
+| Aspect | Current | With Order Matching |
+|--------|---------|---------------------|
+| Order fill price | AMM price (with slippage) | Exact tick price (no slippage for matched portion) |
+| Gas efficiency | Two separate AMM calls | Single direct swap for matched portions |
+| Capital efficiency | Orders compete with AMM | Orders complement AMM |
+| MEV protection | Limited | Better (direct matching is atomic) |
+
+### Implementation Approach
+
+#### New Core Function: `_matchAndSwap()`
+
+```solidity
+/// @notice Execute swap by first matching against opposite-direction orders, then AMM
+/// @param poolId The pool to swap in
+/// @param direction Swap direction (encrypted)
+/// @param amountIn Amount to swap (encrypted)
+/// @return amountOut Total output received
+function _matchAndSwap(
+    PoolId poolId,
+    ebool direction,
+    euint128 amountIn
+) internal returns (euint128 amountOut) {
+    int24 currentTick = _getCurrentTick(poolId);
+    euint128 remaining = amountIn;
+    amountOut = ENC_ZERO;
+
+    // Determine which side has opposite-direction orders
+    // If direction=true (zeroForOne), look for BUY orders (they want to buy token0)
+    // If direction=false (oneForZero), look for SELL orders (they want to sell token0)
+
+    // Iterate through ticks until remaining is exhausted
+    while (FHE.decrypt(FHE.gt(remaining, ENC_ZERO))) {  // Note: requires careful handling
+        // 1. Check for opposite-direction orders at current tick
+        euint128 matchedInput;
+        euint128 matchedOutput;
+        (matchedInput, matchedOutput) = _matchAgainstOrders(poolId, currentTick, direction, remaining);
+
+        remaining = FHE.sub(remaining, matchedInput);
+        amountOut = FHE.add(amountOut, matchedOutput);
+
+        // 2. If remaining, use AMM for this tick's liquidity
+        if (/* remaining > 0 */) {
+            euint128 ammOutput = _executeSwapMathForPool(poolId, direction, remaining);
+            amountOut = FHE.add(amountOut, ammOutput);
+            remaining = ENC_ZERO;  // AMM consumes all remaining
+        }
+
+        // 3. Move to next tick
+        currentTick = /* next tick based on direction */;
+    }
+
+    // 4. Trigger same-direction orders that were crossed
+    _triggerSameDirectionOrders(poolId, direction, startTick, currentTick);
+
+    return amountOut;
+}
+```
+
+#### New Helper: `_matchAgainstOrders()`
+
+```solidity
+/// @notice Match incoming swap against opposite-direction orders at a tick
+/// @dev Direct trade at tick price, no AMM involvement
+function _matchAgainstOrders(
+    PoolId poolId,
+    int24 tick,
+    ebool incomingDirection,
+    euint128 incomingAmount
+) internal returns (euint128 matchedInput, euint128 matchedOutput) {
+    // Determine opposite side
+    // incomingDirection=true (selling token0) matches with BUY orders (wanting token0)
+    BucketSide oppositeSide = /* BUY if direction else SELL */;
+
+    Bucket storage bucket = buckets[poolId][tick][oppositeSide];
+    if (!bucket.initialized) return (ENC_ZERO, ENC_ZERO);
+
+    // Match against bucket liquidity
+    euint128 availableLiquidity = bucket.liquidity;
+    euint128 matchAmount = FHE.min(incomingAmount, availableLiquidity);
+
+    // Calculate output at tick price (direct trade, no slippage)
+    uint256 tickPrice = getTickPrice(tick);
+    matchedOutput = FHE.mul(matchAmount, FHE.asEuint128(tickPrice));
+    matchedOutput = FHE.div(matchedOutput, ENC_PRECISION);
+
+    // Update bucket (reduce liquidity, increase proceeds)
+    bucket.liquidity = FHE.sub(bucket.liquidity, matchAmount);
+    _updateBucketOnFill(bucket, matchAmount, matchedOutput);
+
+    matchedInput = matchAmount;
+}
+```
+
+### FHE Considerations
+
+1. **Encrypted Iteration**: The while loop with `FHE.decrypt()` is problematic. Need to redesign as bounded iteration or use `FHE.select()` for conditional execution.
+
+2. **Direction Handling**: Use `FHE.select()` to handle both directions without revealing which:
+   ```solidity
+   BucketSide side = FHE.select(direction, BucketSide.BUY, BucketSide.SELL);
+   ```
+
+3. **Tick Traversal**: May need to process a fixed number of ticks per swap, or batch multiple ticks into single FHE operations.
+
+### Gas Optimization Ideas
+
+1. **Batch tick processing**: Instead of per-tick iteration, aggregate all matching orders in a range and compute total match in one FHE operation.
+
+2. **Precompute tick ranges**: Use bitmap to find all active order ticks in the swap path upfront.
+
+3. **Combined AMM math**: After matching, compute single AMM swap for total remaining amount rather than per-tick.
+
+### Migration Path
+
+1. **Phase 1 (Current Bug Fix)**: Add `_processTriggeredOrders()` to encrypted swaps via `trySyncReserves()` - orders trigger after reserve sync (delayed but works)
+
+2. **Phase 2 (This Feature)**: Implement `_matchAndSwap()` for direct order matching - better execution, proper order book behavior
+
+3. **Phase 3 (Optimization)**: Batch FHE operations, optimize gas for multi-tick swaps
+
+### Implementation Priority
+
+**Medium-High** - This transforms FheatherX from "AMM with triggered orders" to "true hybrid order book + AMM", significantly improving execution quality for limit orders.
+
+### Related Research
+
+See `/docs/research/claim-detection-deep-research.md` for analysis of current order triggering bugs and the architectural gap between encrypted swaps and order processing.
+
+---
+
 ## Implementation Priority
 
 1. **High Priority:** FheatherXPeriphery (unlocks ecosystem integration)
-2. **Medium-High Priority:** cancelOrder function (improves position tracking UX)
-3. **Medium Priority:** Auto-wrap on deposit (improves UX)
-4. **Medium Priority:** FHE.div optimization (reduces gas costs)
-5. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
-6. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
+2. **Medium-High Priority:** Hybrid Order Book + AMM matching (proper limit order execution)
+3. **Medium-High Priority:** cancelOrder function (improves position tracking UX)
+4. **Medium Priority:** Auto-wrap on deposit (improves UX)
+5. **Medium Priority:** FHE.div optimization (reduces gas costs)
+6. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
+7. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
