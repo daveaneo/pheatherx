@@ -253,9 +253,10 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
         address,
         PoolKey calldata key,
         uint160,
-        int24
+        int24 tick
     ) internal override returns (bytes4) {
         PoolId poolId = key.toId();
+        lastProcessedTick[poolId] = tick;
 
         address token0Addr = Currency.unwrap(key.currency0);
         address token1Addr = Currency.unwrap(key.currency1);
@@ -487,32 +488,49 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @notice Process limit orders triggered by price movement
-    function _processTriggeredOrders(PoolId poolId, bool zeroForOne) internal {
+    function _processTriggeredOrders(PoolId poolId, bool /* zeroForOne */) internal {
         int24 currentTick = _getCurrentTick(poolId);
         int24 prevTick = lastProcessedTick[poolId];
 
         if (currentTick == prevTick) return;
 
-        BucketSide side = zeroForOne ? BucketSide.SELL : BucketSide.BUY;
-        bool searchUp = !zeroForOne;
+        // Search in direction of actual price movement
+        bool searchUp = currentTick > prevTick;
 
-        uint256 bucketsProcessed = 0;
-        int24 tick = prevTick;
+        // Process BOTH sides when price moves through ticks
+        for (uint8 s = 0; s < 2; s++) {
+            BucketSide side = BucketSide(s);
 
-        while (bucketsProcessed < poolStates[poolId].maxBucketsPerSwap) {
-            int24 nextTick = _findNextActiveTick(poolId, tick, side, searchUp);
-            if (nextTick == type(int24).max || nextTick == type(int24).min) break;
-
-            bool crossed = searchUp
-                ? (nextTick > prevTick && nextTick <= currentTick)
-                : (nextTick < prevTick && nextTick >= currentTick);
-
-            if (crossed) {
-                _fillBucketAgainstAMM(poolId, nextTick, side);
+            // First check prevTick itself (orders at starting tick)
+            {
+                int16 wordPos = int16(prevTick >> 8);
+                uint8 bitPos = uint8(uint24(prevTick) % 256);
+                mapping(int16 => uint256) storage bitmap = side == BucketSide.BUY
+                    ? buyBitmaps[poolId]
+                    : sellBitmaps[poolId];
+                if ((bitmap[wordPos] & (1 << bitPos)) != 0) {
+                    _fillBucketAgainstAMM(poolId, prevTick, side);
+                }
             }
 
-            tick = searchUp ? nextTick + TICK_SPACING : nextTick - TICK_SPACING;
-            bucketsProcessed++;
+            // Then search for orders between prevTick and currentTick
+            uint256 bucketsProcessed = 0;
+            int24 tick = prevTick;
+
+            while (bucketsProcessed < poolStates[poolId].maxBucketsPerSwap) {
+                int24 nextTick = _findNextActiveTick(poolId, tick, side, searchUp);
+                if (nextTick == type(int24).max || nextTick == type(int24).min) break;
+
+                bool inRange = searchUp
+                    ? (nextTick > prevTick && nextTick <= currentTick)
+                    : (nextTick < prevTick && nextTick >= currentTick);
+
+                if (!inRange) break;
+
+                _fillBucketAgainstAMM(poolId, nextTick, side);
+                tick = searchUp ? nextTick + TICK_SPACING : nextTick - TICK_SPACING;
+                bucketsProcessed++;
+            }
         }
 
         lastProcessedTick[poolId] = currentTick;
@@ -532,6 +550,9 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
 
         bucket.liquidity = ENC_ZERO;
         FHE.allowThis(bucket.liquidity);
+
+        // Clear bitmap bit now that bucket has no active liquidity
+        _clearBit(poolId, tick, side);
 
         emit BucketFilled(poolId, tick, side);
     }
@@ -934,10 +955,18 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
             lpAmount = lpAmount0 < lpAmount1 ? lpAmount0 : lpAmount1;
         }
 
+        // Track if this is first liquidity (before updating totalLpSupply)
+        bool isFirstLiquidity = (_totalLpSupply == 0);
+
         lpBalances[poolId][msg.sender] += lpAmount;
         totalLpSupply[poolId] += lpAmount;
         reserves.reserve0 += amount0;
         reserves.reserve1 += amount1;
+
+        // Update lastProcessedTick on first liquidity (after reserves are set)
+        if (isFirstLiquidity) {
+            lastProcessedTick[poolId] = _getCurrentTick(poolId);
+        }
 
         emit LiquidityAdded(poolId, msg.sender, amount0, amount1, lpAmount);
     }
@@ -1394,6 +1423,17 @@ contract FheatherXv6 is BaseHook, Pausable, Ownable {
             buyBitmaps[poolId][wordPos] |= (1 << bitPos);
         } else {
             sellBitmaps[poolId][wordPos] |= (1 << bitPos);
+        }
+    }
+
+    function _clearBit(PoolId poolId, int24 tick, BucketSide side) internal {
+        int16 wordPos = int16(tick >> 8);
+        uint8 bitPos = uint8(uint24(tick) % 256);
+
+        if (side == BucketSide.BUY) {
+            buyBitmaps[poolId][wordPos] &= ~(1 << bitPos);
+        } else {
+            sellBitmaps[poolId][wordPos] &= ~(1 << bitPos);
         }
     }
 

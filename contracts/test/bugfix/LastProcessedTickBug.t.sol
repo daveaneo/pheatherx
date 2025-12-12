@@ -168,15 +168,163 @@ contract LastProcessedTickBugTest is Test, Fixtures, CoFheTest {
     }
 
     // ============================================================
-    // TEST 2 & 3: SELL orders should fill on ANY swap direction
+    // TEST 2-5: Orders at current tick should ALWAYS trigger
+    // ============================================================
+
+    /**
+     * @notice SELL order AT current tick should fill when selling (zeroForOne=true)
+     *
+     * If order is at current tick, ANY price movement should trigger it.
+     */
+    function test_SellOrderAtCurrentTickShouldBeFilledWhenSelling() public {
+        vm.startPrank(lp);
+        hook.addLiquidity(poolId, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+        vm.stopPrank();
+
+        int24 currentTick = hook.getCurrentTickForPool(poolId);
+        int24 orderTick = (currentTick / TICK_SPACING) * TICK_SPACING;
+
+        console.log("Current tick:", currentTick);
+        console.log("lastProcessedTick:", hook.lastProcessedTick(poolId));
+        console.log("SELL order at tick:", orderTick);
+
+        vm.startPrank(user1);
+        InEuint128 memory amount = createInEuint128(uint128(ORDER_AMOUNT), user1);
+        hook.deposit(poolId, orderTick, FheatherXv6.BucketSide.SELL, amount, block.timestamp + 1 hours, 1000000);
+        vm.stopPrank();
+
+        assertTrue(hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.SELL), "Order should exist");
+
+        vm.startPrank(lp);
+        hook.swapForPool(poolId, true, LIQUIDITY_AMOUNT / 5, 0); // zeroForOne=true
+        vm.stopPrank();
+
+        int24 newTick = hook.getCurrentTickForPool(poolId);
+        console.log("New tick after swap:", newTick);
+
+        // Order at current tick should be filled when price moves away from it
+        assertFalse(
+            hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.SELL),
+            "SELL order at current tick should be filled on any swap"
+        );
+    }
+
+    /**
+     * @notice SELL order AT current tick should fill when buying (zeroForOne=false)
+     */
+    function test_SellOrderAtCurrentTickShouldBeFilledWhenBuying() public {
+        vm.startPrank(lp);
+        hook.addLiquidity(poolId, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+        vm.stopPrank();
+
+        int24 currentTick = hook.getCurrentTickForPool(poolId);
+        int24 orderTick = (currentTick / TICK_SPACING) * TICK_SPACING;
+
+        console.log("Current tick:", currentTick);
+        console.log("lastProcessedTick:", hook.lastProcessedTick(poolId));
+        console.log("SELL order at tick:", orderTick);
+
+        vm.startPrank(user1);
+        InEuint128 memory amount = createInEuint128(uint128(ORDER_AMOUNT), user1);
+        hook.deposit(poolId, orderTick, FheatherXv6.BucketSide.SELL, amount, block.timestamp + 1 hours, 1000000);
+        vm.stopPrank();
+
+        assertTrue(hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.SELL), "Order should exist");
+
+        vm.startPrank(lp);
+        hook.swapForPool(poolId, false, LIQUIDITY_AMOUNT / 5, 0); // zeroForOne=false
+        vm.stopPrank();
+
+        int24 newTick = hook.getCurrentTickForPool(poolId);
+        console.log("New tick after swap:", newTick);
+
+        assertFalse(
+            hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.SELL),
+            "SELL order at current tick should be filled on any swap"
+        );
+    }
+
+    /**
+     * @notice BUY order AT current tick should fill when selling (zeroForOne=true)
+     */
+    function test_BuyOrderAtCurrentTickShouldBeFilledWhenSelling() public {
+        vm.startPrank(lp);
+        hook.addLiquidity(poolId, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+        vm.stopPrank();
+
+        int24 currentTick = hook.getCurrentTickForPool(poolId);
+        int24 orderTick = (currentTick / TICK_SPACING) * TICK_SPACING;
+
+        console.log("Current tick:", currentTick);
+        console.log("lastProcessedTick:", hook.lastProcessedTick(poolId));
+        console.log("BUY order at tick:", orderTick);
+
+        vm.startPrank(user1);
+        InEuint128 memory amount = createInEuint128(uint128(ORDER_AMOUNT), user1);
+        hook.deposit(poolId, orderTick, FheatherXv6.BucketSide.BUY, amount, block.timestamp + 1 hours, 1000000);
+        vm.stopPrank();
+
+        assertTrue(hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.BUY), "Order should exist");
+
+        vm.startPrank(lp);
+        hook.swapForPool(poolId, true, LIQUIDITY_AMOUNT / 5, 0); // zeroForOne=true
+        vm.stopPrank();
+
+        int24 newTick = hook.getCurrentTickForPool(poolId);
+        console.log("New tick after swap:", newTick);
+
+        assertFalse(
+            hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.BUY),
+            "BUY order at current tick should be filled on any swap"
+        );
+    }
+
+    /**
+     * @notice BUY order AT current tick should fill when buying (zeroForOne=false)
+     */
+    function test_BuyOrderAtCurrentTickShouldBeFilledWhenBuying() public {
+        vm.startPrank(lp);
+        hook.addLiquidity(poolId, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+        vm.stopPrank();
+
+        int24 currentTick = hook.getCurrentTickForPool(poolId);
+        int24 orderTick = (currentTick / TICK_SPACING) * TICK_SPACING;
+
+        console.log("Current tick:", currentTick);
+        console.log("lastProcessedTick:", hook.lastProcessedTick(poolId));
+        console.log("BUY order at tick:", orderTick);
+
+        vm.startPrank(user1);
+        InEuint128 memory amount = createInEuint128(uint128(ORDER_AMOUNT), user1);
+        hook.deposit(poolId, orderTick, FheatherXv6.BucketSide.BUY, amount, block.timestamp + 1 hours, 1000000);
+        vm.stopPrank();
+
+        assertTrue(hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.BUY), "Order should exist");
+
+        vm.startPrank(lp);
+        hook.swapForPool(poolId, false, LIQUIDITY_AMOUNT / 5, 0); // zeroForOne=false
+        vm.stopPrank();
+
+        int24 newTick = hook.getCurrentTickForPool(poolId);
+        console.log("New tick after swap:", newTick);
+
+        assertFalse(
+            hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.BUY),
+            "BUY order at current tick should be filled on any swap"
+        );
+    }
+
+    // ============================================================
+    // TEST 6-9: Orders in price path should fill
     // ============================================================
 
     /**
      * @notice SELL order should fill when swap is SELLING (zeroForOne=true)
      *
-     * Price moves through the order tick → order should fill.
+     * Place SELL order at current tick, then do a selling swap.
+     * Order should fill when price moves away from it.
      *
-     * FAILS NOW: Order not filled due to lastProcessedTick=0 bug
+     * FAILS NOW: Order at current tick not filled (strict inequality bug)
      * PASSES AFTER FIX: Order fills correctly
      */
     function test_SellOrderShouldBeFilledWhenSelling() public {
@@ -188,7 +336,7 @@ contract LastProcessedTickBugTest is Test, Fixtures, CoFheTest {
         int24 orderTick = (currentTick / TICK_SPACING) * TICK_SPACING;
 
         console.log("Current tick:", currentTick);
-        console.log("lastProcessedTick (BUG=0):", hook.lastProcessedTick(poolId));
+        console.log("lastProcessedTick:", hook.lastProcessedTick(poolId));
         console.log("SELL order at tick:", orderTick);
 
         vm.startPrank(user1);
@@ -206,7 +354,7 @@ contract LastProcessedTickBugTest is Test, Fixtures, CoFheTest {
 
         assertFalse(
             hook.hasActiveOrders(poolId, orderTick, FheatherXv6.BucketSide.SELL),
-            "SELL order should be filled when price moves through it (selling swap)"
+            "SELL order should be filled when price moves through it"
         );
     }
 
