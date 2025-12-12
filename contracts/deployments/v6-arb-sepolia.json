@@ -2,9 +2,9 @@
   "version": "v6",
   "network": "arb-sepolia",
   "chainId": 421614,
-  "deployedAt": "1765484029",
+  "deployedAt": "1765503610",
   "contracts": {
-    "hook": "0xa4522Bc1dA1880035835Aa7c281b566EBD2110c8",
+    "hook": "0x8eE2375234D0b0a50a41458a471cfa8fB490d0c8",
     "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     "swapRouter": "0xf3A39C86dbd13C45365E57FB90fe413371F65AF8",
     "positionManager": "0xAc631556d3d4019C95769033B5E719dD77124BAc"
@@ -16,53 +16,13 @@
     "fheUSDC": { "address": "0x987731d456B5996E7414d79474D8aba58d4681DC", "decimals": 6, "type": "FHERC20" }
   },
   "pools": {
-    "WETH_USDC": {
-      "poolId": "0x3b4ccdc9448c33e811377580e29685f7b4a26ba183c770b33e1527cd4e1bd913",
-      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
-      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
-      "type": "ERC:ERC"
-    },
-    "fheWETH_fheUSDC": {
-      "poolId": "0xb3449a4bbffc07cc982373d1fd44f072126032363f962d5cb52d40eb35a2ab4f",
-      "token0": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
-      "token1": "0x987731d456B5996E7414d79474D8aba58d4681DC",
-      "type": "FHE:FHE"
-    },
-    "WETH_fheUSDC": {
-      "poolId": "0x73e4eda6afbd63d89c4d23505dd50b0606e870fb6c9a32250d7787925fb0dbaa",
-      "token0": "0x987731d456B5996E7414d79474D8aba58d4681DC",
-      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
-      "type": "ERC:FHE"
-    },
-    "fheWETH_USDC": {
-      "poolId": "0x4d086d675d556edc7d3c730ca7a58ddf22c87d411149b0468148f3353a15ffac",
-      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
-      "token1": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
-      "type": "FHE:ERC"
-    },
-    "WETH_fheWETH": {
-      "poolId": "0xefefcf3ca623df2fdd6e1133258adfca0cd3961e9cedd77dd7402da13e775167",
-      "token0": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
-      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
-      "type": "ERC:FHE"
-    },
-    "USDC_fheUSDC": {
-      "poolId": "0xe5d6ec019f5308293f6b2d0c08d82ac089e435582691aea7f7504fc9785e7dbf",
-      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
-      "token1": "0x987731d456B5996E7414d79474D8aba58d4681DC",
-      "type": "ERC:FHE"
-    }
+    "WETH_USDC": { "poolId": "0x32f1f1626185360151d20ace0dcb920530317588f2e31874dac6e272143025d8", "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1", "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13", "type": "ERC:ERC" },
+    "fheWETH_fheUSDC": { "poolId": "0x943373077c39300e6f34b9d3fa425061d93adec9a115e02a2c7ddfa8a23178fc", "token0": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0", "token1": "0x987731d456B5996E7414d79474D8aba58d4681DC", "type": "FHE:FHE" },
+    "WETH_fheUSDC": { "poolId": "0x5e91c8ff2c985af79fb90ab4415e94b97d089b45faf2f9aa89612d3c07f2464b", "token0": "0x987731d456B5996E7414d79474D8aba58d4681DC", "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13", "type": "ERC:FHE" },
+    "fheWETH_USDC": { "poolId": "0xce114058a88f6c5359c12d4855d42164261bd1e4413dfb4bf8d04c1da8b12dca", "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1", "token1": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0", "type": "FHE:ERC" },
+    "WETH_fheWETH": { "poolId": "0x065fc88abd1b66fca05302f212e6f21ecc34c40f9d963f30a4793b18928d44e7", "token0": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0", "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13", "type": "ERC:FHE" },
+    "USDC_fheUSDC": { "poolId": "0xb2b7f0ada66d35fb0f578b8db78a2db8a42773b6c7dd112b9a35d8e78d89e751", "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1", "token1": "0x987731d456B5996E7414d79474D8aba58d4681DC", "type": "ERC:FHE" }
   },
-  "poolConfig": {
-    "fee": 3000,
-    "tickSpacing": 60,
-    "swapFeeBps": 30
-  },
-  "features": {
-    "multiPool": true,
-    "encryptedAMM": true,
-    "limitOrders": true,
-    "mixedPairs": true,
-    "v4Settlement": true
-  }
+  "poolConfig": { "fee": 3000, "tickSpacing": 60, "swapFeeBps": 30 },
+  "features": { "multiPool": true, "encryptedAMM": true, "limitOrders": true, "mixedPairs": true, "v4Settlement": true }
 }
