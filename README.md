@@ -50,28 +50,47 @@ FheatherXv6 combines two systems:
 
 Every swap routes through the AMM first (always-available liquidity), then triggers any limit orders at crossed price ticks.
 
-### Fhenix FHE Integration
 
-We use Fhenix's CoFHE (Coprocessor FHE) for encryption:
+## Partner Integrations
 
-- **euint128**: 128-bit encrypted unsigned integers for balances/amounts
-- **FHE.allowThis()**: ACL permissions for contract operations on encrypted values
-- **FHERC20**: ERC20 tokens with fully encrypted balances
-- **Client-side encryption**: Amounts encrypted before submission
+### Fhenix (Primary Integration)
+
+FheatherX is built entirely on **Fhenix's CoFHE (Coprocessor FHE)** infrastructure, enabling fully private DEX operations where trade amounts, order sizes, and balances remain encrypted on-chain. We use Fhenix's `euint128` and `ebool` types for all sensitive values, perform arithmetic directly on encrypted data using `FHE.add`, `FHE.mul`, `FHE.div`, and leverage `FHE.select` for conditional logic without revealing branch conditions. Our FHERC20 tokens (fheWETH, fheUSDC) are built on Fhenix's encrypted token standard, and the frontend uses Fhenix's SDK for session management and client-side encryption.
+
+| Feature | Code Location |
+|---------|---------------|
+| FHE imports (`euint128`, `ebool`, `FHE.*`) | `contracts/src/FheatherXv6.sol:14` |
+| Encrypted constants (`ENC_ZERO`, `ENC_PRECISION`) | `contracts/src/FheatherXv6.sol:139-143` |
+| Encrypted reserves & LP balances | `contracts/src/FheatherXv6.sol:152-159` |
+| FHE swap math (`FHE.add`, `FHE.mul`, `FHE.div`) | `contracts/src/FheatherXv6.sol:443-484` |
+| Encrypted order triggering (`FHE.xor`, `FHE.gte`, `FHE.select`) | `contracts/src/FheatherXv6.sol:607-637` |
+| FHERC20 encrypted transfers | `contracts/src/FheatherXv6.sol:1214-1221` |
+| Async decryption flow | `contracts/src/FheatherXv6.sol:1254-1281` |
+| FHERC20 token implementation | `contracts/src/tokens/FhenixFHERC20Faucet.sol` |
+| Frontend FHE session & encryption | `frontend/src/hooks/useFheClient.ts` |
+| Frontend balance decryption | `frontend/src/hooks/useBalanceReveal.ts` |
 
 ### CoFHE Async Decryption Performance
 
 FheatherX uses Fhenix's CoFHE for asynchronous decryption of encrypted values. Observed performance on **Arbitrum Sepolia**:
 
-| Metric | Value |
-|--------|-------|
-| Decrypt Latency | ~42 minutes |
-| Block Delay | ~7,870 blocks |
-| Time (seconds) | ~2,500s |
-
 **Note**: Decryption is asynchronous - `FHE.decrypt()` requests decryption, and `FHE.getDecryptResultSafe()` polls for the result. The contract uses a binary search algorithm to efficiently find the newest resolved decrypt among pending requests.
 
-This latency is acceptable for reserve synchronization (used for UI price display) but not for time-sensitive operations. All encrypted operations (swaps, liquidity) execute immediately with encrypted math - only the plaintext reserve cache update is delayed.
+
+
+### Uniswap v4
+
+FheatherXv6 extends Uniswap v4's hook system:
+
+| Feature | Code Location |
+|---------|---------------|
+| `BaseHook` implementation | `contracts/src/FheatherXv6.sol:31` |
+| `beforeSwap` / `afterSwap` hooks | `contracts/src/FheatherXv6.sol:307-436` |
+| `TickMath` for price calculations | `contracts/src/FheatherXv6.sol:1330-1379` |
+| `PoolManager` integration | `contracts/src/FheatherXv6.sol:6-12` |
+
+
+
 
 ### Bucketed Limit Order System
 
@@ -220,23 +239,6 @@ Each chain supports 4 tokens (2 ERC20 + 2 FHERC20):
 **Trade Interface**
 - Swap and limit order placement
 - Bucket visualization
-
-## Partner Integrations
-
-### Fhenix (Primary Integration)
-
-FheatherX is built on **Fhenix's CoFHE** infrastructure:
-- All balances stored as `euint128` encrypted values
-- FHERC20 tokens for encrypted token transfers
-- FHE session management for client-side encryption
-- ACL-based permission system for secure multi-party computation
-
-### Uniswap v4
-
-FheatherXv6 extends Uniswap v4's hook system:
-- Implements `BaseHook` interface
-- Uses `beforeSwap` for AMM logic, `afterSwap` for limit order processing
-- Integrates with `PoolManager` for liquidity and settlement
 
 ## Team
 
