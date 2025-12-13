@@ -17,7 +17,7 @@ export const FHEATHERX_FACTORY_ADDRESSES: Record<number, `0x${string}`> = {
 // Note: .env values (NEXT_PUBLIC_FHEATHERX_ADDRESS_*) are potentially deprecated - addresses hardcoded here
 export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0xA5C0d461B96aE934699E642e4e654e4790f890c8', // v6 Eth Sepolia (with Uniswap TickMath)
+  11155111: '0x99bA4fC062c9355fccad7E4C093b2eb55F6ed0c8', // v6 Eth Sepolia (2024-12-11 redeploy)
   421614: '0x8eE2375234D0b0a50a41458a471cfa8fB490d0c8',   // v6 Arb Sepolia (limit order bugfix - 2024-12-11)
   8008135: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
 };
