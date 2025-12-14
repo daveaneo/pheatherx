@@ -900,12 +900,678 @@ See `/docs/research/claim-detection-deep-research.md` for analysis of current or
 
 ---
 
+---
+
+## 7. FheatherX Router: Unified Interface Across Pool Types
+
+### Current State
+
+With FheatherXv8, we have two separate contracts:
+
+| Contract | Pool Types | Token Requirements |
+|----------|-----------|-------------------|
+| **FheatherXv8FHE** | FHE:FHE only | Both tokens must be FHERC20 |
+| **FheatherXv8Mixed** | FHE:ERC, ERC:FHE | One FHERC20, one ERC20 |
+
+**Problem:** Frontend/users must:
+1. Determine token types for each pair
+2. Call the correct contract address
+3. Handle different function signatures (v8FHE is encrypted-only)
+
+This complexity increases integration burden and potential for errors.
+
+### Proposed Solution: FheatherXRouter
+
+A router contract that provides a **single entry point** for all FheatherX operations, automatically routing to the correct underlying pool contract.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         User/Frontend                            │
+│                                                                  │
+│  "I want to swap fheWETH for fheUSDC"                           │
+│  "I want to add liquidity to fheWETH/USDC"                      │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ Single API call
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      FheatherXRouter                             │
+│                                                                  │
+│  1. Detect token types (isFHERC20?)                             │
+│  2. Determine target contract                                    │
+│  3. Route call with appropriate parameters                       │
+│  4. Handle wrap/unwrap if integrated (see Feature 8)            │
+└─────────────────────────────────────────────────────────────────┘
+                    │                          │
+                    ▼                          ▼
+┌─────────────────────────────┐  ┌─────────────────────────────┐
+│     FheatherXv8FHE          │  │     FheatherXv8Mixed        │
+│                             │  │                             │
+│  - fheWETH/fheUSDC pool     │  │  - fheWETH/USDC pool       │
+│  - Encrypted operations     │  │  - fheUSDC/WETH pool       │
+│                             │  │  - Mixed operations         │
+└─────────────────────────────┘  └─────────────────────────────┘
+```
+
+### Core Functions
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {IFheatherXv8FHE} from "./interfaces/IFheatherXv8FHE.sol";
+import {IFheatherXv8Mixed} from "./interfaces/IFheatherXv8Mixed.sol";
+import {InEuint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+
+/// @title FheatherXRouter
+/// @notice Unified interface for FheatherX v8 pool contracts
+/// @dev Routes operations to v8FHE or v8Mixed based on pool/token types
+contract FheatherXRouter {
+
+    IFheatherXv8FHE public immutable v8FHE;
+    IFheatherXv8Mixed public immutable v8Mixed;
+
+    // Registry: poolId -> contract type
+    enum PoolType { NONE, FHE_FHE, FHE_ERC, ERC_FHE }
+    mapping(PoolId => PoolType) public poolTypes;
+
+    // ═══════════════════════════════════════════════════════════
+    //                      LIQUIDITY
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Add liquidity to any pool type
+    /// @dev Routes to v8FHE or v8Mixed based on registered pool type
+    function addLiquidity(
+        PoolId poolId,
+        InEuint128 calldata encAmount0,
+        InEuint128 calldata encAmount1
+    ) external {
+        PoolType ptype = poolTypes[poolId];
+
+        if (ptype == PoolType.FHE_FHE) {
+            // Both tokens FHERC20 - use v8FHE
+            v8FHE.addLiquidity(poolId, encAmount0, encAmount1);
+        } else if (ptype == PoolType.FHE_ERC || ptype == PoolType.ERC_FHE) {
+            // Mixed - use v8Mixed encrypted path
+            v8Mixed.addLiquidityEncrypted(poolId, encAmount0, encAmount1);
+        } else {
+            revert("Pool not registered");
+        }
+    }
+
+    /// @notice Remove liquidity from any pool type
+    function removeLiquidity(
+        PoolId poolId,
+        InEuint128 calldata encLpAmount
+    ) external {
+        PoolType ptype = poolTypes[poolId];
+
+        if (ptype == PoolType.FHE_FHE) {
+            v8FHE.removeLiquidity(poolId, encLpAmount);
+        } else {
+            v8Mixed.removeLiquidityEncrypted(poolId, encLpAmount);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                      LIMIT ORDERS
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Place a limit order (deposit to bucket)
+    function deposit(
+        PoolId poolId,
+        int24 tick,
+        uint8 side,  // 0=BUY, 1=SELL
+        InEuint128 calldata encAmount,
+        uint256 deadline,
+        int24 maxTickDrift
+    ) external {
+        PoolType ptype = poolTypes[poolId];
+
+        if (ptype == PoolType.FHE_FHE) {
+            v8FHE.deposit(poolId, tick, IFheatherXv8FHE.BucketSide(side), encAmount, deadline, maxTickDrift);
+        } else {
+            v8Mixed.deposit(poolId, tick, IFheatherXv8Mixed.BucketSide(side), encAmount, deadline, maxTickDrift);
+        }
+    }
+
+    /// @notice Cancel/withdraw from a limit order
+    function withdraw(
+        PoolId poolId,
+        int24 tick,
+        uint8 side,
+        InEuint128 calldata encAmount
+    ) external {
+        PoolType ptype = poolTypes[poolId];
+
+        if (ptype == PoolType.FHE_FHE) {
+            v8FHE.withdraw(poolId, tick, IFheatherXv8FHE.BucketSide(side), encAmount);
+        } else {
+            v8Mixed.withdraw(poolId, tick, IFheatherXv8Mixed.BucketSide(side), encAmount);
+        }
+    }
+
+    /// @notice Claim proceeds from filled orders
+    function claim(PoolId poolId, int24 tick, uint8 side) external {
+        PoolType ptype = poolTypes[poolId];
+
+        if (ptype == PoolType.FHE_FHE) {
+            v8FHE.claim(poolId, tick, IFheatherXv8FHE.BucketSide(side));
+        } else {
+            v8Mixed.claim(poolId, tick, IFheatherXv8Mixed.BucketSide(side));
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                      VIEW FUNCTIONS
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Get quote for a swap (routes to correct contract)
+    function getQuote(
+        PoolId poolId,
+        bool zeroForOne,
+        uint256 amountIn
+    ) external view returns (uint256) {
+        PoolType ptype = poolTypes[poolId];
+
+        if (ptype == PoolType.FHE_FHE) {
+            return v8FHE.getQuote(poolId, zeroForOne, amountIn);
+        } else {
+            return v8Mixed.getQuote(poolId, zeroForOne, amountIn);
+        }
+    }
+
+    /// @notice Get reserves (routes to correct contract)
+    function getReserves(PoolId poolId) external view returns (uint256, uint256) {
+        PoolType ptype = poolTypes[poolId];
+
+        if (ptype == PoolType.FHE_FHE) {
+            return v8FHE.getReserves(poolId);
+        } else {
+            return v8Mixed.getReserves(poolId);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                      ADMIN: POOL REGISTRATION
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Register a pool's type for routing
+    /// @dev Called after pool initialization
+    function registerPool(PoolId poolId, PoolType ptype) external onlyOwner {
+        require(poolTypes[poolId] == PoolType.NONE, "Already registered");
+        poolTypes[poolId] = ptype;
+        emit PoolRegistered(poolId, ptype);
+    }
+}
+```
+
+### Multi-Hop Swaps
+
+The router can also enable **multi-hop swaps** across different pool types:
+
+```solidity
+/// @notice Execute multi-hop swap across multiple pools
+/// @param path Array of tokens in swap path
+/// @param poolIds Array of pool IDs (length = path.length - 1)
+/// @param amountIn Input amount (encrypted)
+/// @param minAmountOut Minimum output (encrypted)
+function swapMultiHop(
+    address[] calldata path,
+    PoolId[] calldata poolIds,
+    InEuint128 calldata amountIn,
+    InEuint128 calldata minAmountOut
+) external returns (uint256 amountOut) {
+    // Example: fheWETH -> fheUSDC -> WETH
+    // Hop 1: fheWETH/fheUSDC via v8FHE
+    // Hop 2: fheUSDC/WETH via v8Mixed
+
+    require(path.length >= 2 && poolIds.length == path.length - 1, "Invalid path");
+
+    // Execute each hop, carrying output to next input
+    // ... implementation details ...
+}
+```
+
+### Integration with FHE Vault (Feature 8)
+
+When combined with the FHE Token Vault (see next feature), the router can auto-wrap/unwrap:
+
+```solidity
+/// @notice Swap with automatic wrapping of input token
+/// @dev User sends ERC20, router wraps to FHERC20, swaps, returns result
+function swapWithAutoWrap(
+    address tokenIn,      // ERC20 token
+    address tokenOut,     // Can be ERC20 or FHERC20
+    uint256 amountIn,
+    uint256 minAmountOut
+) external returns (uint256 amountOut) {
+    // 1. Transfer ERC20 from user
+    // 2. Wrap via FheVault -> get FHERC20
+    // 3. Execute swap through appropriate pool
+    // 4. If tokenOut is ERC20, unwrap via FheVault
+    // 5. Return output to user
+}
+```
+
+### Benefits
+
+| Without Router | With Router |
+|---------------|-------------|
+| Frontend must detect token types | Single API for all pools |
+| Different addresses per pool type | One router address |
+| Manual pool contract selection | Automatic routing |
+| No multi-hop | Cross-pool-type swaps possible |
+| Manual wrap/unwrap | Auto wrap/unwrap (with Vault) |
+
+### Implementation Priority
+
+**Medium-High** - Simplifies frontend integration significantly. Can be implemented incrementally:
+1. Phase 1: Basic routing (addLiquidity, deposit, withdraw, claim)
+2. Phase 2: Multi-hop swaps
+3. Phase 3: Auto wrap/unwrap integration with FHE Vault
+
+---
+
+## 8. FHE Token Vault: Universal ERC20 to FHERC20 Wrapper
+
+### Problem
+
+Currently, to trade privately on FheatherX, users need FHERC20 tokens. But:
+
+1. **Limited FHERC20 supply** - Only tokens with native FHERC20 implementations work
+2. **No wrapping standard** - Each FHERC20 has its own wrap/unwrap implementation
+3. **Friction** - Users must manually wrap tokens before trading
+
+### Proposed Solution: FheVault
+
+A **universal vault contract** that can wrap **any ERC20** into a standardized FHERC20 wrapper token.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                          User                                    │
+│                                                                  │
+│  Has: 1000 USDC (standard ERC20)                                │
+│  Wants: Private trading on FheatherX                            │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ deposit(USDC, 1000)
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         FheVault                                 │
+│                                                                  │
+│  1. Transfer 1000 USDC from user to vault                       │
+│  2. Mint 1000 fheUSDC (wrapped) to user's encrypted balance     │
+│  3. Store: totalDeposited[USDC] += 1000                         │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    FheWrappedToken (fheUSDC)                     │
+│                                                                  │
+│  - Standard FHERC20 interface                                   │
+│  - Backed 1:1 by USDC in vault                                  │
+│  - Can be used in any FheatherX pool                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Core Architecture
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {FHE, euint128, InEuint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {FheWrappedToken} from "./FheWrappedToken.sol";
+
+/// @title FheVault
+/// @notice Universal wrapper for converting any ERC20 to FHERC20
+/// @dev Creates and manages FheWrappedToken contracts for each underlying token
+contract FheVault {
+    using SafeERC20 for IERC20;
+
+    // Mapping: underlying ERC20 -> wrapped FHERC20 token
+    mapping(address => FheWrappedToken) public wrappedTokens;
+
+    // Track total deposits per underlying token
+    mapping(address => uint256) public totalDeposited;
+
+    event TokenWrapped(address indexed underlying, address indexed wrapper);
+    event Deposit(address indexed underlying, address indexed user, uint256 amount);
+    event Withdraw(address indexed underlying, address indexed user, uint256 amount);
+
+    // ═══════════════════════════════════════════════════════════
+    //                      WRAPPER CREATION
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Create a wrapped FHERC20 for an underlying ERC20
+    /// @dev One wrapper per underlying token
+    function createWrapper(
+        address underlying,
+        string memory name,
+        string memory symbol
+    ) external returns (FheWrappedToken wrapper) {
+        require(address(wrappedTokens[underlying]) == address(0), "Wrapper exists");
+
+        // Deploy new FheWrappedToken
+        wrapper = new FheWrappedToken(
+            underlying,
+            name,      // e.g., "FHE Wrapped USDC"
+            symbol,    // e.g., "fheUSDC"
+            IERC20(underlying).decimals()
+        );
+
+        wrappedTokens[underlying] = wrapper;
+        emit TokenWrapped(underlying, address(wrapper));
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                      DEPOSIT (WRAP)
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Deposit ERC20 and receive FHERC20 wrapper tokens
+    /// @param underlying The ERC20 token to wrap
+    /// @param amount Amount to deposit
+    function deposit(address underlying, uint256 amount) external {
+        FheWrappedToken wrapper = wrappedTokens[underlying];
+        require(address(wrapper) != address(0), "No wrapper");
+        require(amount > 0, "Zero amount");
+
+        // Transfer underlying from user to vault
+        IERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
+
+        // Track deposits
+        totalDeposited[underlying] += amount;
+
+        // Mint wrapped tokens to user's encrypted balance
+        wrapper.mintEncrypted(msg.sender, amount);
+
+        emit Deposit(underlying, msg.sender, amount);
+    }
+
+    /// @notice Deposit with percentage-based accounting (for reflection tokens)
+    /// @dev Handles tokens that have transfer fees or rebasing mechanics
+    function depositWithSlippage(
+        address underlying,
+        uint256 amount,
+        uint256 minReceived
+    ) external {
+        FheWrappedToken wrapper = wrappedTokens[underlying];
+        require(address(wrapper) != address(0), "No wrapper");
+
+        uint256 balanceBefore = IERC20(underlying).balanceOf(address(this));
+        IERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
+        uint256 balanceAfter = IERC20(underlying).balanceOf(address(this));
+
+        // Actual received (handles reflection/fee tokens)
+        uint256 received = balanceAfter - balanceBefore;
+        require(received >= minReceived, "Slippage too high");
+
+        totalDeposited[underlying] += received;
+        wrapper.mintEncrypted(msg.sender, received);
+
+        emit Deposit(underlying, msg.sender, received);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                      WITHDRAW (UNWRAP)
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Withdraw underlying ERC20 by burning FHERC20 wrapper tokens
+    /// @param underlying The underlying ERC20 token
+    /// @param encAmount Encrypted amount to withdraw
+    function withdraw(
+        address underlying,
+        InEuint128 calldata encAmount
+    ) external {
+        FheWrappedToken wrapper = wrappedTokens[underlying];
+        require(address(wrapper) != address(0), "No wrapper");
+
+        // Burn from user's encrypted balance
+        uint256 amount = wrapper.burnEncryptedFrom(msg.sender, encAmount);
+
+        // Transfer underlying to user
+        totalDeposited[underlying] -= amount;
+        IERC20(underlying).safeTransfer(msg.sender, amount);
+
+        emit Withdraw(underlying, msg.sender, amount);
+    }
+
+    /// @notice Withdraw with percentage-based redemption
+    /// @dev For rebasing tokens where 1:1 ratio may not hold
+    function withdrawProRata(
+        address underlying,
+        InEuint128 calldata encShares
+    ) external {
+        FheWrappedToken wrapper = wrappedTokens[underlying];
+
+        // Calculate pro-rata share of underlying
+        // userAmount = (userShares / totalWrappedSupply) * vaultBalance
+        uint256 vaultBalance = IERC20(underlying).balanceOf(address(this));
+        uint256 totalSupply = wrapper.totalSupply();
+
+        // Burn shares
+        uint256 shares = wrapper.burnEncryptedFrom(msg.sender, encShares);
+
+        // Pro-rata calculation
+        uint256 amount = (shares * vaultBalance) / totalSupply;
+
+        IERC20(underlying).safeTransfer(msg.sender, amount);
+        emit Withdraw(underlying, msg.sender, amount);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                      VIEW FUNCTIONS
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Get the wrapper token for an underlying
+    function getWrapper(address underlying) external view returns (address) {
+        return address(wrappedTokens[underlying]);
+    }
+
+    /// @notice Get exchange rate (for rebasing tokens)
+    /// @return rate Tokens per share (1e18 = 1:1)
+    function getExchangeRate(address underlying) external view returns (uint256 rate) {
+        FheWrappedToken wrapper = wrappedTokens[underlying];
+        uint256 totalSupply = wrapper.totalSupply();
+        if (totalSupply == 0) return 1e18;
+
+        uint256 vaultBalance = IERC20(underlying).balanceOf(address(this));
+        return (vaultBalance * 1e18) / totalSupply;
+    }
+}
+```
+
+### FheWrappedToken Contract
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {FHE, euint128, InEuint128, Common} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+/// @title FheWrappedToken
+/// @notice FHERC20 wrapper token created by FheVault
+/// @dev Standard FHERC20 interface, backed by underlying ERC20 in vault
+contract FheWrappedToken is IERC20Metadata {
+    address public immutable vault;
+    address public immutable underlying;
+    string private _name;
+    string private _symbol;
+    uint8 private _decimals;
+
+    // Encrypted balances
+    mapping(address => euint128) private _encBalances;
+    euint128 private _encTotalSupply;
+
+    // Plaintext tracking for compatibility
+    uint256 private _totalSupply;
+
+    modifier onlyVault() {
+        require(msg.sender == vault, "Only vault");
+        _;
+    }
+
+    constructor(
+        address _underlying,
+        string memory name_,
+        string memory symbol_,
+        uint8 decimals_
+    ) {
+        vault = msg.sender;
+        underlying = _underlying;
+        _name = name_;
+        _symbol = symbol_;
+        _decimals = decimals_;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                      VAULT FUNCTIONS
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Mint to user's encrypted balance (called by vault on deposit)
+    function mintEncrypted(address to, uint256 amount) external onlyVault {
+        euint128 encAmount = FHE.asEuint128(uint128(amount));
+
+        if (Common.isInitialized(_encBalances[to])) {
+            _encBalances[to] = FHE.add(_encBalances[to], encAmount);
+        } else {
+            _encBalances[to] = encAmount;
+        }
+
+        _encTotalSupply = FHE.add(_encTotalSupply, encAmount);
+        _totalSupply += amount;
+
+        FHE.allowThis(_encBalances[to]);
+        FHE.allow(_encBalances[to], to);
+        FHE.allowThis(_encTotalSupply);
+    }
+
+    /// @notice Burn from user's encrypted balance (called by vault on withdraw)
+    /// @return amount The decrypted amount burned
+    function burnEncryptedFrom(
+        address from,
+        InEuint128 calldata encAmount
+    ) external onlyVault returns (uint256 amount) {
+        euint128 burnAmount = FHE.asEuint128(encAmount);
+
+        // Subtract from user balance
+        _encBalances[from] = FHE.sub(_encBalances[from], burnAmount);
+        _encTotalSupply = FHE.sub(_encTotalSupply, burnAmount);
+
+        // Decrypt to get actual amount for underlying transfer
+        FHE.decrypt(burnAmount);
+        amount = FHE.getDecryptResult(burnAmount);
+
+        _totalSupply -= amount;
+
+        FHE.allowThis(_encBalances[from]);
+        FHE.allow(_encBalances[from], from);
+        FHE.allowThis(_encTotalSupply);
+    }
+
+    // ... standard FHERC20 interface functions ...
+}
+```
+
+### Handling Special Token Types
+
+#### Reflection Tokens (e.g., SAFEMOON-style)
+
+```solidity
+/// @notice Check if token has transfer fees
+function hasTransferFee(address token) public view returns (bool) {
+    // Send 1 wei to self, check if received < sent
+    // Or use known registry of fee tokens
+}
+```
+
+For reflection tokens, use `depositWithSlippage()` and `withdrawProRata()`:
+- Deposit records actual tokens received (after reflection fee)
+- Withdraw calculates pro-rata share of vault balance
+
+#### Rebasing Tokens (e.g., stETH, aUSDC)
+
+For tokens that change balance over time:
+1. Use share-based accounting (not 1:1)
+2. Exchange rate = vaultBalance / totalShares
+3. Users redeem shares for proportional underlying
+
+```solidity
+// User deposits 100 stETH when vault has 1000 stETH, 1000 shares
+// User gets 100 shares (100/1000 * 1000)
+// Later, stETH rebases +10%, vault now has 1100 stETH
+// User's 100 shares are worth 110 stETH (100/1000 * 1100)
+```
+
+### Existing Models to Research
+
+| Protocol | Mechanism | Notes |
+|----------|-----------|-------|
+| **Wrapped ETH (WETH)** | 1:1 deposit/withdraw | Simple, no rebasing |
+| **Compound cTokens** | Exchange rate model | Handles yield accrual |
+| **Aave aTokens** | Rebasing balance | Balance changes automatically |
+| **Yearn yVaults** | Share-based | pricePerShare increases over time |
+| **Lido wstETH** | Wrapped rebasing | Non-rebasing wrapper for stETH |
+
+**Recommendation:** Start with **Yearn yVault model** (share-based) as it handles both:
+- Simple 1:1 tokens (exchange rate stays 1.0)
+- Rebasing/yield tokens (exchange rate increases)
+
+### Integration with Router
+
+The FheVault can be integrated with FheatherXRouter for seamless UX:
+
+```solidity
+/// @notice Swap with automatic wrapping (user sends ERC20)
+function swapWithWrap(
+    address tokenIn,      // ERC20 (will be wrapped)
+    address tokenOut,     // FHERC20 or ERC20
+    uint256 amountIn,
+    uint256 minAmountOut
+) external {
+    // 1. Wrap tokenIn via vault
+    fheVault.deposit(tokenIn, amountIn);
+    address wrappedIn = fheVault.getWrapper(tokenIn);
+
+    // 2. Execute swap through FheatherX
+    // ... swap logic using wrapped token ...
+
+    // 3. If tokenOut is ERC20, unwrap result
+    // ... unwrap logic ...
+}
+```
+
+### Security Considerations
+
+1. **Reentrancy**: Use ReentrancyGuard on deposit/withdraw
+2. **Token Whitelist**: Consider allowlist for supported underlying tokens
+3. **Oracle Manipulation**: For rebasing tokens, use time-weighted averages
+4. **Decimal Handling**: Handle tokens with non-18 decimals correctly
+5. **Approval Race**: Use safeIncreaseAllowance patterns
+
+### Implementation Priority
+
+**Medium** - Enables any ERC20 to participate in FheatherX, dramatically expanding supported tokens:
+- Phase 1: Basic vault for standard ERC20 tokens (1:1 wrap/unwrap)
+- Phase 2: Share-based accounting for rebasing tokens
+- Phase 3: Router integration for auto-wrap swaps
+
+---
+
 ## Implementation Priority
 
 1. **High Priority:** FheatherXPeriphery (unlocks ecosystem integration)
 2. **Medium-High Priority:** Hybrid Order Book + AMM matching (proper limit order execution)
 3. **Medium-High Priority:** cancelOrder function (improves position tracking UX)
-4. **Medium Priority:** Auto-wrap on deposit (improves UX)
-5. **Medium Priority:** FHE.div optimization (reduces gas costs)
-6. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
-7. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
+4. **Medium-High Priority:** FheatherXRouter (unified interface, simplifies frontend)
+5. **Medium Priority:** FHE Token Vault (universal ERC20 wrapping)
+6. **Medium Priority:** Auto-wrap on deposit (improves UX)
+7. **Medium Priority:** FHE.div optimization (reduces gas costs)
+8. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
+9. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
