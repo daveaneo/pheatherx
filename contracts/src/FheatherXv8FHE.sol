@@ -81,8 +81,15 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         euint128 encTotalLpSupply;
         uint256 reserve0;
         uint256 reserve1;
-        euint128 pendingReserve0;
-        euint128 pendingReserve1;
+        uint256 reserveBlockNumber;
+        uint256 nextRequestId;
+        uint256 lastResolvedId;
+    }
+
+    struct PendingDecrypt {
+        euint128 reserve0;
+        euint128 reserve1;
+        uint256 blockNumber;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -97,6 +104,7 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
     mapping(PoolId => PoolState) public poolStates;
     mapping(PoolId => PoolReserves) public poolReserves;
+    mapping(PoolId => mapping(uint256 => PendingDecrypt)) public pendingDecrypts;
     mapping(PoolId => mapping(address => euint128)) public encLpBalances;
     mapping(PoolId => mapping(int24 => mapping(BucketSide => BucketLib.Bucket))) public buckets;
     mapping(PoolId => mapping(address => mapping(int24 => mapping(BucketSide => BucketLib.UserPosition)))) public positions;
@@ -119,6 +127,8 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     event Claim(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
     event LiquidityAdded(PoolId indexed poolId, address indexed user);
     event LiquidityRemoved(PoolId indexed poolId, address indexed user);
+    event ReserveSyncRequested(PoolId indexed poolId, uint256 indexed requestId, uint256 blockNumber);
+    event ReservesSynced(PoolId indexed poolId, uint256 reserve0, uint256 reserve1, uint256 indexed requestId);
 
     // ═══════════════════════════════════════════════════════════════════════
     //                           CONSTRUCTOR
@@ -888,38 +898,84 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //                      RESERVE SYNC (Simplified)
+    //                      RESERVE SYNC (Binary Search)
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Request a new reserve sync with binary search to harvest resolved requests
+    /// @dev Uses counter + mapping pattern to avoid losing pending handles during high traffic
     function _requestReserveSync(PoolId poolId) internal {
+        _harvestResolvedDecrypts(poolId);
+
         PoolReserves storage r = poolReserves[poolId];
-
-        // Try to harvest previous pending
-        if (Common.isInitialized(r.pendingReserve0)) {
-            (uint256 v0, bool ready0) = FHE.getDecryptResultSafe(r.pendingReserve0);
-            (uint256 v1, bool ready1) = FHE.getDecryptResultSafe(r.pendingReserve1);
-            if (ready0 && ready1) {
-                r.reserve0 = v0;
-                r.reserve1 = v1;
-            }
-        }
-
-        // Store new pending
-        r.pendingReserve0 = r.encReserve0;
-        r.pendingReserve1 = r.encReserve1;
+        uint256 newId = r.nextRequestId;
+        r.nextRequestId = newId + 1;
+        pendingDecrypts[poolId][newId] = PendingDecrypt({
+            reserve0: r.encReserve0,
+            reserve1: r.encReserve1,
+            blockNumber: block.number
+        });
         FHE.decrypt(r.encReserve0);
         FHE.decrypt(r.encReserve1);
+
+        emit ReserveSyncRequested(poolId, newId, block.number);
     }
 
     function trySyncReserves(PoolId poolId) external {
+        _harvestResolvedDecrypts(poolId);
+    }
+
+    /// @notice Binary search to find newest resolved pending decrypt
+    function _findNewestResolvedDecrypt(PoolId poolId) internal view returns (
+        uint256 newestId,
+        uint256 val0,
+        uint256 val1
+    ) {
         PoolReserves storage r = poolReserves[poolId];
-        if (Common.isInitialized(r.pendingReserve0)) {
-            (uint256 v0, bool ready0) = FHE.getDecryptResultSafe(r.pendingReserve0);
-            (uint256 v1, bool ready1) = FHE.getDecryptResultSafe(r.pendingReserve1);
-            if (ready0 && ready1) {
-                r.reserve0 = v0;
-                r.reserve1 = v1;
+        uint256 lo = r.lastResolvedId;
+        uint256 hi = r.nextRequestId > 0 ? r.nextRequestId - 1 : 0;
+        val0 = r.reserve0;
+        val1 = r.reserve1;
+        newestId = lo;
+
+        if (lo > hi) return (newestId, val0, val1);
+
+        while (lo <= hi) {
+            uint256 mid = lo + (hi - lo + 1) / 2;
+            PendingDecrypt storage p = pendingDecrypts[poolId][mid];
+
+            if (!Common.isInitialized(p.reserve0)) {
+                if (mid == 0) break;
+                hi = mid - 1;
+                continue;
             }
+
+            (uint256 v0, bool ready0) = FHE.getDecryptResultSafe(p.reserve0);
+            (uint256 v1, bool ready1) = FHE.getDecryptResultSafe(p.reserve1);
+
+            if (ready0 && ready1) {
+                val0 = v0;
+                val1 = v1;
+                newestId = mid;
+                if (mid == hi) break;
+                lo = mid + 1;
+            } else {
+                if (mid == 0) break;
+                hi = mid - 1;
+            }
+        }
+    }
+
+    /// @notice Apply newest resolved decrypt to storage
+    function _harvestResolvedDecrypts(PoolId poolId) internal {
+        (uint256 newestId, uint256 val0, uint256 val1) = _findNewestResolvedDecrypt(poolId);
+        PoolReserves storage r = poolReserves[poolId];
+
+        if (newestId > r.lastResolvedId) {
+            r.reserve0 = val0;
+            r.reserve1 = val1;
+            r.reserveBlockNumber = pendingDecrypts[poolId][newestId].blockNumber;
+            r.lastResolvedId = newestId;
+            emit ReservesSynced(poolId, val0, val1, newestId);
         }
     }
 

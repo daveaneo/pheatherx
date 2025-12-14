@@ -9,7 +9,7 @@ evm_version = "cancun"
 auto_detect_remappings = false
 
 optimizer = true
-optimizer_runs = 1
+optimizer_runs = 200  # Max stable value (>210 causes stack issues in dependencies)
 via_ir = true
 
 # Integration test profile for real FHE testing on Arb Sepolia
