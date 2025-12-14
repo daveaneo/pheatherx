@@ -1,9 +1,10 @@
 'use client';
 
 import { useReadContracts, useWriteContract, usePublicClient, useChainId } from 'wagmi';
-import { FHEATHERX_V6_ABI } from '@/lib/contracts/fheatherXv6Abi';
 import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
 import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
+import { UNISWAP_V4_POOL_MANAGER_ABI } from '@/lib/contracts/uniswapV4-abi';
+import { POOL_MANAGER_ADDRESSES } from '@/lib/contracts/addresses';
 import { useSelectedPool, determineContractType } from '@/stores/poolStore';
 import { getPoolIdFromTokens } from '@/lib/poolId';
 import type { ContractType } from '@/types/pool';
@@ -18,9 +19,9 @@ function getAbiForContractType(type: ContractType) {
       return FHEATHERX_V8_FHE_ABI;
     case 'v8mixed':
       return FHEATHERX_V8_MIXED_ABI;
-    case 'v6':
+    case 'native':
     default:
-      return FHEATHERX_V6_ABI;
+      return UNISWAP_V4_POOL_MANAGER_ABI;
   }
 }
 
@@ -56,36 +57,52 @@ interface PoolReservesExtended extends PoolReserves {
  */
 export function usePoolReserves(): PoolReserves {
   const { hookAddress, token0, token1, pool } = useSelectedPool();
+  const chainId = useChainId();
   const contractType = determineContractType(pool);
+  const isNative = contractType === 'native';
+
+  // For native pools, use PoolManager address instead of hook
+  const contractAddress = isNative
+    ? POOL_MANAGER_ADDRESSES[chainId]
+    : hookAddress;
+
   const abi = getAbiForContractType(contractType);
 
   // Compute poolId from tokens
   const poolId = useMemo(() => {
-    if (!token0 || !token1 || !hookAddress) return undefined;
-    return getPoolIdFromTokens(token0, token1, hookAddress);
+    if (!token0 || !token1) return undefined;
+    // For native pools, hookAddress might be undefined (no FHE hook)
+    const hook = hookAddress || '0x0000000000000000000000000000000000000000';
+    return getPoolIdFromTokens(token0, token1, hook as `0x${string}`);
   }, [token0, token1, hookAddress]);
 
-  // v6 uses getPoolReserves, v8 uses getReserves
-  const functionName = contractType === 'v6' ? 'getPoolReserves' : 'getReserves';
-
+  // v8 uses getReserves, native uses getLiquidity (different approach)
   const { data, isLoading, error, refetch } = useReadContracts({
-    contracts: [
+    contracts: isNative ? [
+      // Native Uniswap v4: Use getLiquidity and getSlot0
       {
-        address: hookAddress,
+        address: contractAddress,
         abi,
-        functionName,
+        functionName: 'getLiquidity' as const,
         args: poolId ? [poolId] : undefined,
       },
-      // v6 has separate totalLpSupply function
-      ...(contractType === 'v6' ? [{
-        address: hookAddress,
+      {
+        address: contractAddress,
         abi,
-        functionName: 'totalLpSupply' as const,
+        functionName: 'getSlot0' as const,
         args: poolId ? [poolId] : undefined,
-      }] : []),
+      },
+    ] : [
+      // v8FHE/v8Mixed: Use getReserves
+      {
+        address: contractAddress,
+        abi,
+        functionName: 'getReserves' as const,
+        args: poolId ? [poolId] : undefined,
+      },
     ],
     query: {
-      enabled: !!hookAddress && !!poolId,
+      enabled: !!contractAddress && !!poolId,
       refetchInterval: 10000,
     },
   });
@@ -95,18 +112,17 @@ export function usePoolReserves(): PoolReserves {
   let reserve1 = 0n;
   let totalLpSupply = 0n;
 
-  if (contractType === 'v6') {
-    // v6 getPoolReserves returns (reserve0, reserve1, lpSupply)
-    const reserves = data?.[0]?.result as [bigint, bigint, bigint] | undefined;
-    reserve0 = reserves?.[0] ?? 0n;
-    reserve1 = reserves?.[1] ?? 0n;
-    totalLpSupply = reserves?.[2] ?? (data?.[1]?.result as bigint) ?? 0n;
+  if (isNative) {
+    // Native Uniswap v4: getLiquidity returns uint128
+    // Note: v4 doesn't expose reserves directly - liquidity is in terms of sqrt price
+    // For display purposes, we'd need to calculate from sqrtPriceX96
+    totalLpSupply = (data?.[0]?.result as bigint) ?? 0n;
+    // TODO: Calculate reserves from sqrtPriceX96 if needed for display
   } else {
     // v8 getReserves returns (reserve0, reserve1)
     const reserves = data?.[0]?.result as [bigint, bigint] | undefined;
     reserve0 = reserves?.[0] ?? 0n;
     reserve1 = reserves?.[1] ?? 0n;
-    // v8 doesn't expose totalLpSupply via getReserves - need extended hook for that
   }
 
   return {
@@ -272,40 +288,45 @@ export function usePoolReservesForTokens(
   token0Address: `0x${string}` | undefined,
   token1Address: `0x${string}` | undefined,
   hookAddress: `0x${string}` | undefined,
-  contractType: ContractType = 'v6'
+  contractType: ContractType = 'native'
 ): PoolReserves {
+  const chainId = useChainId();
+  const isNative = contractType === 'native';
   const abi = getAbiForContractType(contractType);
+
+  // For native pools, use PoolManager address
+  const contractAddress = isNative
+    ? POOL_MANAGER_ADDRESSES[chainId]
+    : hookAddress;
 
   // Compute poolId from tokens
   const poolId = useMemo(() => {
-    if (!token0Address || !token1Address || !hookAddress) return undefined;
+    if (!token0Address || !token1Address) return undefined;
+    const hook = hookAddress || '0x0000000000000000000000000000000000000000';
     // Create minimal token objects for poolId calculation
     const token0 = { address: token0Address, symbol: '', name: '', decimals: 18, type: 'erc20' as const };
     const token1 = { address: token1Address, symbol: '', name: '', decimals: 18, type: 'erc20' as const };
-    return getPoolIdFromTokens(token0, token1, hookAddress);
+    return getPoolIdFromTokens(token0, token1, hook as `0x${string}`);
   }, [token0Address, token1Address, hookAddress]);
 
-  // v6 uses getPoolReserves, v8 uses getReserves
-  const functionName = contractType === 'v6' ? 'getPoolReserves' : 'getReserves';
-
   const { data, isLoading, error, refetch } = useReadContracts({
-    contracts: [
+    contracts: isNative ? [
       {
-        address: hookAddress,
+        address: contractAddress,
         abi,
-        functionName,
+        functionName: 'getLiquidity' as const,
         args: poolId ? [poolId] : undefined,
       },
-      // v6 has separate totalLpSupply function
-      ...(contractType === 'v6' ? [{
-        address: hookAddress,
+    ] : [
+      {
+        address: contractAddress,
         abi,
-        functionName: 'totalLpSupply' as const,
+        functionName: 'getReserves' as const,
         args: poolId ? [poolId] : undefined,
-      }] : []),
+      },
     ],
     query: {
-      enabled: !!hookAddress && !!poolId,
+      enabled: !!contractAddress && !!poolId,
       refetchInterval: 10000,
     },
   });
@@ -315,11 +336,8 @@ export function usePoolReservesForTokens(
   let reserve1 = 0n;
   let totalLpSupply = 0n;
 
-  if (contractType === 'v6') {
-    const reserves = data?.[0]?.result as [bigint, bigint, bigint] | undefined;
-    reserve0 = reserves?.[0] ?? 0n;
-    reserve1 = reserves?.[1] ?? 0n;
-    totalLpSupply = reserves?.[2] ?? (data?.[1]?.result as bigint) ?? 0n;
+  if (isNative) {
+    totalLpSupply = (data?.[0]?.result as bigint) ?? 0n;
   } else {
     const reserves = data?.[0]?.result as [bigint, bigint] | undefined;
     reserve0 = reserves?.[0] ?? 0n;

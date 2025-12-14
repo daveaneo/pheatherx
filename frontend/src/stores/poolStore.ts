@@ -3,7 +3,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Pool, PoolInfo, Token, ContractType } from '@/types/pool';
-import { getContractAddress } from '@/lib/contracts/addresses';
 
 /**
  * Generate a unique pool key from hook + token addresses
@@ -185,12 +184,12 @@ export const usePoolStore = create<PoolState>()(
 
 /**
  * Determine contract type based on pool token types
- * - v8fhe: Both tokens are FHERC20
- * - v8mixed: Exactly one token is FHERC20
- * - v6: Fallback for legacy or ERC:ERC pools
+ * - v8fhe: Both tokens are FHERC20 (full privacy, encrypted LP)
+ * - v8mixed: Exactly one token is FHERC20 (partial privacy, plaintext LP)
+ * - native: Both tokens are ERC20 (no privacy, use standard Uniswap v4)
  */
 export function determineContractType(pool: Pool | undefined): ContractType {
-  if (!pool) return 'v6';
+  if (!pool) return 'native';
 
   // If contractType is explicitly set, use it
   if (pool.contractType) return pool.contractType;
@@ -204,8 +203,8 @@ export function determineContractType(pool: Pool | undefined): ContractType {
     return 'v8mixed';
   }
 
-  // ERC:ERC pools use v6 (or native Uniswap v4)
-  return 'v6';
+  // ERC:ERC pools use native Uniswap v4 (no FHE hooks needed)
+  return 'native';
 }
 
 /**

@@ -6,11 +6,11 @@ export type TokenType = 'erc20' | 'fheerc20';
 
 /**
  * Contract version type
- * - v6: Legacy contract with support for all pool types
+ * - native: Standard Uniswap v4 (ERC:ERC pools, no FHE hook)
  * - v8fhe: Full privacy pools (FHE:FHE only) - encrypted LP
  * - v8mixed: Mixed pools (one FHERC20, one ERC20) - plaintext LP
  */
-export type ContractType = 'v6' | 'v8fhe' | 'v8mixed';
+export type ContractType = 'native' | 'v8fhe' | 'v8mixed';
 
 export interface Token {
   address: `0x${string}`;

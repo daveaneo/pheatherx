@@ -1,15 +1,19 @@
 'use client';
 
 /**
- * useSwap - Multi-Version Swap Hook (v6 and v8 compatible)
+ * useSwap - Multi-Version Swap Hook
  *
- * v6 swap functions (all require explicit poolId):
- * - swapForPool(PoolId poolId, bool zeroForOne, uint256 amountIn, uint256 minAmountOut)
- * - swapEncrypted(PoolId poolId, InEbool direction, InEuint128 amountIn, InEuint128 minOutput)
+ * Supports three contract types:
+ * - native: Standard Uniswap v4 (ERC:ERC pools, no FHE)
+ * - v8fhe: Full privacy FHE pools (FHE:FHE)
+ * - v8mixed: Mixed pools (FHE:ERC or ERC:FHE)
  *
- * v8 swap functions:
+ * Native swaps:
+ * - Use Universal Router with V4_SWAP commands
+ * - Standard Uniswap v4 interface
+ *
+ * v8 swaps:
  * - Swaps happen through PoolManager via router (hook intercepts via beforeSwap)
- * - No direct swap functions on the hook
  * - getQuote(poolId, zeroForOne, amountIn) for quotes
  *
  * This hook routes to the correct swap method based on contract type.
@@ -21,9 +25,10 @@ import { erc20Abi } from 'viem';
 import { FHEATHERX_V6_ABI, type InEuint128, type InEbool } from '@/lib/contracts/fheatherXv6Abi';
 import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
 import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
+import { UNISWAP_V4_UNIVERSAL_ROUTER_ABI } from '@/lib/contracts/uniswapV4-abi';
 import { SWAP_ROUTER_ABI, type PoolKey, type SwapParams } from '@/lib/contracts/router';
 import { encodeSwapHookData } from '@/lib/contracts/encoding';
-import { SWAP_ROUTER_ADDRESSES, POOL_FEE, TICK_SPACING } from '@/lib/contracts/addresses';
+import { SWAP_ROUTER_ADDRESSES, UNIVERSAL_ROUTER_ADDRESSES, POOL_FEE, TICK_SPACING } from '@/lib/contracts/addresses';
 import { MIN_SQRT_RATIO, MAX_SQRT_RATIO } from '@/lib/constants';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
@@ -168,48 +173,48 @@ export function useSwap(): UseSwapResult {
         return FHEATHERX_V8_FHE_ABI;
       case 'v8mixed':
         return FHEATHERX_V8_MIXED_ABI;
-      case 'v6':
+      case 'native':
       default:
-        return FHEATHERX_V6_ABI;
+        return UNISWAP_V4_UNIVERSAL_ROUTER_ABI;
     }
   }, []);
 
   /**
-   * Get a quote using the hook's getQuote/getQuoteForPool function
-   * v8 uses getQuote(poolId, zeroForOne, amountIn)
-   * v6 uses getQuoteForPool(poolId, zeroForOne, amountIn)
+   * Get a quote using the hook's getQuote function (v8) or Quoter contract (native)
    */
   const getQuote = useCallback(async (
     zeroForOne: boolean,
     amountIn: bigint
   ): Promise<SwapQuote | null> => {
-    if (!publicClient || !hookAddress || !token0 || !token1 || amountIn === 0n) return null;
+    if (!publicClient || !token0 || !token1 || amountIn === 0n) return null;
+
+    // Native pools require hookAddress to be undefined, FHE pools require it
+    if (contractType !== 'native' && !hookAddress) return null;
 
     setStep('simulating');
     setError(null);
 
     try {
-      // Compute poolId from tokens and hook
-      const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
+      // Compute poolId from tokens and hook (use zero address for native)
+      const hook = hookAddress || '0x0000000000000000000000000000000000000000' as `0x${string}`;
+      const poolId = getPoolIdFromTokens(token0, token1, hook);
       debugLog('getQuote: computed poolId', { poolId, token0: token0.address, token1: token1.address, contractType });
 
       let amountOut: bigint;
 
-      if (contractType === 'v8fhe' || contractType === 'v8mixed') {
-        // v8 uses getQuote(poolId, zeroForOne, amountIn)
+      if (contractType === 'native') {
+        // Native Uniswap v4: TODO - Use Quoter contract for quotes
+        // For now, return a simple x*y=k estimate (inaccurate for concentrated liquidity)
+        debugLog('getQuote: native pools - using estimate (Quoter not yet implemented)');
+        // Rough estimate assuming 0.3% fee
+        amountOut = amountIn * 997n / 1000n;
+      } else {
+        // v8 FHE pools use getQuote(poolId, zeroForOne, amountIn)
         const abi = getAbiForContractType(contractType);
         amountOut = await publicClient.readContract({
-          address: hookAddress,
+          address: hookAddress!,
           abi,
           functionName: 'getQuote',
-          args: [poolId, zeroForOne, amountIn],
-        }) as bigint;
-      } else {
-        // v6 uses getQuoteForPool(poolId, zeroForOne, amountIn)
-        amountOut = await publicClient.readContract({
-          address: hookAddress,
-          abi: FHEATHERX_V6_ABI,
-          functionName: 'getQuoteForPool',
           args: [poolId, zeroForOne, amountIn],
         }) as bigint;
       }
@@ -236,8 +241,9 @@ export function useSwap(): UseSwapResult {
   }, [publicClient, hookAddress, token0, token1, contractType, getAbiForContractType]);
 
   /**
-   * Direct plaintext swap (uses current pool's poolId via swapForPool for v6, router for v8)
-   * v8 contracts don't expose direct swap functions - swaps go through PoolManager
+   * Direct plaintext swap
+   * - native: Uses Universal Router (standard Uniswap v4)
+   * - v8fhe/v8mixed: Uses router with FHE hook
    */
   const swap = useCallback(async (
     zeroForOne: boolean,
@@ -246,13 +252,93 @@ export function useSwap(): UseSwapResult {
   ): Promise<`0x${string}`> => {
     debugLog('swap called', { zeroForOne, amountIn: amountIn.toString(), minAmountOut: minAmountOut.toString(), contractType });
 
-    if (!address || !hookAddress || !publicClient || !token0 || !token1) {
+    if (!address || !publicClient || !token0 || !token1) {
       throw new Error('Wallet not connected or no pool selected');
+    }
+
+    // FHE pools require hookAddress
+    if (contractType !== 'native' && !hookAddress) {
+      throw new Error('No FHE hook configured for this pool');
     }
 
     setError(null);
 
-    // v8 contracts use router-based swaps (hook intercepts via beforeSwap)
+    // Native pools use Universal Router
+    if (contractType === 'native') {
+      debugLog('swap: using Universal Router for native pool');
+
+      const universalRouterAddress = UNIVERSAL_ROUTER_ADDRESSES[chainId];
+      if (!universalRouterAddress || universalRouterAddress === '0x0000000000000000000000000000000000000000') {
+        throw new Error('Universal Router not configured for this chain');
+      }
+
+      try {
+        const tokenIn = zeroForOne ? token0.address : token1.address;
+        await checkAndApproveToken(tokenIn, universalRouterAddress, amountIn);
+
+        setStep('swapping');
+
+        // TODO: Implement Universal Router command encoding for native swaps
+        // For now, fall back to PoolSwapTest router if available
+        if (routerAddress) {
+          const poolKey: PoolKey = {
+            currency0: token0.address,
+            currency1: token1.address,
+            fee: POOL_FEE,
+            tickSpacing: TICK_SPACING,
+            hooks: '0x0000000000000000000000000000000000000000' as `0x${string}`, // No hook for native
+          };
+
+          const sqrtPriceLimit = zeroForOne ? MIN_SQRT_RATIO + 1n : MAX_SQRT_RATIO - 1n;
+
+          const swapParams: SwapParams = {
+            zeroForOne,
+            amountSpecified: -amountIn,
+            sqrtPriceLimitX96: sqrtPriceLimit,
+          };
+
+          const testSettings = {
+            takeClaims: false,
+            settleUsingBurn: false,
+          };
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const hash = await writeContractAsync({
+            address: routerAddress,
+            abi: SWAP_ROUTER_ABI,
+            functionName: 'swap',
+            args: [poolKey, swapParams, testSettings, '0x'] as any,
+            chainId,
+          });
+
+          debugLog('swap (native via PoolSwapTest): tx submitted', { hash });
+          setSwapHash(hash);
+
+          addTransaction({
+            hash,
+            type: 'swap',
+            description: zeroForOne ? `Swap ${token0.symbol} for ${token1.symbol}` : `Swap ${token1.symbol} for ${token0.symbol}`,
+          });
+
+          await publicClient.waitForTransactionReceipt({ hash });
+          updateTransaction(hash, { status: 'confirmed' });
+          setStep('complete');
+          successToast('Swap confirmed');
+          return hash;
+        }
+
+        throw new Error('Native swap not yet fully implemented - Universal Router command encoding needed');
+      } catch (err: unknown) {
+        debugLog('swap (native): ERROR', err);
+        const message = err instanceof Error ? err.message : 'Swap failed';
+        setError(message);
+        setStep('error');
+        errorToast('Swap failed', message);
+        throw err;
+      }
+    }
+
+    // v8 FHE pools use router-based swaps (hook intercepts via beforeSwap)
     if (contractType === 'v8fhe' || contractType === 'v8mixed') {
       debugLog('swap: using router for v8 contract');
 
@@ -271,7 +357,7 @@ export function useSwap(): UseSwapResult {
           currency1: token1.address,
           fee: POOL_FEE,
           tickSpacing: TICK_SPACING,
-          hooks: hookAddress,
+          hooks: hookAddress!,
         };
 
         const sqrtPriceLimit = zeroForOne ? MIN_SQRT_RATIO + 1n : MAX_SQRT_RATIO - 1n;
@@ -323,51 +409,8 @@ export function useSwap(): UseSwapResult {
       }
     }
 
-    try {
-      // v6: Compute poolId from tokens and hook
-      const poolId = getPoolIdFromTokens(token0, token1, hookAddress);
-      debugLog('swap: computed poolId', { poolId, token0: token0.address, token1: token1.address });
-
-      // Get token to approve (input token)
-      const tokenIn = zeroForOne ? token0.address : token1.address;
-
-      // Check and approve token
-      await checkAndApproveToken(tokenIn, hookAddress, amountIn);
-
-      setStep('swapping');
-
-      // Use swapForPool with computed poolId
-      const hash = await writeContractAsync({
-        address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
-        functionName: 'swapForPool',
-        args: [poolId, zeroForOne, amountIn, minAmountOut],
-        chainId,
-      });
-
-      debugLog('swap: tx submitted', { hash });
-      setSwapHash(hash);
-
-      addTransaction({
-        hash,
-        type: 'swap',
-        description: zeroForOne ? `Swap ${token0.symbol} for ${token1.symbol}` : `Swap ${token1.symbol} for ${token0.symbol}`,
-      });
-
-      await publicClient.waitForTransactionReceipt({ hash });
-
-      updateTransaction(hash, { status: 'confirmed' });
-      setStep('complete');
-      successToast('Swap confirmed');
-      return hash;
-    } catch (err: unknown) {
-      debugLog('swap: ERROR', err);
-      const message = err instanceof Error ? err.message : 'Swap failed';
-      setError(message);
-      setStep('error');
-      errorToast('Swap failed', message);
-      throw err;
-    }
+    // Fallback (shouldn't reach here)
+    throw new Error(`Unsupported contract type: ${contractType}`);
   }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast, contractType, routerAddress]);
 
   /**

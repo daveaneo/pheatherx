@@ -1,31 +1,30 @@
 // Contract addresses per chain
 // Supported networks: Local (31337), Ethereum Sepolia (11155111), Arbitrum Sepolia (421614), Fhenix Testnet (8008135)
 //
-// FheatherXv6 Deployments:
-// - Arbitrum Sepolia: deployments/v6-arb-sepolia.json (PRIMARY - faster blocks)
-// - Ethereum Sepolia: deployments/v6-eth-sepolia.json (SECONDARY)
-//
-// FheatherXv8 Deployments (FHE:FHE and Mixed pools):
-// - v8FHE: Full privacy pools (both tokens FHERC20)
-// - v8Mixed: Mixed pools (one FHERC20, one ERC20)
+// Pool Types:
+// - native: Standard Uniswap v4 for ERC:ERC pools (no FHE hook, cheaper & faster)
+// - v8FHE: Full privacy pools (both tokens FHERC20, encrypted LP)
+// - v8Mixed: Mixed pools (one FHERC20, one ERC20, plaintext LP)
 
-// Contract types for pool routing
-export type ContractType = 'v6' | 'v8fhe' | 'v8mixed';
+import type { ContractType } from '@/types/pool';
 
-// Factory addresses (for multi-pool architecture) - not used in v6
+// Re-export ContractType for convenience
+export type { ContractType } from '@/types/pool';
+
+// Factory addresses (for multi-pool architecture)
 export const FHEATHERX_FACTORY_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_FACTORY_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0x0000000000000000000000000000000000000000', // v6 doesn't use factory
-  421614: '0x0000000000000000000000000000000000000000',   // v6 doesn't use factory
+  11155111: '0x0000000000000000000000000000000000000000',
+  421614: '0x0000000000000000000000000000000000000000',
   8008135: (process.env.NEXT_PUBLIC_FHEATHERX_FACTORY_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
 };
 
-// FheatherXv6 Hook addresses
-// Note: .env values (NEXT_PUBLIC_FHEATHERX_ADDRESS_*) are potentially deprecated - addresses hardcoded here
+// LEGACY: FheatherXv6 Hook addresses (being phased out)
+// Kept for backward compatibility during migration
 export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0x99bA4fC062c9355fccad7E4C093b2eb55F6ed0c8', // v6 Eth Sepolia (2024-12-11 redeploy)
-  421614: '0x8eE2375234D0b0a50a41458a471cfa8fB490d0c8',   // v6 Arb Sepolia (limit order bugfix - 2024-12-11)
+  11155111: '0x99bA4fC062c9355fccad7E4C093b2eb55F6ed0c8', // v6 Eth Sepolia (LEGACY)
+  421614: '0x8eE2375234D0b0a50a41458a471cfa8fB490d0c8',   // v6 Arb Sepolia (LEGACY)
   8008135: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
 };
 
@@ -47,22 +46,54 @@ export const FHEATHERX_V8_MIXED_ADDRESSES: Record<number, `0x${string}`> = {
   8008135: '0x0000000000000000000000000000000000000000',
 };
 
-// Helper to get contract address by type
-export function getContractAddress(
+// Uniswap v4 Universal Router addresses (for native ERC:ERC swaps)
+export const UNIVERSAL_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: (process.env.NEXT_PUBLIC_UNIVERSAL_ROUTER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  11155111: '0x3A9D48AB9751398BbFa63ad67599Bb04e4BdF98b', // Uniswap v4 Universal Router Eth Sepolia
+  421614: '0x0000000000000000000000000000000000000000',   // TODO: Add Arb Sepolia Universal Router
+  8008135: '0x0000000000000000000000000000000000000000',
+};
+
+// Uniswap v4 Position Manager addresses (for native ERC:ERC LP)
+export const POSITION_MANAGER_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: (process.env.NEXT_PUBLIC_POSITION_MANAGER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  11155111: '0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4', // Uniswap v4 Position Manager Eth Sepolia
+  421614: '0x0000000000000000000000000000000000000000',   // TODO: Add Arb Sepolia Position Manager
+  8008135: '0x0000000000000000000000000000000000000000',
+};
+
+// Helper to get FHE hook address by type (for v8fhe/v8mixed only)
+// Native pools don't use FHE hooks - they use Uniswap v4 directly
+export function getFheHookAddress(
   contractType: ContractType,
   chainId: number
-): `0x${string}` {
+): `0x${string}` | undefined {
   switch (contractType) {
     case 'v8fhe':
-      return FHEATHERX_V8_FHE_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000';
+      return FHEATHERX_V8_FHE_ADDRESSES[chainId] || undefined;
     case 'v8mixed':
-      return FHEATHERX_V8_MIXED_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000';
-    case 'v6':
+      return FHEATHERX_V8_MIXED_ADDRESSES[chainId] || undefined;
+    case 'native':
     default:
-      return FHEATHERX_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000';
+      // Native pools don't have FHE hooks
+      return undefined;
   }
 }
 
+// Helper to get the appropriate router/swap contract for a pool type
+export function getSwapContractAddress(
+  contractType: ContractType,
+  chainId: number
+): `0x${string}` {
+  if (contractType === 'native') {
+    // Native ERC:ERC pools use Universal Router
+    return UNIVERSAL_ROUTER_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000';
+  }
+  // FHE pools (v8fhe/v8mixed) use their hook contract directly for swaps
+  return getFheHookAddress(contractType, chainId) || '0x0000000000000000000000000000000000000000';
+}
+
+// LEGACY: Swap router for older deployments
 export const SWAP_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
   11155111: '0x9B6b46e2c869aa39918Db7f52f5557FE577B6eEe', // Uniswap v4 PoolSwapTest Eth Sepolia

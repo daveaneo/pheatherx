@@ -1,10 +1,10 @@
 'use client';
 
 import { useReadContracts, useChainId } from 'wagmi';
-import { FHEATHERX_V6_ABI } from '@/lib/contracts/fheatherXv6Abi';
 import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
 import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
-import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { UNISWAP_V4_POOL_MANAGER_ABI } from '@/lib/contracts/uniswapV4-abi';
+import { POOL_MANAGER_ADDRESSES } from '@/lib/contracts/addresses';
 import { getPoolIdFromTokens } from '@/lib/poolId';
 import { usePoolStore, determineContractType } from '@/stores/poolStore';
 import type { Token } from '@/lib/tokens';
@@ -19,9 +19,9 @@ function getAbiForContractType(type: ContractType) {
       return FHEATHERX_V8_FHE_ABI;
     case 'v8mixed':
       return FHEATHERX_V8_MIXED_ABI;
-    case 'v6':
+    case 'native':
     default:
-      return FHEATHERX_V6_ABI;
+      return UNISWAP_V4_POOL_MANAGER_ABI;
   }
 }
 
@@ -43,7 +43,7 @@ interface PoolInfo {
 /**
  * Hook to get pool info for a token pair
  * Finds if a pool exists for the given tokens and returns its reserves and LP supply
- * Supports v6, v8FHE, and v8Mixed contracts
+ * Supports native (Uniswap v4), v8FHE, and v8Mixed contracts
  */
 export function usePoolInfo(
   tokenA: Token | undefined,
@@ -57,85 +57,93 @@ export function usePoolInfo(
 
   // Determine contract type based on pool or token types
   const contractType = determineContractType(pool);
+  const isNative = contractType === 'native';
   const abi = getAbiForContractType(contractType);
 
-  // Get hook address from pool or fallback to configured address
-  const configuredHook = FHEATHERX_ADDRESSES[chainId];
-  const hookAddress = pool?.hook ?? (
-    configuredHook !== '0x0000000000000000000000000000000000000000'
-      ? configuredHook
-      : undefined
-  );
+  // For native pools, use PoolManager; for FHE pools, use hook address
+  const hookAddress = pool?.hook ?? (isNative ? undefined : undefined);
+  const contractAddress = isNative
+    ? POOL_MANAGER_ADDRESSES[chainId]
+    : hookAddress;
 
-  // Compute poolId if we have both tokens and a hook address
+  // Compute poolId if we have both tokens
   const poolId =
-    tokenA && tokenB && hookAddress
-      ? getPoolIdFromTokens(tokenA, tokenB, hookAddress)
+    tokenA && tokenB
+      ? getPoolIdFromTokens(
+          tokenA,
+          tokenB,
+          hookAddress || '0x0000000000000000000000000000000000000000' as `0x${string}`
+        )
       : undefined;
 
-  // Function names vary by version:
-  // v6: getPoolState, getPoolReserves, totalLpSupply
-  // v8: poolStates, getReserves (totalLpSupply in poolReserves)
-  const stateFnName = contractType === 'v6' ? 'getPoolState' : 'poolStates';
-  const reserveFnName = contractType === 'v6' ? 'getPoolReserves' : 'getReserves';
-
-  // Fetch pool state, reserves and LP supply from the contract
+  // Fetch pool data from the contract
   const { data, isLoading, error, refetch } = useReadContracts({
-    contracts: [
+    contracts: isNative ? [
+      // Native Uniswap v4: getSlot0 and getLiquidity
       {
-        address: hookAddress,
+        address: contractAddress,
         abi,
-        functionName: stateFnName,
+        functionName: 'getSlot0' as const,
         args: poolId ? [poolId] : undefined,
       },
       {
-        address: hookAddress,
+        address: contractAddress,
         abi,
-        functionName: reserveFnName,
+        functionName: 'getLiquidity' as const,
         args: poolId ? [poolId] : undefined,
       },
-      // v6 has separate totalLpSupply, v8 doesn't (LP is in poolReserves)
-      ...(contractType === 'v6' ? [{
-        address: hookAddress,
+    ] : [
+      // FHE pools: poolStates and getReserves
+      {
+        address: contractAddress,
         abi,
-        functionName: 'totalLpSupply' as const,
+        functionName: 'poolStates' as const,
         args: poolId ? [poolId] : undefined,
-      }] : []),
+      },
+      {
+        address: contractAddress,
+        abi,
+        functionName: 'getReserves' as const,
+        args: poolId ? [poolId] : undefined,
+      },
     ],
     query: {
-      enabled: !!hookAddress && !!poolId,
+      enabled: !!contractAddress && !!poolId,
       refetchInterval: 10000,
     },
   });
 
   // Parse pool state based on contract version
   let isInitialized = false;
-  if (contractType === 'v6') {
-    // v6 getPoolState returns (token0, token1, token0IsFherc20, token1IsFherc20, initialized, maxBucketsPerSwap, protocolFeeBps)
-    const stateData = data?.[0]?.result as [string, string, boolean, boolean, boolean, bigint, bigint] | undefined;
-    isInitialized = stateData?.[4] ?? false;
+  let reserve0 = 0n;
+  let reserve1 = 0n;
+  let totalLpSupply = 0n;
+
+  if (isNative) {
+    // Native Uniswap v4: getSlot0 returns (sqrtPriceX96, tick, protocolFee, lpFee)
+    // Pool is initialized if sqrtPriceX96 > 0
+    const slot0Data = data?.[0]?.result as [bigint, number, number, number] | undefined;
+    isInitialized = (slot0Data?.[0] ?? 0n) > 0n;
+    // getLiquidity returns uint128
+    totalLpSupply = (data?.[1]?.result as bigint) ?? 0n;
+    // Note: Native v4 doesn't expose reserves directly - would need to calculate from sqrtPriceX96
   } else if (contractType === 'v8fhe') {
     // v8FHE poolStates returns (token0, token1, initialized, protocolFeeBps)
     const stateData = data?.[0]?.result as [string, string, boolean, bigint] | undefined;
     isInitialized = stateData?.[2] ?? false;
+    // v8 getReserves returns (reserve0, reserve1)
+    const reservesData = data?.[1]?.result as [bigint, bigint] | undefined;
+    reserve0 = reservesData?.[0] ?? 0n;
+    reserve1 = reservesData?.[1] ?? 0n;
   } else if (contractType === 'v8mixed') {
     // v8Mixed poolStates returns (token0, token1, token0IsFherc20, token1IsFherc20, initialized, protocolFeeBps)
     const stateData = data?.[0]?.result as [string, string, boolean, boolean, boolean, bigint] | undefined;
     isInitialized = stateData?.[4] ?? false;
+    // v8 getReserves returns (reserve0, reserve1)
+    const reservesData = data?.[1]?.result as [bigint, bigint] | undefined;
+    reserve0 = reservesData?.[0] ?? 0n;
+    reserve1 = reservesData?.[1] ?? 0n;
   }
-
-  // Parse reserves from contract response
-  // v6 getPoolReserves returns (reserve0, reserve1, lpSupply)
-  // v8 getReserves returns (reserve0, reserve1)
-  const reservesData = data?.[1]?.result as [bigint, bigint, bigint?] | undefined;
-  const reserve0 = reservesData?.[0] ?? 0n;
-  const reserve1 = reservesData?.[1] ?? 0n;
-  const lpSupplyFromReserves = reservesData?.[2] ?? 0n;
-
-  // totalLpSupply: v6 has separate function, v8 doesn't have simple accessor
-  const totalLpSupply = contractType === 'v6'
-    ? ((data?.[2]?.result as bigint) ?? lpSupplyFromReserves)
-    : lpSupplyFromReserves;
 
   return {
     poolExists: !!pool || isInitialized,

@@ -1,11 +1,12 @@
 'use client';
 
 /**
- * useRemoveLiquidity - Multi-Version Liquidity Removal Hook (v6 and v8 compatible)
+ * useRemoveLiquidity - Multi-Version Liquidity Removal Hook
  *
- * v6 signatures:
- * - removeLiquidity(PoolId poolId, uint256 lpAmount) returns (uint256 amount0, uint256 amount1)
- * - removeLiquidityEncrypted(PoolId poolId, InEuint128 lpAmount) returns (uint256 amount0, uint256 amount1)
+ * Supports three contract types:
+ * - native: Standard Uniswap v4 Position Manager (ERC:ERC pools)
+ * - v8fhe: Full privacy FHE pools (encrypted LP removal)
+ * - v8mixed: Mixed pools (plaintext LP removal)
  *
  * v8FHE signatures:
  * - removeLiquidity(PoolId poolId, InEuint128 lpAmount) returns (euint128, euint128) - encrypted only
@@ -15,10 +16,12 @@
  */
 
 import { useState, useCallback } from 'react';
-import { useAccount, usePublicClient } from 'wagmi';
-import { FHEATHERX_V6_ABI, type InEuint128 } from '@/lib/contracts/fheatherXv6Abi';
+import { useAccount, usePublicClient, useChainId } from 'wagmi';
+import { type InEuint128 } from '@/lib/contracts/fheatherXv6Abi';
 import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
 import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
+import { UNISWAP_V4_POSITION_MANAGER_ABI } from '@/lib/contracts/uniswapV4-abi';
+import { POSITION_MANAGER_ADDRESSES } from '@/lib/contracts/addresses';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSmartWriteContract } from './useTestWriteContract';
@@ -111,9 +114,9 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
         return FHEATHERX_V8_FHE_ABI;
       case 'v8mixed':
         return FHEATHERX_V8_MIXED_ABI;
-      case 'v6':
+      case 'native':
       default:
-        return FHEATHERX_V6_ABI;
+        return UNISWAP_V4_POSITION_MANAGER_ABI;
     }
   }, []);
 
@@ -337,71 +340,75 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
 
       // For encrypted operations, the reserves are updated asynchronously via FHE decrypt.
       // We need to call trySyncReserves to harvest the resolved decrypt results.
-      debugLog('Starting reserve sync polling for FHE pool');
+      // Note: Reserve sync only applies to FHE pools (v8fhe/v8mixed), not native pools.
+      if (contractType === 'v8fhe' || contractType === 'v8mixed') {
+        debugLog('Starting reserve sync polling for FHE pool');
 
-      // Get initial reserves for comparison
-      // v8 uses getReserves, v6 uses getPoolReserves
-      const reserveFnName = contractType === 'v8fhe' ? 'getReserves' : 'getPoolReserves';
-      let initialReserves: [bigint, bigint, bigint] | null = null;
-      try {
-        initialReserves = await publicClient.readContract({
-          address: hookAddress,
-          abi,
-          functionName: reserveFnName,
-          args: [poolId],
-        }) as [bigint, bigint, bigint];
-        debugLog('Initial reserves before sync', {
-          reserve0: initialReserves[0].toString(),
-          reserve1: initialReserves[1].toString(),
-        });
-      } catch {
-        // Ignore
-      }
+        // Use the appropriate v8 ABI for reserve sync
+        const fheAbi = contractType === 'v8fhe' ? FHEATHERX_V8_FHE_ABI : FHEATHERX_V8_MIXED_ABI;
 
-      // Poll for up to 60 seconds with 5 second intervals
-      const maxAttempts = 12;
-      const pollInterval = 5000;
-
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        // Wait before trying to sync
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-
+        // Get initial reserves for comparison - v8 uses getReserves
+        let initialReserves: [bigint, bigint] | null = null;
         try {
-          // Call trySyncReserves to harvest any resolved decrypts
-          await writeContractAsync({
+          initialReserves = await publicClient.readContract({
             address: hookAddress,
-            abi,
-            functionName: 'trySyncReserves',
+            abi: fheAbi,
+            functionName: 'getReserves',
             args: [poolId],
+          }) as [bigint, bigint];
+          debugLog('Initial reserves before sync', {
+            reserve0: initialReserves[0].toString(),
+            reserve1: initialReserves[1].toString(),
           });
-          debugLog(`Reserve sync attempt ${attempt + 1} completed`);
-        } catch (syncErr) {
-          // trySyncReserves might fail if no new decrypts resolved, that's OK
-          debugLog(`Reserve sync attempt ${attempt + 1} - no new decrypts`, syncErr);
+        } catch {
+          // Ignore
         }
 
-        // Check if reserves have been updated
-        try {
-          const reserves = await publicClient.readContract({
-            address: hookAddress,
-            abi,
-            functionName: reserveFnName,
-            args: [poolId],
-          }) as [bigint, bigint, bigint];
+        // Poll for up to 60 seconds with 5 second intervals
+        const maxAttempts = 12;
+        const pollInterval = 5000;
 
-          debugLog(`Reserve check attempt ${attempt + 1}`, {
-            reserve0: reserves[0].toString(),
-            reserve1: reserves[1].toString(),
-          });
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          // Wait before trying to sync
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
 
-          // Check if reserves changed from initial values (decrypt resolved)
-          if (initialReserves &&
-              (reserves[0] !== initialReserves[0] || reserves[1] !== initialReserves[1])) {
-            debugLog('Reserves synced successfully - values changed');
-            break;
+          try {
+            // Call trySyncReserves to harvest any resolved decrypts
+            await writeContractAsync({
+              address: hookAddress,
+              abi: fheAbi,
+              functionName: 'trySyncReserves',
+              args: [poolId],
+            });
+            debugLog(`Reserve sync attempt ${attempt + 1} completed`);
+          } catch (syncErr) {
+            // trySyncReserves might fail if no new decrypts resolved, that's OK
+            debugLog(`Reserve sync attempt ${attempt + 1} - no new decrypts`, syncErr);
           }
-        } catch {
-          // Ignore read errors
+
+          // Check if reserves have been updated
+          try {
+            const reserves = await publicClient.readContract({
+              address: hookAddress,
+              abi: fheAbi,
+              functionName: 'getReserves',
+              args: [poolId],
+            }) as [bigint, bigint];
+
+            debugLog(`Reserve check attempt ${attempt + 1}`, {
+              reserve0: reserves[0].toString(),
+              reserve1: reserves[1].toString(),
+            });
+
+            // Check if reserves changed from initial values (decrypt resolved)
+            if (initialReserves &&
+                (reserves[0] !== initialReserves[0] || reserves[1] !== initialReserves[1])) {
+              debugLog('Reserves synced successfully - values changed');
+              break;
+            }
+          } catch {
+            // Ignore read errors
+          }
         }
       }
 
