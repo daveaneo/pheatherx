@@ -71,7 +71,7 @@ export default defineConfig({
 
   // Start the dev server before tests
   webServer: {
-    command: 'NEXT_PUBLIC_TEST_MODE=true npm run dev',
+    command: 'NEXT_PUBLIC_TEST_MODE=true NEXT_PUBLIC_TEST_CHAIN=arb-sepolia npm run dev',
     url: 'http://localhost:3000',
     // Reuse existing server for faster test runs
     // Set PLAYWRIGHT_REUSE_SERVER=true when running with existing server
@@ -80,6 +80,7 @@ export default defineConfig({
     timeout: 120000,
     env: {
       NEXT_PUBLIC_TEST_MODE: 'true',
+      NEXT_PUBLIC_TEST_CHAIN: 'arb-sepolia',
     },
   },
 });

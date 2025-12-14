@@ -1,0 +1,26 @@
+{
+  "chainId": 11155111,
+  "deployedAt": "1765727508",
+  "tokens": {
+    "fheUSDC": {
+      "address": "0xCa72923536c48704858C9207D2496010498b77c4",
+      "symbol": "fheUSDC",
+      "name": "FHE USDC",
+      "decimals": 6,
+      "type": "fherc20",
+      "hasBalanceOfEncrypted": true
+    },
+    "fheWETH": {
+      "address": "0xa22df71352FbE7f78e9fC6aFFA78a3A1dF57b80e",
+      "symbol": "fheWETH",
+      "name": "FHE WETH",
+      "decimals": 18,
+      "type": "fherc20",
+      "hasBalanceOfEncrypted": true
+    }
+  },
+  "faucetConfig": {
+    "amount": 100,
+    "cooldownSeconds": 3600
+  }
+}

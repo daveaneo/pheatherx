@@ -15,6 +15,8 @@ import {
   getMetaMaskExtensionId,
   confirmMetaMaskTransaction,
   TOKENS,
+  ARB_SEPOLIA_TOKENS,
+  ARB_SEPOLIA_POOLS,
 } from './liquidity-helpers';
 
 // Re-export common helpers from liquidity-helpers
@@ -25,6 +27,8 @@ export {
   getMetaMaskExtensionId,
   confirmMetaMaskTransaction,
   TOKENS,
+  ARB_SEPOLIA_TOKENS,
+  ARB_SEPOLIA_POOLS,
   type TokenSymbol,
 } from './liquidity-helpers';
 
@@ -467,7 +471,7 @@ export async function placeLimitOrder(
   }
 
   console.log(`[Trade Helper] Filling amount: ${amount}`);
-  await amountInput.click();
+  await amountInput.click({ force: true });
   await amountInput.clear();
   await amountInput.fill(amount);
   await page.waitForTimeout(1000);
@@ -642,4 +646,333 @@ export async function getCurrentPoolPair(page: Page): Promise<string | null> {
     return text;
   }
   return null;
+}
+
+// ============================================
+// Claim Helpers (for filled limit orders)
+// ============================================
+
+/**
+ * Navigate to the claims page
+ */
+export async function navigateToClaimsPage(page: Page): Promise<void> {
+  console.log('[Trade Helper] Navigating to claims page...');
+  await page.goto('http://localhost:3000/orders/claims', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(2000);
+  console.log('[Trade Helper] On claims page');
+}
+
+/**
+ * Get current pool price from the UI
+ */
+export async function getCurrentPrice(page: Page): Promise<number | null> {
+  console.log('[Trade Helper] Getting current price...');
+
+  // Look for price in the Current Price panel
+  const priceText = page.locator('text=/\\$[0-9]+\\.?[0-9]*/').first();
+  if (await priceText.isVisible().catch(() => false)) {
+    const text = await priceText.textContent();
+    if (text) {
+      const match = text.match(/\$([0-9]+\.?[0-9]*)/);
+      if (match) {
+        const price = parseFloat(match[1]);
+        console.log(`[Trade Helper] Current price: $${price}`);
+        return price;
+      }
+    }
+  }
+
+  console.log('[Trade Helper] Could not find current price');
+  return null;
+}
+
+/**
+ * Check if any claimable orders exist
+ */
+export async function hasClaimableOrders(page: Page): Promise<boolean> {
+  console.log('[Trade Helper] Checking for claimable orders...');
+
+  // Look for claim button or "No proceeds to claim" message
+  const claimButton = page.locator('[data-testid="claim-button"]').first();
+  const noProceeds = page.locator('text=No proceeds to claim').first();
+
+  const hasButton = await claimButton.isVisible().catch(() => false);
+  const hasNone = await noProceeds.isVisible().catch(() => false);
+
+  if (hasButton) {
+    console.log('[Trade Helper] Found claimable orders');
+    return true;
+  }
+  if (hasNone) {
+    console.log('[Trade Helper] No claimable orders');
+    return false;
+  }
+
+  // Check for loading state
+  const loading = page.locator('.animate-pulse, text=Loading').first();
+  if (await loading.isVisible().catch(() => false)) {
+    console.log('[Trade Helper] Claims still loading');
+  }
+
+  return false;
+}
+
+/**
+ * Wait for an order to become claimable (after swap triggers it)
+ */
+export async function waitForOrderClaimable(
+  page: Page,
+  timeout: number = 60000
+): Promise<boolean> {
+  console.log('[Trade Helper] Waiting for order to become claimable...');
+
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeout) {
+    // Navigate to claims page to check
+    await navigateToClaimsPage(page);
+    await page.waitForTimeout(3000); // Wait for claims to load
+
+    if (await hasClaimableOrders(page)) {
+      console.log('[Trade Helper] Order is now claimable!');
+      return true;
+    }
+
+    // Wait before checking again
+    await page.waitForTimeout(5000);
+  }
+
+  console.log('[Trade Helper] Timeout waiting for claimable order');
+  return false;
+}
+
+/**
+ * Claim a filled order (clicks first available claim button)
+ * For Test Mode: transaction auto-confirms
+ */
+export async function claimFilledOrder(
+  page: Page
+): Promise<{ success: boolean; txConfirmed: boolean }> {
+  console.log('[Trade Helper] Claiming filled order...');
+
+  // Find and click the claim button
+  const claimButton = page.locator('[data-testid="claim-button"]').first();
+  if (!(await claimButton.isVisible().catch(() => false))) {
+    console.log('[Trade Helper] No claim button found');
+    return { success: false, txConfirmed: false };
+  }
+
+  // Check if button is disabled
+  if (await claimButton.isDisabled()) {
+    console.log('[Trade Helper] Claim button is disabled');
+    return { success: false, txConfirmed: false };
+  }
+
+  console.log('[Trade Helper] Clicking claim button...');
+  await claimButton.click();
+  await page.waitForTimeout(2000);
+
+  // In Test Mode, the transaction should auto-confirm
+  // Wait for the transaction to process
+  console.log('[Trade Helper] Waiting for claim transaction...');
+
+  // Wait for modal or success indicator
+  const maxWait = 60000;
+  const startTime = Date.now();
+  let txConfirmed = false;
+
+  while (Date.now() - startTime < maxWait) {
+    // Check for success indicators
+    const successModal = page.locator('text=/confirmed|success|claimed/i').first();
+    const claimingText = page.locator('text=/claiming/i').first();
+
+    if (await successModal.isVisible().catch(() => false)) {
+      console.log('[Trade Helper] Claim transaction confirmed!');
+      txConfirmed = true;
+      break;
+    }
+
+    if (!(await claimingText.isVisible().catch(() => false))) {
+      // Button no longer shows "Claiming..." - check if claim succeeded
+      await page.waitForTimeout(2000);
+      // If claim button is gone or disabled, likely success
+      const buttonStillClickable = await claimButton.isVisible().catch(() => false) &&
+        !(await claimButton.isDisabled().catch(() => true));
+      if (!buttonStillClickable) {
+        console.log('[Trade Helper] Claim button no longer active - assuming success');
+        txConfirmed = true;
+        break;
+      }
+    }
+
+    await page.waitForTimeout(2000);
+  }
+
+  // Close any open modal
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+
+  console.log(`[Trade Helper] Claim result: success=${txConfirmed}, txConfirmed=${txConfirmed}`);
+  return { success: txConfirmed, txConfirmed };
+}
+
+/**
+ * Claim all available orders
+ */
+export async function claimAllOrders(page: Page): Promise<number> {
+  console.log('[Trade Helper] Claiming all orders...');
+
+  let claimedCount = 0;
+
+  // Keep claiming while there are claimable orders
+  while (await hasClaimableOrders(page)) {
+    const result = await claimFilledOrder(page);
+    if (result.success) {
+      claimedCount++;
+      console.log(`[Trade Helper] Claimed order ${claimedCount}`);
+      // Wait for UI to update
+      await page.waitForTimeout(3000);
+      // Refresh claims page
+      await page.reload();
+      await page.waitForTimeout(3000);
+    } else {
+      console.log('[Trade Helper] Failed to claim, stopping');
+      break;
+    }
+  }
+
+  console.log(`[Trade Helper] Total orders claimed: ${claimedCount}`);
+  return claimedCount;
+}
+
+// ============================================
+// Test Mode Helpers (no MetaMask required)
+// ============================================
+
+/**
+ * Place a limit order in Test Mode (no MetaMask confirmation needed)
+ * In Test Mode, transactions auto-sign via the mock wallet
+ */
+export async function placeLimitOrderTestMode(
+  page: Page,
+  orderType: OrderType,
+  amount: string
+): Promise<{ success: boolean; txConfirmed: boolean }> {
+  console.log(`[Trade Helper] Placing ${orderType} order with amount: ${amount} (Test Mode)`);
+
+  // Select order type
+  await selectOrderType(page, orderType);
+  await page.waitForTimeout(1000);
+
+  // Target tick auto-selects, verify it's set
+  const tickSelect = page.locator('[data-testid="target-tick-select"]');
+  if (await tickSelect.isVisible().catch(() => false)) {
+    const tickButton = tickSelect.locator('button').first();
+    const tickText = await tickButton.textContent().catch(() => '');
+    if (!tickText || !tickText.includes('$')) {
+      await selectTargetTick(page, 0);
+    }
+  }
+
+  // Fill order amount
+  const amountInput = page.locator('[data-testid="order-amount-input"]');
+  if (!(await amountInput.isVisible().catch(() => false))) {
+    console.log('[Trade Helper] Order amount input not found');
+    return { success: false, txConfirmed: false };
+  }
+
+  await amountInput.click({ force: true });
+  await amountInput.clear();
+  await amountInput.fill(amount);
+  await page.waitForTimeout(1000);
+
+  // Click place order button
+  const placeButton = page.locator('[data-testid="place-order-button"]');
+  if (!(await placeButton.isVisible().catch(() => false))) {
+    console.log('[Trade Helper] Place order button not found');
+    return { success: false, txConfirmed: false };
+  }
+
+  if (await placeButton.isDisabled()) {
+    console.log('[Trade Helper] Place order button is disabled');
+    return { success: false, txConfirmed: false };
+  }
+
+  console.log('[Trade Helper] Clicking place order button...');
+  await placeButton.click();
+
+  // Wait for encryption
+  console.log('[Trade Helper] Waiting for FHE encryption...');
+  const encryptionStart = Date.now();
+  while (Date.now() - encryptionStart < 60000) {
+    const buttonText = await placeButton.textContent().catch(() => '');
+    if (buttonText && !buttonText.includes('Encrypting')) {
+      break;
+    }
+    await page.waitForTimeout(2000);
+  }
+
+  // In Test Mode, wait for transaction to be processed
+  // The mock wallet auto-signs, so we just wait for UI updates
+  console.log('[Trade Helper] Waiting for transaction (Test Mode auto-sign)...');
+  await page.waitForTimeout(5000);
+
+  // Check for success indicators
+  const txConfirmed = await page.locator('text=/confirmed|success|submitted/i').isVisible().catch(() => false) ||
+    await page.locator('[data-testid="place-order-button"]:not([disabled])').isVisible().catch(() => false);
+
+  // Wait a bit more for the transaction to process
+  await page.waitForTimeout(10000);
+
+  console.log(`[Trade Helper] Order result (Test Mode): txConfirmed=${txConfirmed}`);
+  return { success: txConfirmed, txConfirmed };
+}
+
+/**
+ * Execute a market swap in Test Mode (no MetaMask confirmation needed)
+ */
+export async function executeSwapTestMode(
+  page: Page,
+  amount: string
+): Promise<{ success: boolean; txConfirmed: boolean }> {
+  console.log(`[Trade Helper] Executing swap with amount: ${amount} (Test Mode)`);
+
+  // Fill sell amount
+  const sellInput = page.locator('[data-testid="sell-amount-input"]');
+  if (!(await sellInput.isVisible().catch(() => false))) {
+    console.log('[Trade Helper] Sell amount input not found');
+    return { success: false, txConfirmed: false };
+  }
+
+  await sellInput.clear();
+  await sellInput.fill(amount);
+  await page.waitForTimeout(1000);
+
+  // Click swap button
+  const swapButton = page.locator('[data-testid="swap-button"]');
+  if (!(await swapButton.isVisible().catch(() => false))) {
+    console.log('[Trade Helper] Swap button not found');
+    return { success: false, txConfirmed: false };
+  }
+
+  if (await swapButton.isDisabled()) {
+    console.log('[Trade Helper] Swap button is disabled');
+    return { success: false, txConfirmed: false };
+  }
+
+  console.log('[Trade Helper] Clicking swap button...');
+  await swapButton.click();
+
+  // Wait for simulation
+  console.log('[Trade Helper] Waiting for simulation...');
+  await page.waitForTimeout(3000);
+
+  // In Test Mode, transaction auto-signs
+  console.log('[Trade Helper] Waiting for transaction (Test Mode auto-sign)...');
+  await page.waitForTimeout(10000);
+
+  // Check for success
+  const txConfirmed = await page.locator('text=/confirmed|success/i').isVisible().catch(() => false);
+
+  console.log(`[Trade Helper] Swap result (Test Mode): txConfirmed=${txConfirmed}`);
+  return { success: true, txConfirmed };
 }

@@ -3,9 +3,28 @@
 import { useState, useCallback } from 'react';
 import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
 import { FHEATHERX_V6_ABI, BucketSide, type BucketSideType } from '@/lib/contracts/fheatherXv6Abi';
+import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
+import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
-import { useSelectedPool } from '@/stores/poolStore';
+import { useSelectedPool, determineContractType } from '@/stores/poolStore';
+import type { ContractType } from '@/types/pool';
+
+/**
+ * Get ABI based on contract type
+ */
+function getAbiForContractType(type: ContractType) {
+  switch (type) {
+    case 'v8fhe':
+      return FHEATHERX_V8_FHE_ABI;
+    case 'v8mixed':
+      return FHEATHERX_V8_MIXED_ABI;
+    case 'native':
+    default:
+      // Native pools don't have limit orders, but fall back to v6 ABI for legacy support
+      return FHEATHERX_V6_ABI;
+  }
+}
 
 type ClosePositionStep = 'idle' | 'closing' | 'complete' | 'error';
 
@@ -43,8 +62,12 @@ export function useClosePosition(): UseClosePositionResult {
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
 
-  // Get hook address from selected pool (multi-pool support)
-  const { hookAddress } = useSelectedPool();
+  // Get hook address and pool from selected pool (multi-pool support)
+  const { hookAddress, pool } = useSelectedPool();
+
+  // Determine contract type for ABI selection
+  const contractType = determineContractType(pool);
+  const abi = getAbiForContractType(contractType);
 
   const [step, setStep] = useState<ClosePositionStep>('idle');
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
@@ -68,6 +91,11 @@ export function useClosePosition(): UseClosePositionResult {
       throw new Error('Wallet not connected');
     }
 
+    // Native pools don't have limit orders
+    if (contractType === 'native') {
+      throw new Error('Limit orders are not available for ERC:ERC pools');
+    }
+
     setStep('closing');
     setError(null);
 
@@ -78,7 +106,7 @@ export function useClosePosition(): UseClosePositionResult {
       // Use claim to collect proceeds (exit function was removed for contract size optimization)
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
+        abi,
         functionName: 'claim',
         args: [poolId, tick, side],
       });
@@ -121,7 +149,7 @@ export function useClosePosition(): UseClosePositionResult {
       errorToast('Close position failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, contractType, abi, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
 
   return {
     closePosition,

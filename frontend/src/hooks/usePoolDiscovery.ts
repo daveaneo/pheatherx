@@ -2,13 +2,18 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useChainId, usePublicClient, useWatchContractEvent } from 'wagmi';
-import { FHEATHERX_FACTORY_ADDRESSES, FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import {
+  FHEATHERX_FACTORY_ADDRESSES,
+  FHEATHERX_ADDRESSES,
+  FHEATHERX_V8_FHE_ADDRESSES,
+  FHEATHERX_V8_MIXED_ADDRESSES
+} from '@/lib/contracts/addresses';
 import { FHEATHERX_FACTORY_ABI } from '@/lib/contracts/factoryAbi';
 import { ERC20_ABI } from '@/lib/contracts/erc20Abi';
 import { usePoolStore } from '@/stores/poolStore';
 import { getTokensForChain, type Token as LibToken } from '@/lib/tokens';
 import { sortTokens } from '@/lib/pairs';
-import type { Pool, PoolInfo, Token } from '@/types/pool';
+import type { Pool, PoolInfo, Token, ContractType } from '@/types/pool';
 
 /**
  * Hook that discovers pools from the factory contract and fetches token metadata
@@ -100,25 +105,43 @@ export function usePoolDiscovery() {
   );
 
   /**
+   * Get the appropriate hook address based on token types
+   * - native (ERC:ERC): address(0) - use standard Uniswap v4
+   * - v8fhe (FHE:FHE): v8FHE hook for full privacy
+   * - v8mixed (ERC:FHE or FHE:ERC): v8Mixed hook for partial privacy
+   */
+  const getHookForTokenPair = useCallback((
+    token0Type: string | undefined,
+    token1Type: string | undefined
+  ): { hook: `0x${string}`; contractType: ContractType } => {
+    const t0IsFhe = token0Type === 'fheerc20';
+    const t1IsFhe = token1Type === 'fheerc20';
+
+    if (t0IsFhe && t1IsFhe) {
+      // Both FHE - use v8FHE hook
+      const hook = FHEATHERX_V8_FHE_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000' as `0x${string}`;
+      return { hook, contractType: 'v8fhe' };
+    } else if (t0IsFhe || t1IsFhe) {
+      // One FHE - use v8Mixed hook
+      const hook = FHEATHERX_V8_MIXED_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000' as `0x${string}`;
+      return { hook, contractType: 'v8mixed' };
+    } else {
+      // Both ERC - native Uniswap v4 (no hook)
+      return { hook: '0x0000000000000000000000000000000000000000' as `0x${string}`, contractType: 'native' };
+    }
+  }, [chainId]);
+
+  /**
    * Create fallback pools for all token pairs when factory is not available
    * Uses tokens from tokens.ts to generate all possible trading pairs
+   * Assigns correct hook based on token types (native/v8fhe/v8mixed)
    */
   const createFallbackPools = useCallback(async (): Promise<Pool[]> => {
-    const hookAddress = FHEATHERX_ADDRESSES[chainId];
-
-    // Creating pools for chain
-
-    if (!hookAddress || hookAddress === '0x0000000000000000000000000000000000000000') {
-      return [];
-    }
-
     // Get all tokens from tokens.ts for this chain
     const configTokens = getTokensForChain(chainId);
     if (configTokens.length < 2) {
       return [];
     }
-
-    // Creating fallback pools from tokens.ts
 
     // Generate all unique token pairs (combinations, not permutations)
     const pools: Pool[] = [];
@@ -130,6 +153,15 @@ export function usePoolDiscovery() {
 
         // Sort tokens to ensure proper ordering (token0 < token1 by address)
         const [sorted0, sorted1] = sortTokens(tokenA, tokenB);
+
+        // Get the correct hook for this token pair
+        const { hook, contractType } = getHookForTokenPair(sorted0.type, sorted1.type);
+
+        // Skip if hook is not deployed (except for native which uses address(0))
+        if (contractType !== 'native' && hook === '0x0000000000000000000000000000000000000000') {
+          console.log(`[PoolDiscovery] Skipping ${sorted0.symbol}/${sorted1.symbol} - ${contractType} hook not deployed`);
+          continue;
+        }
 
         // Convert from lib/tokens Token type to pool Token type
         const token0Meta: Token = {
@@ -148,22 +180,21 @@ export function usePoolDiscovery() {
         };
 
         pools.push({
-          hook: hookAddress,
+          hook,
           token0: sorted0.address,
           token1: sorted1.address,
           createdAt: 0n,
           active: true,
           token0Meta,
           token1Meta,
+          contractType,
         });
-
-        // Pool created: sorted0.symbol/sorted1.symbol
       }
     }
 
     console.log(`[PoolDiscovery] Created ${pools.length} pools for chain ${chainId}`);
     return pools;
-  }, [chainId]);
+  }, [chainId, getHookForTokenPair]);
 
   /**
    * Fetch all pools from the factory

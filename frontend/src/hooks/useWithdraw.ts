@@ -19,11 +19,30 @@
 import { useState, useCallback } from 'react';
 import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi';
 import { FHEATHERX_V6_ABI, BucketSide, type InEuint128, type BucketSideType } from '@/lib/contracts/fheatherXv6Abi';
+import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
+import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
-import { useSelectedPool } from '@/stores/poolStore';
+import { useSelectedPool, determineContractType } from '@/stores/poolStore';
 import { useFheSession } from './useFheSession';
 import { FHE_TYPES } from '@/lib/fhe-constants';
+import type { ContractType } from '@/types/pool';
+
+/**
+ * Get ABI based on contract type
+ */
+function getAbiForContractType(type: ContractType) {
+  switch (type) {
+    case 'v8fhe':
+      return FHEATHERX_V8_FHE_ABI;
+    case 'v8mixed':
+      return FHEATHERX_V8_MIXED_ABI;
+    case 'native':
+    default:
+      // Native pools don't have limit orders, but fall back to v6 ABI for legacy support
+      return FHEATHERX_V6_ABI;
+  }
+}
 
 type WithdrawStep = 'idle' | 'encrypting' | 'withdrawing' | 'complete' | 'error';
 
@@ -85,8 +104,12 @@ export function useWithdraw(): UseWithdrawResult {
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
   const { encrypt, isReady: fheReady, isMock: fheMock } = useFheSession();
 
-  // Get hook address from selected pool
-  const { hookAddress } = useSelectedPool();
+  // Get hook address and pool from selected pool
+  const { hookAddress, pool } = useSelectedPool();
+
+  // Determine contract type for ABI selection
+  const contractType = determineContractType(pool);
+  const abi = getAbiForContractType(contractType);
 
   const [step, setStep] = useState<WithdrawStep>('idle');
   const [withdrawHash, setWithdrawHash] = useState<`0x${string}` | null>(null);
@@ -113,7 +136,12 @@ export function useWithdraw(): UseWithdrawResult {
       throw new Error('Wallet not connected or no pool selected');
     }
 
-    // Check FHE session
+    // Native pools don't have limit orders
+    if (contractType === 'native') {
+      throw new Error('Limit orders are not available for ERC:ERC pools');
+    }
+
+    // Check FHE session (required for v8fhe, optional for v8mixed depending on side)
     if (!fheMock && (!encrypt || !fheReady)) {
       throw new Error('FHE session not ready. Please initialize FHE first.');
     }
@@ -142,7 +170,7 @@ export function useWithdraw(): UseWithdrawResult {
 
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
+        abi,
         functionName: 'withdraw',
         args: [poolId, tick, side, encryptedAmount],
       });
@@ -170,7 +198,7 @@ export function useWithdraw(): UseWithdrawResult {
       errorToast('Withdrawal failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, writeContractAsync, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, contractType, abi, publicClient, writeContractAsync, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
    * Claim filled proceeds from a limit order
@@ -187,13 +215,18 @@ export function useWithdraw(): UseWithdrawResult {
       throw new Error('Wallet not connected or no pool selected');
     }
 
+    // Native pools don't have limit orders
+    if (contractType === 'native') {
+      throw new Error('Limit orders are not available for ERC:ERC pools');
+    }
+
     setStep('withdrawing');
     setError(null);
 
     try {
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
+        abi,
         functionName: 'claim',
         args: [poolId, tick, side],
       });
@@ -221,7 +254,7 @@ export function useWithdraw(): UseWithdrawResult {
       errorToast('Claim failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, contractType, abi, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
    * Exit completely - claim all proceeds
@@ -239,6 +272,11 @@ export function useWithdraw(): UseWithdrawResult {
       throw new Error('Wallet not connected or no pool selected');
     }
 
+    // Native pools don't have limit orders
+    if (contractType === 'native') {
+      throw new Error('Limit orders are not available for ERC:ERC pools');
+    }
+
     setStep('withdrawing');
     setError(null);
 
@@ -246,7 +284,7 @@ export function useWithdraw(): UseWithdrawResult {
       // exit() was removed - use claim() instead
       const hash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
+        abi,
         functionName: 'claim',
         args: [poolId, tick, side],
       });
@@ -274,7 +312,7 @@ export function useWithdraw(): UseWithdrawResult {
       errorToast('Claim failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, contractType, abi, publicClient, writeContractAsync, addTransaction, updateTransaction, successToast, errorToast]);
 
   return {
     withdraw,

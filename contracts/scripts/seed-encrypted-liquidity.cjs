@@ -13,20 +13,21 @@ const path = require('path');
 require('dotenv').config();
 
 // ============ Configuration ============
-const ARB_SEPOLIA_RPC = process.env.ARB_SEPOLIA_RPC || 'https://sepolia-rollup.arbitrum.io/rpc';
+// Ethereum Sepolia v8 deployment
+const ETH_SEPOLIA_RPC = process.env.ETH_SEPOLIA_RPC || 'https://ethereum-sepolia-rpc.publicnode.com';
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
 if (!PRIVATE_KEY) {
   throw new Error('PRIVATE_KEY not set in .env');
 }
 
-// Latest deployment addresses (update these after running deploy-arb-sepolia.ts)
-const HOOK_ADDRESS = '0xaBDB92FAC44c850D6472f82B8d63Bb52947610C8';
-const FHE_WETH_ADDRESS = '0xf7dD1ed6f513b22e05645EE8BA3D3A712Cc76128';
-const FHE_USDC_ADDRESS = '0x43AcAe0A089f3cd188f9fB0731059Eb7bC27D3Aa';
+// v8 Eth Sepolia deployment addresses (from deployments/v8-eth-sepolia.json)
+const HOOK_ADDRESS = '0x15a1d97B331A343927d949b82376C7Dec9839088';  // v8FHE hook
+const FHE_WETH_ADDRESS = '0xa22df71352FbE7f78e9fC6aFFA78a3A1dF57b80e';
+const FHE_USDC_ADDRESS = '0xCa72923536c48704858C9207D2496010498b77c4';
 
-// Pool B (fheWETH/fheUSDC) pool ID
-const POOL_ID_B = '0xa14757f1f8704af7e013af1fe0adc201edd591d977449d66c2a903aa481caa8e';
+// Pool B (fheWETH/fheUSDC) pool ID - v8 Eth Sepolia
+const POOL_ID_B = '0xb0bf8c67183ca9add4575d94cdfb1857818c5fc6e125a14bf8c669212b012bd8';
 
 // Amounts for initial liquidity
 const INIT_FHE_WETH_AMOUNT = ethers.parseEther('10');
@@ -41,19 +42,23 @@ const FhenixFHERC20FaucetABI = [
   'function balanceOf(address account) external view returns (uint256)',
 ];
 
-const FheatherXv6ABI = [
-  'function addLiquidityEncrypted(bytes32 poolId, tuple(uint256 ctHash, uint8 securityZone, uint8 utype, bytes signature) amount0, tuple(uint256 ctHash, uint8 securityZone, uint8 utype, bytes signature) amount1) external returns (uint256)',
-  'function getPoolState(bytes32 poolId) external view returns (address token0, address token1, bool token0IsFherc20, bool token1IsFherc20, bool initialized, uint256 maxBucketsPerSwap, uint256 protocolFeeBps)',
+// v8FHE hook ABI - addLiquidity and poolStates
+// NOTE: v8FHE uses `addLiquidity` (not addLiquidityEncrypted) which directly takes InEuint128 params
+const FheatherXv8FHEABI = [
+  'function addLiquidity(bytes32 poolId, tuple(uint256 ctHash, uint8 securityZone, uint8 utype, bytes signature) amount0, tuple(uint256 ctHash, uint8 securityZone, uint8 utype, bytes signature) amount1) external returns (uint256)',
+  // v8FHE poolStates returns: (address token0, address token1, bool initialized, uint256 protocolFeeBps)
+  'function poolStates(bytes32 poolId) external view returns (address token0, address token1, bool initialized, uint256 protocolFeeBps)',
 ];
 
 async function main() {
   console.log('===========================================');
   console.log('  Seed Encrypted Liquidity');
-  console.log('  Pool B: fheWETH/fheUSDC');
+  console.log('  Pool B: fheWETH/fheUSDC (v8FHE)');
+  console.log('  Ethereum Sepolia');
   console.log('===========================================\n');
 
   // Setup provider and wallet
-  const provider = new ethers.JsonRpcProvider(ARB_SEPOLIA_RPC);
+  const provider = new ethers.JsonRpcProvider(ETH_SEPOLIA_RPC);
   const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
   const deployer = await wallet.getAddress();
 
@@ -87,21 +92,24 @@ async function main() {
   console.log('cofhejs initialized successfully');
 
   // Get contracts
-  const hook = new ethers.Contract(HOOK_ADDRESS, FheatherXv6ABI, wallet);
+  const hook = new ethers.Contract(HOOK_ADDRESS, FheatherXv8FHEABI, wallet);
   const fheWeth = new ethers.Contract(FHE_WETH_ADDRESS, FhenixFHERC20FaucetABI, wallet);
   const fheUsdc = new ethers.Contract(FHE_USDC_ADDRESS, FhenixFHERC20FaucetABI, wallet);
 
-  // Check pool state
+  // Check pool state (v8FHE uses poolStates mapping)
   console.log('\n--- Checking Pool B State ---');
-  const poolState = await hook.getPoolState(POOL_ID_B);
+  const poolState = await hook.poolStates(POOL_ID_B);
   console.log('Token0:', poolState[0]);
   console.log('Token1:', poolState[1]);
-  console.log('token0IsFherc20:', poolState[2]);
-  console.log('token1IsFherc20:', poolState[3]);
-  console.log('Initialized:', poolState[4]);
+  console.log('Initialized:', poolState[2]);
+  console.log('Protocol Fee Bps:', poolState[3].toString());
+
+  if (!poolState[2]) {
+    throw new Error('Pool B not initialized! Run DeployV8Complete first.');
+  }
 
   // Sort amounts based on token order
-  // fheUSDC (0x43AcA...) < fheWETH (0xf7dD1...) so token0 = fheUSDC, token1 = fheWETH
+  // In v8 Eth Sepolia: fheWETH (0xa22...) < fheUSDC (0xCa72...) so token0 = fheWETH, token1 = fheUSDC
   const [amt0, amt1] = poolState[0].toLowerCase() === FHE_USDC_ADDRESS.toLowerCase()
     ? [INIT_FHE_USDC_AMOUNT, INIT_FHE_WETH_AMOUNT]
     : [INIT_FHE_WETH_AMOUNT, INIT_FHE_USDC_AMOUNT];
@@ -148,9 +156,9 @@ async function main() {
   await approveTx2.wait();
   console.log('fheUSDC approved');
 
-  // Add encrypted liquidity
-  console.log('\n--- Adding Encrypted Liquidity ---');
-  const addLiqTx = await hook.addLiquidityEncrypted(POOL_ID_B, encAmt0, encAmt1, {
+  // Add encrypted liquidity (v8FHE uses `addLiquidity` with InEuint128 params)
+  console.log('\n--- Adding Liquidity (Encrypted) ---');
+  const addLiqTx = await hook.addLiquidity(POOL_ID_B, encAmt0, encAmt1, {
     gasLimit: 5000000,
   });
   const receipt = await addLiqTx.wait();
@@ -159,7 +167,8 @@ async function main() {
 
   // Check updated pool state
   console.log('\n--- Updated Pool B State ---');
-  console.log('Initialized:', poolState[4]);
+  const updatedPoolState = await hook.poolStates(POOL_ID_B);
+  console.log('Initialized:', updatedPoolState[2]);
 
   console.log('\n===========================================');
   console.log('  Encrypted Liquidity Added Successfully!');

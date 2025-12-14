@@ -7,7 +7,7 @@
 import type { Page } from 'playwright-core';
 import type { Dappwright } from '@tenkeylabs/dappwright';
 
-// Token addresses (Sepolia)
+// Token addresses (Ethereum Sepolia)
 export const TOKENS = {
   WETH: {
     symbol: 'WETH',
@@ -33,6 +33,53 @@ export const TOKENS = {
     type: 'FHERC20',
     decimals: 6,
   },
+} as const;
+
+// Token addresses (Arbitrum Sepolia) - from v6-arb-sepolia.json
+export const ARB_SEPOLIA_TOKENS = {
+  WETH: {
+    symbol: 'WETH',
+    address: '0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13',
+    type: 'ERC20',
+    decimals: 18,
+  },
+  USDC: {
+    symbol: 'USDC',
+    address: '0x00F7DC53A57b980F839767a6C6214b4089d916b1',
+    type: 'ERC20',
+    decimals: 6,
+  },
+  fheWETH: {
+    symbol: 'fheWETH',
+    address: '0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0',
+    type: 'FHERC20',
+    decimals: 18,
+  },
+  fheUSDC: {
+    symbol: 'fheUSDC',
+    address: '0x987731d456B5996E7414d79474D8aba58d4681DC',
+    type: 'FHERC20',
+    decimals: 6,
+  },
+} as const;
+
+// Arbitrum Sepolia Pool IDs - from v8-arb-sepolia.json
+export const ARB_SEPOLIA_POOLS = {
+  // Native pool (no hook)
+  WETH_USDC: '0x508023401a4fd3358c2fb8f6487cd54e66526bdb47b158e0f05e0b3b9a3efb81',
+  // v8FHE hook
+  fheWETH_fheUSDC: '0xef32021335934bc7bdaafe352c75009aee72b1ae7c3d8f2154fac36717a2b4df',
+  // v8Mixed hook
+  WETH_fheUSDC: '0x41916bfac052f6e4b5d8eff9fbc5bdcac0c45ddcc75548af8a6e2d3cc413bb3e',
+  fheWETH_USDC: '0xbd854dfc04217be8e5d32fee22fddcc4c2bc65bfa69ea87eed9213664d63546c',
+  WETH_fheWETH: '0xa462a29413849701e0888361ccbd32580cde3859dede02aea081ef56250e5a1a',
+  USDC_fheUSDC: '0x1f2e4b37512fb968c5dcf9f71dc788a65b8b87ba2b23324ae61ef6d1615bec4e',
+} as const;
+
+// V8 Hook addresses for Arbitrum Sepolia
+export const ARB_SEPOLIA_V8_HOOKS = {
+  v8FheHook: '0x080a2d39687B6ED1F9E4ef9D7121c3f2cE815088',
+  v8MixedHook: '0xB058257E3C8347059690605163384BA933B0D088',
 } as const;
 
 export type TokenSymbol = keyof typeof TOKENS;

@@ -29,20 +29,18 @@ export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
 };
 
 // FheatherXv8FHE Hook addresses (Full privacy - FHE:FHE pools only)
-// TODO: Update with deployed addresses after v8 deployment
 export const FHEATHERX_V8_FHE_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_V8_FHE_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0x0000000000000000000000000000000000000000', // v8FHE Eth Sepolia - pending deployment
-  421614: '0x0000000000000000000000000000000000000000',   // v8FHE Arb Sepolia - pending deployment
+  11155111: '0x15a1d97B331A343927d949b82376C7Dec9839088', // v8FHE Eth Sepolia
+  421614: '0x080a2d39687B6ED1F9E4ef9D7121c3f2cE815088',   // v8FHE Arb Sepolia
   8008135: '0x0000000000000000000000000000000000000000',
 };
 
 // FheatherXv8Mixed Hook addresses (Mixed pools - one FHERC20, one ERC20)
-// TODO: Update with deployed addresses after v8 deployment
 export const FHEATHERX_V8_MIXED_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_V8_MIXED_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0x0000000000000000000000000000000000000000', // v8Mixed Eth Sepolia - pending deployment
-  421614: '0x0000000000000000000000000000000000000000',   // v8Mixed Arb Sepolia - pending deployment
+  11155111: '0x86845D4a86062B2Ed935CE7Ef859C5A8a68E1088', // v8Mixed Eth Sepolia
+  421614: '0xB058257E3C8347059690605163384BA933B0D088',   // v8Mixed Arb Sepolia
   8008135: '0x0000000000000000000000000000000000000000',
 };
 

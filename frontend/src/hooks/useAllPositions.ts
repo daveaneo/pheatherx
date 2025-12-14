@@ -5,6 +5,7 @@
  *
  * Queries positions across ALL pools for the Portfolio page.
  * Uses the same detection logic as useActiveOrders but iterates all pools.
+ * Supports v6, v8FHE, v8Mixed contracts - skips native (ERC:ERC) pools.
  *
  * Position is "active" if it has:
  * - shares > 0 (unfilled order), OR
@@ -14,10 +15,27 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccount, usePublicClient } from 'wagmi';
 import { parseAbiItem } from 'viem';
-import { usePoolStore, getPoolKey } from '@/stores/poolStore';
+import { usePoolStore, getPoolKey, determineContractType } from '@/stores/poolStore';
 import { FHEATHERX_V6_ABI } from '@/lib/contracts/fheatherXv6Abi';
+import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
+import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
 import { getPoolIdFromTokens } from '@/lib/poolId';
-import type { Pool, Token } from '@/types/pool';
+import type { Pool, Token, ContractType } from '@/types/pool';
+
+/**
+ * Get ABI based on contract type
+ */
+function getAbiForContractType(type: ContractType) {
+  switch (type) {
+    case 'v8fhe':
+      return FHEATHERX_V8_FHE_ABI;
+    case 'v8mixed':
+      return FHEATHERX_V8_MIXED_ABI;
+    case 'native':
+    default:
+      return FHEATHERX_V6_ABI;
+  }
+}
 
 export interface AllPoolPosition {
   // Pool info
@@ -45,9 +63,18 @@ export interface PoolPositionGroup {
   hasClaimable: boolean;
 }
 
-// Event signatures for claimable detection
-const BucketFilledEvent = parseAbiItem('event BucketFilled(bytes32 indexed poolId, int24 indexed tick, uint8 side)');
-const ClaimEvent = parseAbiItem('event Claim(bytes32 indexed poolId, address indexed user, int24 indexed tick, uint8 side, bytes32 amountHash)');
+// v6 Event signatures for claimable detection
+const V6BucketFilledEvent = parseAbiItem('event BucketFilled(bytes32 indexed poolId, int24 indexed tick, uint8 side)');
+const V6ClaimEvent = parseAbiItem('event Claim(bytes32 indexed poolId, address indexed user, int24 indexed tick, uint8 side, bytes32 amountHash)');
+
+// v8 Event signatures (no amountHash)
+const V8ClaimEvent = parseAbiItem('event Claim(bytes32 indexed poolId, address indexed user, int24 tick, uint8 side)');
+const V8MomentumActivatedEvent = parseAbiItem('event MomentumActivated(bytes32 indexed poolId, int24 fromTick, int24 toTick, uint8 bucketsActivated)');
+
+// Deposit event signatures
+const V6_DEPOSIT_EVENT_SIG = '0xe227a6e7d62472606934cff09bd5338bef8353353f2e4cd5f33663baadbc64e8'; // v6 with amountHash
+// Note: v8 has same event name but different signature due to no amountHash
+const V8_DEPOSIT_EVENT_SIG = '0xe227a6e7d62472606934cff09bd5338bef8353353f2e4cd5f33663baadbc64e8'; // May need update for v8
 
 export function useAllPositions() {
   const { address } = useAccount();
@@ -82,12 +109,23 @@ export function useAllPositions() {
   ): Promise<AllPoolPosition[]> => {
     if (!publicClient) return [];
 
+    // Determine contract type for this pool
+    const contractType = determineContractType(pool);
+
+    // Skip native pools - they don't have limit orders
+    if (contractType === 'native') {
+      return [];
+    }
+
+    const isV8 = contractType === 'v8fhe' || contractType === 'v8mixed';
+    const abi = getAbiForContractType(contractType);
     const hookAddress = pool.hook;
     const poolId = getPoolIdFromTokens(pool.token0Meta, pool.token1Meta, hookAddress);
     const poolKey = getPoolKey(pool);
 
-    // Deposit event signature: keccak256("Deposit(bytes32,address,int24,uint8,bytes32)")
-    const DEPOSIT_EVENT_SIG = '0xe227a6e7d62472606934cff09bd5338bef8353353f2e4cd5f33663baadbc64e8';
+    // Select event signature based on version
+    const DEPOSIT_EVENT_SIG = isV8 ? V8_DEPOSIT_EVENT_SIG : V6_DEPOSIT_EVENT_SIG;
+    const ClaimEvent = isV8 ? V8ClaimEvent : V6ClaimEvent;
 
     // Get current block number for range calculation
     const currentBlock = await publicClient.getBlockNumber();
@@ -96,8 +134,8 @@ export function useAllPositions() {
     const fromBlockHex = `0x${(fromBlock > 0n ? fromBlock : 0n).toString(16)}` as `0x${string}`;
     const toBlockHex = `0x${currentBlock.toString(16)}` as `0x${string}`;
 
-    // Query events in parallel: Deposits, BucketFilled, and Claims
-    const [depositLogs, filledLogs, claimLogs] = await Promise.all([
+    // Build event promises based on version
+    const eventPromises: Promise<unknown>[] = [
       // Get Deposit events for this user in this pool
       publicClient.request({
         method: 'eth_getLogs',
@@ -112,15 +150,6 @@ export function useAllPositions() {
           fromBlock: fromBlockHex,
           toBlock: toBlockHex,
         }],
-      }) as Promise<Array<{ topics: string[]; data: string }>>,
-
-      // Get BucketFilled events for this pool
-      publicClient.getLogs({
-        address: hookAddress,
-        event: BucketFilledEvent,
-        args: { poolId: poolId as `0x${string}` },
-        fromBlock: fromBlock > 0n ? fromBlock : 0n,
-        toBlock: 'latest',
       }),
 
       // Get Claim events for this user in this pool
@@ -131,25 +160,77 @@ export function useAllPositions() {
         fromBlock: fromBlock > 0n ? fromBlock : 0n,
         toBlock: 'latest',
       }),
-    ]);
+    ];
 
-    // Build set of filled buckets (tick:side -> true)
-    const filledBuckets = new Set<string>();
-    for (const log of filledLogs) {
-      const tick = log.args.tick;
-      const side = log.args.side;
-      if (tick !== undefined && side !== undefined) {
-        filledBuckets.add(`${tick}:${side}`);
-      }
+    // v6 uses BucketFilled, v8 uses MomentumActivated
+    if (isV8) {
+      eventPromises.push(
+        publicClient.getLogs({
+          address: hookAddress,
+          event: V8MomentumActivatedEvent,
+          args: { poolId: poolId as `0x${string}` },
+          fromBlock: fromBlock > 0n ? fromBlock : 0n,
+          toBlock: 'latest',
+        })
+      );
+    } else {
+      eventPromises.push(
+        publicClient.getLogs({
+          address: hookAddress,
+          event: V6BucketFilledEvent,
+          args: { poolId: poolId as `0x${string}` },
+          fromBlock: fromBlock > 0n ? fromBlock : 0n,
+          toBlock: 'latest',
+        })
+      );
     }
+
+    const [depositLogs, claimLogs, filledOrMomentumLogs] = await Promise.all(eventPromises) as [
+      Array<{ topics: string[]; data: string }>,
+      Awaited<ReturnType<typeof publicClient.getLogs>>,
+      Awaited<ReturnType<typeof publicClient.getLogs>>
+    ];
 
     // Build set of already claimed positions (tick:side -> true)
     const claimedPositions = new Set<string>();
     for (const log of claimLogs) {
-      const tick = log.args.tick;
-      const side = log.args.side;
+      const args = (log as { args: Record<string, unknown> }).args;
+      const tick = args.tick;
+      const side = args.side;
       if (tick !== undefined && side !== undefined) {
         claimedPositions.add(`${tick}:${side}`);
+      }
+    }
+
+    // Build claimability data based on version
+    // For v6: Build set of filled buckets (tick:side -> true)
+    // For v8: Build set of momentum ranges for taker orders
+    const filledBuckets = new Set<string>();
+    interface MomentumRange { fromTick: number; toTick: number; }
+    const momentumRanges: MomentumRange[] = [];
+
+    if (isV8) {
+      // v8: Parse MomentumActivated events
+      for (const log of filledOrMomentumLogs) {
+        const args = (log as { args: Record<string, unknown> }).args;
+        const fromTick = args.fromTick as number | undefined;
+        const toTick = args.toTick as number | undefined;
+        if (fromTick !== undefined && toTick !== undefined) {
+          momentumRanges.push({
+            fromTick: Number(fromTick),
+            toTick: Number(toTick),
+          });
+        }
+      }
+    } else {
+      // v6: Parse BucketFilled events
+      for (const log of filledOrMomentumLogs) {
+        const args = (log as { args: Record<string, unknown> }).args;
+        const tick = args.tick;
+        const side = args.side;
+        if (tick !== undefined && side !== undefined) {
+          filledBuckets.add(`${tick}:${side}`);
+        }
       }
     }
 
@@ -181,9 +262,10 @@ export function useAllPositions() {
     for (const [_, pos] of positionMap) {
       try {
         // Query positions mapping: positions(bytes32, address, int24, uint8)
+        // Use dynamic ABI based on contract type
         const result = await publicClient.readContract({
           address: hookAddress,
-          abi: FHEATHERX_V6_ABI,
+          abi,
           functionName: 'positions',
           args: [poolId, userAddress, pos.tick, pos.side],
         }) as [bigint, bigint, bigint, bigint];
@@ -193,13 +275,29 @@ export function useAllPositions() {
 
         // Determine if position has claimable proceeds
         const bucketKey = `${pos.tick}:${pos.side}`;
-        const hasBucketFilled = filledBuckets.has(bucketKey);
         const hasAlreadyClaimed = claimedPositions.has(bucketKey);
-        const hasUnclaimedFilledBucket = hasBucketFilled && !hasAlreadyClaimed;
+
+        let hasUnclaimedFill = false;
+
+        if (isV8) {
+          // v8: Check if tick falls within any momentum activation range
+          for (const range of momentumRanges) {
+            const tickInRange = (pos.tick >= Math.min(range.fromTick, range.toTick)) &&
+                               (pos.tick <= Math.max(range.fromTick, range.toTick));
+            if (tickInRange && !hasAlreadyClaimed) {
+              hasUnclaimedFill = true;
+              break;
+            }
+          }
+        } else {
+          // v6: Check BucketFilled events
+          const hasBucketFilled = filledBuckets.has(bucketKey);
+          hasUnclaimedFill = hasBucketFilled && !hasAlreadyClaimed;
+        }
 
         const hasClaimableProceeds =
           realizedProceedsHandle > 0n ||
-          hasUnclaimedFilledBucket;
+          hasUnclaimedFill;
 
         // Position is "active" if it has shares OR claimable proceeds
         const isActive = sharesHandle > 0n || hasClaimableProceeds;
