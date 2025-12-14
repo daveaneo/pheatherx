@@ -1,25 +1,33 @@
 'use client';
 
 /**
- * useRemoveLiquidity - v6 AMM Liquidity Removal Hook
+ * useRemoveLiquidity - Multi-Version Liquidity Removal Hook (v6 and v8 compatible)
  *
  * v6 signatures:
  * - removeLiquidity(PoolId poolId, uint256 lpAmount) returns (uint256 amount0, uint256 amount1)
  * - removeLiquidityEncrypted(PoolId poolId, InEuint128 lpAmount) returns (uint256 amount0, uint256 amount1)
  *
- * Note: removeLiquidityEncrypted requires both pool tokens to be FHERC20
+ * v8FHE signatures:
+ * - removeLiquidity(PoolId poolId, InEuint128 lpAmount) returns (euint128, euint128) - encrypted only
+ *
+ * v8Mixed signatures:
+ * - removeLiquidity(PoolId poolId, uint256 lpAmount) returns (uint256, uint256) - plaintext only
  */
 
 import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient } from 'wagmi';
 import { FHEATHERX_V6_ABI, type InEuint128 } from '@/lib/contracts/fheatherXv6Abi';
+import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
+import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useSmartWriteContract } from './useTestWriteContract';
 import { useFheSession } from './useFheSession';
 import { getPoolIdFromTokens } from '@/lib/poolId';
 import { FHE_TYPES } from '@/lib/fhe-constants';
+import { useSelectedPool } from '@/stores/poolStore';
 import type { Token } from '@/lib/tokens';
+import type { ContractType } from '@/types/pool';
 
 // Pool type based on token types
 type PoolType = 'ERC:ERC' | 'ERC:FHE' | 'FHE:FHE';
@@ -92,6 +100,22 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
   const { encrypt, isReady: fheReady, isMock: fheMock } = useFheSession();
+  const { contractType } = useSelectedPool();
+
+  /**
+   * Get ABI based on contract type
+   */
+  const getAbiForContractType = useCallback((type: ContractType) => {
+    switch (type) {
+      case 'v8fhe':
+        return FHEATHERX_V8_FHE_ABI;
+      case 'v8mixed':
+        return FHEATHERX_V8_MIXED_ABI;
+      case 'v6':
+      default:
+        return FHEATHERX_V6_ABI;
+    }
+  }, []);
 
   const [step, setStep] = useState<RemoveLiquidityStep>('idle');
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
@@ -157,11 +181,12 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
       debugLog('Computed poolId', poolId);
 
       setStep('removing-liquidity');
-      debugLog('Removing liquidity', { poolId, lpAmount: lpAmount.toString() });
+      const abi = getAbiForContractType(contractType);
+      debugLog('Removing liquidity', { poolId, lpAmount: lpAmount.toString(), contractType });
 
       const removeLiquidityHash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
+        abi,
         functionName: 'removeLiquidity',
         args: [poolId, lpAmount],
       });
@@ -207,7 +232,7 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
       setStep('error');
       errorToast('Failed to remove liquidity', message);
     }
-  }, [address, writeContractAsync, publicClient, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, writeContractAsync, publicClient, addTransaction, updateTransaction, successToast, errorToast, contractType, getAbiForContractType]);
 
   /**
    * Remove liquidity with encrypted LP amount (requires FHE:FHE pool)
@@ -285,12 +310,15 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
       }
 
       setStep('removing-liquidity');
-      debugLog('Removing liquidity encrypted', { poolId, encLpAmount });
+      // v8FHE uses removeLiquidity (encrypted-only), v6 uses removeLiquidityEncrypted
+      const functionName = contractType === 'v8fhe' ? 'removeLiquidity' : 'removeLiquidityEncrypted';
+      const abi = getAbiForContractType(contractType);
+      debugLog('Removing liquidity encrypted', { poolId, encLpAmount, functionName, contractType });
 
       const removeLiquidityHash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
-        functionName: 'removeLiquidityEncrypted',
+        abi,
+        functionName,
         args: [poolId, encLpAmount],
       });
 
@@ -312,12 +340,14 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
       debugLog('Starting reserve sync polling for FHE pool');
 
       // Get initial reserves for comparison
+      // v8 uses getReserves, v6 uses getPoolReserves
+      const reserveFnName = contractType === 'v8fhe' ? 'getReserves' : 'getPoolReserves';
       let initialReserves: [bigint, bigint, bigint] | null = null;
       try {
         initialReserves = await publicClient.readContract({
           address: hookAddress,
-          abi: FHEATHERX_V6_ABI,
-          functionName: 'getPoolReserves',
+          abi,
+          functionName: reserveFnName,
           args: [poolId],
         }) as [bigint, bigint, bigint];
         debugLog('Initial reserves before sync', {
@@ -340,7 +370,7 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
           // Call trySyncReserves to harvest any resolved decrypts
           await writeContractAsync({
             address: hookAddress,
-            abi: FHEATHERX_V6_ABI,
+            abi,
             functionName: 'trySyncReserves',
             args: [poolId],
           });
@@ -354,8 +384,8 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
         try {
           const reserves = await publicClient.readContract({
             address: hookAddress,
-            abi: FHEATHERX_V6_ABI,
-            functionName: 'getPoolReserves',
+            abi,
+            functionName: reserveFnName,
             args: [poolId],
           }) as [bigint, bigint, bigint];
 
@@ -399,13 +429,21 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
       setStep('error');
       errorToast('Failed to remove encrypted liquidity', message);
     }
-  }, [address, writeContractAsync, publicClient, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, writeContractAsync, publicClient, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast, contractType, getAbiForContractType]);
 
   /**
-   * Auto-routing remove liquidity - detects pool type and routes to correct method.
+   * Auto-routing remove liquidity - detects pool type and contract version, routes to correct method.
+   *
+   * v6 behavior:
    * - FHE:FHE pools → removeLiquidityEncrypted (tokens returned to encrypted balance)
    * - ERC:FHE pools → removeLiquidity (tokens returned to plaintext balance)
    * - ERC:ERC pools → removeLiquidity
+   *
+   * v8FHE behavior:
+   * - Always uses encrypted removeLiquidity (only FHE:FHE pools supported)
+   *
+   * v8Mixed behavior:
+   * - Always uses plaintext removeLiquidity (one ERC20, one FHERC20)
    */
   const removeLiquidityAuto = useCallback(async (
     token0: Token,
@@ -414,8 +452,22 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
     lpAmount: bigint
   ): Promise<void> => {
     const poolType = getPoolType(token0, token1);
-    debugLog('removeLiquidityAuto routing', { poolType, token0: token0.symbol, token1: token1.symbol });
+    debugLog('removeLiquidityAuto routing', { poolType, contractType, token0: token0.symbol, token1: token1.symbol });
 
+    // v8 contract routing
+    if (contractType === 'v8fhe') {
+      // v8FHE only supports FHE:FHE pools with encrypted LP
+      debugLog('Using v8FHE encrypted removeLiquidity');
+      return removeLiquidityEncrypted(token0, token1, hookAddress, lpAmount);
+    }
+
+    if (contractType === 'v8mixed') {
+      // v8Mixed only supports plaintext LP (one ERC20 token)
+      debugLog('Using v8Mixed plaintext removeLiquidity');
+      return removeLiquidity(token0, token1, hookAddress, lpAmount);
+    }
+
+    // v6 behavior (default)
     if (poolType === 'FHE:FHE') {
       // Both tokens are FHERC20 - use encrypted removal (tokens go to encrypted balance)
       return removeLiquidityEncrypted(token0, token1, hookAddress, lpAmount);
@@ -423,7 +475,7 @@ export function useRemoveLiquidity(): UseRemoveLiquidityResult {
       // ERC:ERC or ERC:FHE - use plaintext removal (tokens go to plaintext balance)
       return removeLiquidity(token0, token1, hookAddress, lpAmount);
     }
-  }, [removeLiquidity, removeLiquidityEncrypted]);
+  }, [removeLiquidity, removeLiquidityEncrypted, contractType]);
 
   const isLoading = step !== 'idle' && step !== 'complete' && step !== 'error';
 

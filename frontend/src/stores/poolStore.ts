@@ -2,7 +2,8 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Pool, PoolInfo, Token } from '@/types/pool';
+import type { Pool, PoolInfo, Token, ContractType } from '@/types/pool';
+import { getContractAddress } from '@/lib/contracts/addresses';
 
 /**
  * Generate a unique pool key from hook + token addresses
@@ -183,6 +184,31 @@ export const usePoolStore = create<PoolState>()(
 );
 
 /**
+ * Determine contract type based on pool token types
+ * - v8fhe: Both tokens are FHERC20
+ * - v8mixed: Exactly one token is FHERC20
+ * - v6: Fallback for legacy or ERC:ERC pools
+ */
+export function determineContractType(pool: Pool | undefined): ContractType {
+  if (!pool) return 'v6';
+
+  // If contractType is explicitly set, use it
+  if (pool.contractType) return pool.contractType;
+
+  const token0IsFhe = pool.token0Meta?.type === 'fheerc20';
+  const token1IsFhe = pool.token1Meta?.type === 'fheerc20';
+
+  if (token0IsFhe && token1IsFhe) {
+    return 'v8fhe';
+  } else if (token0IsFhe || token1IsFhe) {
+    return 'v8mixed';
+  }
+
+  // ERC:ERC pools use v6 (or native Uniswap v4)
+  return 'v6';
+}
+
+/**
  * Hook to get the currently selected pool with its tokens
  */
 export function useSelectedPool(): {
@@ -190,6 +216,7 @@ export function useSelectedPool(): {
   hookAddress: `0x${string}` | undefined;
   token0: Token | undefined;
   token1: Token | undefined;
+  contractType: ContractType;
   isLoading: boolean;
   poolsLoaded: boolean;
   error: string | null;
@@ -198,12 +225,14 @@ export function useSelectedPool(): {
   const isLoading = usePoolStore(state => state.isLoadingPools);
   const poolsLoaded = usePoolStore(state => state.poolsLoaded);
   const error = usePoolStore(state => state.poolsError);
+  const contractType = determineContractType(pool);
 
   return {
     pool,
     hookAddress: pool?.hook,
     token0: pool?.token0Meta,
     token1: pool?.token1Meta,
+    contractType,
     isLoading,
     poolsLoaded,
     error,

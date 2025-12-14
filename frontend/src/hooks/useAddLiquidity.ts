@@ -3,6 +3,8 @@
 import { useState, useCallback } from 'react';
 import { useAccount, usePublicClient, useChainId } from 'wagmi';
 import { FHEATHERX_V6_ABI, type InEuint128, V6_DEFAULTS } from '@/lib/contracts/fheatherXv6Abi';
+import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
+import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
 import { FHERC20_ABI } from '@/lib/contracts/fherc20Abi';
 import { useFheSession } from './useFheSession';
 import { FHE_TYPES } from '@/lib/fhe-constants';
@@ -13,7 +15,9 @@ import { useTransactionStore } from '@/stores/transactionStore';
 import { useSmartWriteContract } from './useTestWriteContract';
 import { getPoolIdFromTokens, createPoolKey } from '@/lib/poolId';
 import { POOL_MANAGER_ADDRESSES, SQRT_PRICE_1_1 } from '@/lib/contracts/addresses';
+import { useSelectedPool } from '@/stores/poolStore';
 import type { Token } from '@/lib/tokens';
+import type { ContractType } from '@/types/pool';
 
 // Pool type based on token types
 type PoolType = 'ERC:ERC' | 'ERC:FHE' | 'FHE:FHE';
@@ -105,6 +109,22 @@ export function useAddLiquidity(): UseAddLiquidityResult {
   const addTransaction = useTransactionStore(state => state.addTransaction);
   const updateTransaction = useTransactionStore(state => state.updateTransaction);
   const { encrypt, isReady: fheReady, isMock: fheMock } = useFheSession();
+  const { contractType } = useSelectedPool();
+
+  /**
+   * Get ABI based on contract type
+   */
+  const getAbiForContractType = useCallback((type: ContractType) => {
+    switch (type) {
+      case 'v8fhe':
+        return FHEATHERX_V8_FHE_ABI;
+      case 'v8mixed':
+        return FHEATHERX_V8_MIXED_ABI;
+      case 'v6':
+      default:
+        return FHEATHERX_V6_ABI;
+    }
+  }, []);
 
   const [step, setStep] = useState<AddLiquidityStep>('idle');
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
@@ -358,13 +378,14 @@ export function useAddLiquidity(): UseAddLiquidityResult {
         }
       }
 
-      // Add liquidity using v6 AMM function (plaintext)
+      // Add liquidity using appropriate ABI (v8Mixed or v6)
       setStep('adding-liquidity');
-      debugLog('Adding liquidity', { poolId, amount0: amount0.toString(), amount1: amount1.toString() });
+      const abi = getAbiForContractType(contractType);
+      debugLog('Adding liquidity', { poolId, amount0: amount0.toString(), amount1: amount1.toString(), contractType });
 
       const addLiquidityHash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
+        abi,
         functionName: 'addLiquidity',
         args: [poolId, amount0, amount1],
       });
@@ -421,7 +442,7 @@ export function useAddLiquidity(): UseAddLiquidityResult {
       setStep('error');
       errorToast('Failed to add liquidity', message);
     }
-  }, [address, writeContractAsync, publicClient, chainId, addTransaction, updateTransaction, successToast, errorToast, ensurePlaintextBalance]);
+  }, [address, writeContractAsync, publicClient, chainId, addTransaction, updateTransaction, successToast, errorToast, ensurePlaintextBalance, contractType, getAbiForContractType]);
 
   /**
    * Helper to wrap plaintext tokens to encrypted if needed for FHE:FHE pools.
@@ -660,12 +681,15 @@ export function useAddLiquidity(): UseAddLiquidityResult {
         encAmount1 = await encrypt!(amount1);
       }
 
-      debugLog('Calling addLiquidityEncrypted', { poolId, encAmount0, encAmount1 });
+      // v8FHE uses addLiquidity (encrypted-only), v6 uses addLiquidityEncrypted
+      const functionName = contractType === 'v8fhe' ? 'addLiquidity' : 'addLiquidityEncrypted';
+      const abi = getAbiForContractType(contractType);
+      debugLog('Calling encrypted liquidity function', { poolId, functionName, contractType, encAmount0, encAmount1 });
 
       const addLiquidityHash = await writeContractAsync({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
-        functionName: 'addLiquidityEncrypted',
+        abi,
+        functionName,
         args: [poolId, encAmount0, encAmount1],
       });
 
@@ -687,12 +711,14 @@ export function useAddLiquidity(): UseAddLiquidityResult {
       debugLog('Starting reserve sync polling for FHE pool');
 
       // Get initial reserves for comparison
+      // v8 uses getReserves, v6 uses getPoolReserves
+      const reserveFnName = contractType === 'v8fhe' ? 'getReserves' : 'getPoolReserves';
       let initialReserves: [bigint, bigint, bigint] | null = null;
       try {
         initialReserves = await publicClient.readContract({
           address: hookAddress,
-          abi: FHEATHERX_V6_ABI,
-          functionName: 'getPoolReserves',
+          abi,
+          functionName: reserveFnName,
           args: [poolId],
         }) as [bigint, bigint, bigint];
         debugLog('Initial reserves before sync', {
@@ -715,7 +741,7 @@ export function useAddLiquidity(): UseAddLiquidityResult {
           // Call trySyncReserves to harvest any resolved decrypts
           await writeContractAsync({
             address: hookAddress,
-            abi: FHEATHERX_V6_ABI,
+            abi,
             functionName: 'trySyncReserves',
             args: [poolId],
           });
@@ -729,15 +755,15 @@ export function useAddLiquidity(): UseAddLiquidityResult {
         try {
           const reserves = await publicClient.readContract({
             address: hookAddress,
-            abi: FHEATHERX_V6_ABI,
-            functionName: 'getPoolReserves',
+            abi,
+            functionName: reserveFnName,
             args: [poolId],
           }) as [bigint, bigint, bigint];
 
           debugLog(`Reserve check attempt ${attempt + 1}`, {
             reserve0: reserves[0].toString(),
             reserve1: reserves[1].toString(),
-            lpSupply: reserves[2].toString(),
+            lpSupply: reserves[2]?.toString() || 'N/A',
           });
 
           // Check if reserves changed from initial values (decrypt resolved)
@@ -775,13 +801,21 @@ export function useAddLiquidity(): UseAddLiquidityResult {
       setStep('error');
       errorToast('Failed to add encrypted liquidity', message);
     }
-  }, [address, writeContractAsync, publicClient, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast, ensureEncryptedBalance, ensureEncryptedApproval]);
+  }, [address, writeContractAsync, publicClient, encrypt, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast, ensureEncryptedBalance, ensureEncryptedApproval, contractType, getAbiForContractType]);
 
   /**
-   * Auto-routing add liquidity - detects pool type and routes to correct method.
+   * Auto-routing add liquidity - detects pool type and contract version, routes to correct method.
+   *
+   * v6 behavior:
    * - FHE:FHE pools → addLiquidityEncrypted (wraps plaintext if needed)
    * - ERC:FHE pools → addLiquidity (unwraps encrypted if needed)
    * - ERC:ERC pools → addLiquidity
+   *
+   * v8FHE behavior:
+   * - Always uses encrypted addLiquidity (only FHE:FHE pools supported)
+   *
+   * v8Mixed behavior:
+   * - Always uses plaintext addLiquidity (one ERC20, one FHERC20)
    */
   const addLiquidityAuto = useCallback(async (
     token0: Token,
@@ -792,8 +826,22 @@ export function useAddLiquidity(): UseAddLiquidityResult {
     isPoolInitialized: boolean = true
   ): Promise<void> => {
     const poolType = getPoolType(token0, token1);
-    debugLog('addLiquidityAuto routing', { poolType, token0: token0.symbol, token1: token1.symbol });
+    debugLog('addLiquidityAuto routing', { poolType, contractType, token0: token0.symbol, token1: token1.symbol });
 
+    // v8 contract routing
+    if (contractType === 'v8fhe') {
+      // v8FHE only supports FHE:FHE pools with encrypted liquidity
+      debugLog('Using v8FHE encrypted addLiquidity');
+      return addLiquidityEncrypted(token0, token1, hookAddress, amount0, amount1, isPoolInitialized);
+    }
+
+    if (contractType === 'v8mixed') {
+      // v8Mixed only supports plaintext liquidity (one ERC20 token)
+      debugLog('Using v8Mixed plaintext addLiquidity');
+      return addLiquidity(token0, token1, hookAddress, amount0, amount1, isPoolInitialized);
+    }
+
+    // v6 behavior (default)
     if (poolType === 'FHE:FHE') {
       // Both tokens are FHERC20 - use encrypted liquidity for privacy
       return addLiquidityEncrypted(token0, token1, hookAddress, amount0, amount1, isPoolInitialized);
@@ -801,7 +849,7 @@ export function useAddLiquidity(): UseAddLiquidityResult {
       // ERC:ERC or ERC:FHE - use plaintext liquidity (with auto-unwrap for FHERC20)
       return addLiquidity(token0, token1, hookAddress, amount0, amount1, isPoolInitialized);
     }
-  }, [addLiquidity, addLiquidityEncrypted]);
+  }, [addLiquidity, addLiquidityEncrypted, contractType]);
 
   const isLoading = step !== 'idle' && step !== 'complete' && step !== 'error';
 

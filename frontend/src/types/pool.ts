@@ -4,6 +4,14 @@
 
 export type TokenType = 'erc20' | 'fheerc20';
 
+/**
+ * Contract version type
+ * - v6: Legacy contract with support for all pool types
+ * - v8fhe: Full privacy pools (FHE:FHE only) - encrypted LP
+ * - v8mixed: Mixed pools (one FHERC20, one ERC20) - plaintext LP
+ */
+export type ContractType = 'v6' | 'v8fhe' | 'v8mixed';
+
 export interface Token {
   address: `0x${string}`;
   symbol: string;
@@ -30,6 +38,8 @@ export interface PoolInfo {
 export interface Pool extends PoolInfo {
   token0Meta: Token;
   token1Meta: Token;
+  /** Contract type - determines which ABI and functions to use */
+  contractType?: ContractType;
 }
 
 /**

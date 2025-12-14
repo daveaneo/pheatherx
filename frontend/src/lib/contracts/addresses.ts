@@ -4,6 +4,13 @@
 // FheatherXv6 Deployments:
 // - Arbitrum Sepolia: deployments/v6-arb-sepolia.json (PRIMARY - faster blocks)
 // - Ethereum Sepolia: deployments/v6-eth-sepolia.json (SECONDARY)
+//
+// FheatherXv8 Deployments (FHE:FHE and Mixed pools):
+// - v8FHE: Full privacy pools (both tokens FHERC20)
+// - v8Mixed: Mixed pools (one FHERC20, one ERC20)
+
+// Contract types for pool routing
+export type ContractType = 'v6' | 'v8fhe' | 'v8mixed';
 
 // Factory addresses (for multi-pool architecture) - not used in v6
 export const FHEATHERX_FACTORY_ADDRESSES: Record<number, `0x${string}`> = {
@@ -21,6 +28,40 @@ export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
   421614: '0x8eE2375234D0b0a50a41458a471cfa8fB490d0c8',   // v6 Arb Sepolia (limit order bugfix - 2024-12-11)
   8008135: (process.env.NEXT_PUBLIC_FHEATHERX_ADDRESS_FHENIX as `0x${string}`) || '0x0000000000000000000000000000000000000000',
 };
+
+// FheatherXv8FHE Hook addresses (Full privacy - FHE:FHE pools only)
+// TODO: Update with deployed addresses after v8 deployment
+export const FHEATHERX_V8_FHE_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: (process.env.NEXT_PUBLIC_FHEATHERX_V8_FHE_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  11155111: '0x0000000000000000000000000000000000000000', // v8FHE Eth Sepolia - pending deployment
+  421614: '0x0000000000000000000000000000000000000000',   // v8FHE Arb Sepolia - pending deployment
+  8008135: '0x0000000000000000000000000000000000000000',
+};
+
+// FheatherXv8Mixed Hook addresses (Mixed pools - one FHERC20, one ERC20)
+// TODO: Update with deployed addresses after v8 deployment
+export const FHEATHERX_V8_MIXED_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: (process.env.NEXT_PUBLIC_FHEATHERX_V8_MIXED_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  11155111: '0x0000000000000000000000000000000000000000', // v8Mixed Eth Sepolia - pending deployment
+  421614: '0x0000000000000000000000000000000000000000',   // v8Mixed Arb Sepolia - pending deployment
+  8008135: '0x0000000000000000000000000000000000000000',
+};
+
+// Helper to get contract address by type
+export function getContractAddress(
+  contractType: ContractType,
+  chainId: number
+): `0x${string}` {
+  switch (contractType) {
+    case 'v8fhe':
+      return FHEATHERX_V8_FHE_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000';
+    case 'v8mixed':
+      return FHEATHERX_V8_MIXED_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000';
+    case 'v6':
+    default:
+      return FHEATHERX_ADDRESSES[chainId] || '0x0000000000000000000000000000000000000000';
+  }
+}
 
 export const SWAP_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_SWAP_ROUTER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
