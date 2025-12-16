@@ -22,7 +22,7 @@ interface QuickLimitOrderPanelProps {
   zeroForOne: boolean;
 }
 
-type GranularityOption = 1 | 2 | 5 | 10;
+type GranularityOption = 1 | 2 | 5 | 10 | 25 | 100;
 
 interface PriceLevelRow {
   tick: number;
@@ -42,7 +42,7 @@ function percentageToTickDelta(pct: number): number {
 }
 
 // Number of price levels to show above and below current price
-const LEVELS_PER_SIDE = 10;
+const LEVELS_PER_SIDE = 5;
 
 export function OrderBookPanel({
   currentTick,
@@ -141,9 +141,9 @@ export function OrderBookPanel({
           <CardTitle className="text-lg">Quick Limit Order</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 w-full" />
+          <div className="space-y-1.5">
+            {Array.from({ length: 11 }).map((_, i) => (
+              <Skeleton key={i} className="h-7 w-full" />
             ))}
           </div>
         </CardContent>
@@ -156,8 +156,8 @@ export function OrderBookPanel({
       <CardHeader className="pb-2">
         <CardTitle className="text-lg">Quick Limit Order</CardTitle>
         {/* Granularity Selector */}
-        <div className="flex gap-1 mt-2">
-          {([1, 2, 5, 10] as GranularityOption[]).map((g) => (
+        <div className="flex gap-1.5 mt-2">
+          {([1, 2, 5, 10, 25, 100] as GranularityOption[]).map((g) => (
             <button
               key={g}
               onClick={() => setGranularity(g)}
@@ -174,11 +174,11 @@ export function OrderBookPanel({
       </CardHeader>
       <CardContent className="p-0">
         {/* Header */}
-        <div className="grid grid-cols-[50px_1fr_70px_55px] px-3 py-2 text-xs text-muted-foreground border-b">
-          <span className="text-center">Action</span>
+        <div className="grid grid-cols-[48px_1fr_64px_52px] px-3 py-2 text-xs text-muted-foreground border-b">
+          <span className="text-center"></span>
           <span className="text-center">Price</span>
           <span className="text-center">Tick</span>
-          <span className="text-right">% Diff</span>
+          <span className="text-right">Diff</span>
         </div>
 
         {/* Restriction Warning */}
@@ -190,7 +190,7 @@ export function OrderBookPanel({
         )}
 
         {/* Levels Above (sell territory) */}
-        <div className="max-h-[200px] overflow-auto">
+        <div>
           {levelsAbove.map((level) => (
             <PriceLevelRow
               key={`above-${level.tick}`}
@@ -209,52 +209,52 @@ export function OrderBookPanel({
         <div className="h-2 bg-gradient-to-b from-transparent to-muted/30" />
 
         {/* Current Price Row - action buttons only when on a normalized tick */}
-        <div className="grid grid-cols-[50px_1fr_70px_55px] px-3 py-2 bg-muted/50 border-y items-center">
+        <div className="grid grid-cols-[48px_1fr_64px_52px] px-3 py-2.5 bg-muted/40 border-y items-center">
           {/* Action Buttons - only show when current tick is exactly on a normalized tick */}
           {currentTick === normalizedCurrentTick ? (
-            <div className="flex gap-1 justify-center">
+            <div className="flex gap-1.5 justify-center">
               <button
                 onClick={limitOrderAvailability.sellEnabled ? () => handleOrderClick(normalizedCurrentTick, false) : undefined}
                 disabled={!limitOrderAvailability.sellEnabled}
                 className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
                   limitOrderAvailability.sellEnabled
-                    ? 'hover:bg-red-500/40 text-red-500 cursor-pointer'
-                    : 'text-gray-500/40 cursor-not-allowed'
+                    ? 'text-red-500 hover:bg-red-500/20 cursor-pointer'
+                    : 'text-gray-600 cursor-not-allowed'
                 }`}
                 title={limitOrderAvailability.sellEnabled ? `Sell at current price (zero slippage)` : limitOrderAvailability.sellDisabledReason}
               >
-                <Minus className="w-3 h-3" />
+                <Minus className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={limitOrderAvailability.buyEnabled ? () => handleOrderClick(normalizedCurrentTick, true) : undefined}
                 disabled={!limitOrderAvailability.buyEnabled}
                 className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
                   limitOrderAvailability.buyEnabled
-                    ? 'hover:bg-green-500/40 text-green-500 cursor-pointer'
-                    : 'text-gray-500/40 cursor-not-allowed'
+                    ? 'text-green-500 hover:bg-green-500/20 cursor-pointer'
+                    : 'text-gray-600 cursor-not-allowed'
                 }`}
                 title={limitOrderAvailability.buyEnabled ? `Buy at current price (zero slippage)` : limitOrderAvailability.buyDisabledReason}
               >
-                <Plus className="w-3 h-3" />
+                <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground text-center">Current</span>
+            <span className="text-[10px] text-muted-foreground text-center uppercase tracking-wide">Now</span>
           )}
-          <span className="font-mono font-bold text-sm text-center">
+          <span className="font-mono font-semibold text-sm text-center text-feather-white">
             {currentDisplayPrice}
           </span>
           <span className="text-xs text-muted-foreground text-center font-mono">
             {currentTick}
           </span>
-          <span className="text-xs text-right">0%</span>
+          <span className="text-xs text-muted-foreground text-right">—</span>
         </div>
 
         {/* Margin below current price */}
         <div className="h-2 bg-gradient-to-t from-transparent to-muted/30" />
 
         {/* Levels Below (buy territory) */}
-        <div className="max-h-[200px] overflow-auto">
+        <div>
           {levelsBelow.map((level) => (
             <PriceLevelRow
               key={`below-${level.tick}`}
@@ -272,13 +272,13 @@ export function OrderBookPanel({
         {/* Footer Legend */}
         <div className="px-3 py-2 border-t text-xs text-muted-foreground">
           <div className="flex justify-between items-center">
-            <span className={`flex items-center gap-1 ${!limitOrderAvailability.buyEnabled ? 'opacity-40' : ''}`}>
-              <span className="w-4 h-4 rounded bg-green-500/20 flex items-center justify-center text-green-500">+</span>
-              Buy {token0?.symbol ?? 'Token0'}
+            <span className={`flex items-center gap-1.5 ${!limitOrderAvailability.buyEnabled ? 'opacity-40' : ''}`}>
+              <Plus className="w-3 h-3 text-green-500" />
+              <span>Buy {token0?.symbol ?? 'Token0'}</span>
             </span>
-            <span className={`flex items-center gap-1 ${!limitOrderAvailability.sellEnabled ? 'opacity-40' : ''}`}>
-              <span className="w-4 h-4 rounded bg-red-500/20 flex items-center justify-center text-red-500">−</span>
-              Sell {token0?.symbol ?? 'Token0'}
+            <span className={`flex items-center gap-1.5 ${!limitOrderAvailability.sellEnabled ? 'opacity-40' : ''}`}>
+              <Minus className="w-3 h-3 text-red-500" />
+              <span>Sell {token0?.symbol ?? 'Token0'}</span>
             </span>
           </div>
         </div>
@@ -304,50 +304,44 @@ function PriceLevelRow({
   buyDisabledReason?: string;
   sellDisabledReason?: string;
 }) {
-  const isAbove = level.isAbove;
-
   return (
-    <div
-      className={`grid grid-cols-[50px_1fr_70px_55px] px-3 py-1.5 text-sm hover:bg-muted/30 transition-colors items-center ${
-        isAbove ? 'text-red-400/80' : 'text-green-400/80'
-      }`}
-    >
+    <div className="grid grid-cols-[48px_1fr_64px_52px] px-3 py-1.5 text-sm hover:bg-muted/20 transition-colors items-center">
       {/* Action Buttons */}
-      <div className="flex gap-1 justify-center">
+      <div className="flex gap-1.5 justify-center">
         <button
           onClick={sellEnabled ? onSell : undefined}
           disabled={!sellEnabled}
           className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
             sellEnabled
-              ? 'bg-red-500/20 hover:bg-red-500/40 text-red-500 cursor-pointer'
-              : 'bg-gray-500/10 text-gray-500/40 cursor-not-allowed'
+              ? 'text-red-500 hover:bg-red-500/20 cursor-pointer'
+              : 'text-gray-600 cursor-not-allowed'
           }`}
           title={sellEnabled ? `Sell at ${level.price}` : sellDisabledReason}
         >
-          <Minus className="w-3 h-3" />
+          <Minus className="w-3.5 h-3.5" />
         </button>
         <button
           onClick={buyEnabled ? onBuy : undefined}
           disabled={!buyEnabled}
           className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
             buyEnabled
-              ? 'bg-green-500/20 hover:bg-green-500/40 text-green-500 cursor-pointer'
-              : 'bg-gray-500/10 text-gray-500/40 cursor-not-allowed'
+              ? 'text-green-500 hover:bg-green-500/20 cursor-pointer'
+              : 'text-gray-600 cursor-not-allowed'
           }`}
           title={buyEnabled ? `Buy at ${level.price}` : buyDisabledReason}
         >
-          <Plus className="w-3 h-3" />
+          <Plus className="w-3.5 h-3.5" />
         </button>
       </div>
 
       {/* Price */}
-      <span className="font-mono text-center text-feather-white text-xs">{level.price}</span>
+      <span className="font-mono text-center text-feather-white/90 text-xs">{level.price}</span>
 
       {/* Tick */}
       <span className="font-mono text-center text-muted-foreground text-xs">{level.tick}</span>
 
       {/* Percent Diff */}
-      <span className="text-right text-xs">
+      <span className={`text-right text-xs ${level.percentDiff > 0 ? 'text-red-400/70' : 'text-green-400/70'}`}>
         {level.percentDiff > 0 ? '+' : ''}{level.percentDiff}%
       </span>
     </div>
