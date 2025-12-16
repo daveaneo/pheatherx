@@ -351,12 +351,14 @@ export function getSideName(side: BucketSide): string {
  * Determine order type from tick position relative to current
  *
  * Maker orders (contrarian - opposite to price movement):
- *   - Limit Buy: BUY bucket below current (buy the dip)
- *   - Limit Sell: SELL bucket above current (sell the rip)
+ *   - Limit Buy: BUY bucket at or below current (buy the dip, zero slippage at current)
+ *   - Limit Sell: SELL bucket at or above current (sell the rip, zero slippage at current)
  *
  * Taker orders (momentum - same direction as price movement):
- *   - Stop-Loss: SELL bucket below current (sell on drop)
- *   - Stop-Buy: BUY bucket above current (buy on rise)
+ *   - Stop-Loss: SELL bucket strictly below current (sell on drop)
+ *   - Stop-Buy: BUY bucket strictly above current (buy on rise)
+ *
+ * At current tick: only maker orders are valid (zero slippage)
  */
 export function deriveOrderType(
   tick: number,
@@ -365,13 +367,14 @@ export function deriveOrderType(
 ): OrderType | null {
   const isAbove = tick > currentTick;
   const isBelow = tick < currentTick;
+  const isAtCurrent = tick === currentTick;
 
   if (side === BucketSide.BUY) {
-    if (isBelow) return 'limit-buy';   // Maker: buy the dip
-    if (isAbove) return 'stop-buy';    // Taker: momentum buy
+    if (isBelow || isAtCurrent) return 'limit-buy';   // Maker: buy the dip or at current
+    if (isAbove) return 'stop-buy';                    // Taker: momentum buy
   } else {
-    if (isAbove) return 'limit-sell';  // Maker: sell the rip
-    if (isBelow) return 'stop-loss';   // Taker: stop loss
+    if (isAbove || isAtCurrent) return 'limit-sell';  // Maker: sell the rip or at current
+    if (isBelow) return 'stop-loss';                   // Taker: stop loss
   }
 
   return null;

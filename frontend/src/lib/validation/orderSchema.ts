@@ -44,39 +44,45 @@ export function validateTriggerPrice(
     return { valid: false, error: 'Trigger price must be greater than 0' };
   }
 
+  // Maker orders allow current price (zero slippage execution)
+  // Taker orders require strictly above/below (momentum orders)
   switch (orderType) {
     case 'limit-buy':
-      if (triggerPrice >= currentPrice) {
+      // Maker: allow at or below current price
+      if (triggerPrice > currentPrice) {
         return {
           valid: false,
-          error: `Limit buy trigger must be below current price (${currentPrice.toFixed(4)})`,
+          error: `Limit buy trigger must be at or below current price (${currentPrice.toFixed(4)})`,
         };
       }
       break;
 
     case 'limit-sell':
-      if (triggerPrice <= currentPrice) {
+      // Maker: allow at or above current price
+      if (triggerPrice < currentPrice) {
         return {
           valid: false,
-          error: `Limit sell trigger must be above current price (${currentPrice.toFixed(4)})`,
+          error: `Limit sell trigger must be at or above current price (${currentPrice.toFixed(4)})`,
         };
       }
       break;
 
     case 'stop-loss':
+      // Taker: strictly below current (use Market Swap at current price)
       if (triggerPrice >= currentPrice) {
         return {
           valid: false,
-          error: `Stop-loss trigger must be below current price (${currentPrice.toFixed(4)})`,
+          error: `Stop-loss must be below current price. At current price, use Market Swap.`,
         };
       }
       break;
 
     case 'stop-buy':
+      // Taker: strictly above current (use Market Swap at current price)
       if (triggerPrice <= currentPrice) {
         return {
           valid: false,
-          error: `Stop-buy trigger must be above current price (${currentPrice.toFixed(4)})`,
+          error: `Stop-buy must be above current price. At current price, use Market Swap.`,
         };
       }
       break;

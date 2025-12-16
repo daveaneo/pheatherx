@@ -54,6 +54,9 @@ export function OrderBookPanel({
   const [granularity, setGranularity] = useState<GranularityOption>(2);
   const { token0, token1 } = useSelectedPool();
 
+  // Normalize current tick to TICK_SPACING for limit orders
+  const normalizedCurrentTick = Math.round(currentTick / TICK_SPACING) * TICK_SPACING;
+
   // Helper to format price based on direction
   const formatDisplayPrice = (tick: number) => {
     const rawPrice = Number(tickToPrice(tick)) / 1e18;
@@ -79,6 +82,7 @@ export function OrderBookPanel({
 
   // Generate price levels based on granularity
   // Always show LEVELS_PER_SIDE levels above and below current price
+  // Use normalizedCurrentTick so all levels are aligned to TICK_SPACING
   const priceLevels = useMemo(() => {
     const levelsAbove: PriceLevelRow[] = [];
     const levelsBelow: PriceLevelRow[] = [];
@@ -89,7 +93,7 @@ export function OrderBookPanel({
       const tickDelta = percentageToTickDelta(pct);
 
       // Level above current price (higher tick = higher token0/token1 price)
-      const tickAbove = currentTick + tickDelta;
+      const tickAbove = normalizedCurrentTick + tickDelta;
       if (tickAbove >= MIN_TICK && tickAbove <= MAX_TICK) {
         // Calculate direction-aware price
         const rawPrice = Number(tickToPrice(tickAbove)) / 1e18;
@@ -103,7 +107,7 @@ export function OrderBookPanel({
       }
 
       // Level below current price (lower tick = lower token0/token1 price)
-      const tickBelow = currentTick - tickDelta;
+      const tickBelow = normalizedCurrentTick - tickDelta;
       if (tickBelow >= MIN_TICK && tickBelow <= MAX_TICK) {
         // Calculate direction-aware price
         const rawPrice = Number(tickToPrice(tickBelow)) / 1e18;
@@ -118,7 +122,7 @@ export function OrderBookPanel({
     }
 
     return { levelsAbove, levelsBelow };
-  }, [currentTick, granularity, zeroForOne]);
+  }, [normalizedCurrentTick, granularity, zeroForOne]);
 
   // Reverse levelsAbove so highest is at top
   const levelsAbove = [...priceLevels.levelsAbove].reverse();
@@ -150,25 +154,23 @@ export function OrderBookPanel({
   return (
     <Card className="h-full">
       <CardHeader className="pb-2">
-        <CardTitle className="text-lg flex items-center justify-between">
-          <span>Quick Limit Order</span>
-          {/* Granularity Selector */}
-          <div className="flex gap-1">
-            {([1, 2, 5, 10] as GranularityOption[]).map((g) => (
-              <button
-                key={g}
-                onClick={() => setGranularity(g)}
-                className={`px-2 py-1 text-xs rounded transition-colors ${
-                  granularity === g
-                    ? 'bg-phoenix-ember text-white'
-                    : 'bg-carbon-gray/50 text-feather-white/60 hover:bg-carbon-gray'
-                }`}
-              >
-                {g}%
-              </button>
-            ))}
-          </div>
-        </CardTitle>
+        <CardTitle className="text-lg">Quick Limit Order</CardTitle>
+        {/* Granularity Selector */}
+        <div className="flex gap-1 mt-2">
+          {([1, 2, 5, 10] as GranularityOption[]).map((g) => (
+            <button
+              key={g}
+              onClick={() => setGranularity(g)}
+              className={`px-2 py-1 text-xs rounded transition-colors ${
+                granularity === g
+                  ? 'bg-phoenix-ember text-white'
+                  : 'bg-carbon-gray/50 text-feather-white/60 hover:bg-carbon-gray'
+              }`}
+            >
+              {g}%
+            </button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         {/* Header */}
@@ -203,9 +205,42 @@ export function OrderBookPanel({
           ))}
         </div>
 
-        {/* Current Price Divider */}
+        {/* Margin above current price */}
+        <div className="h-2 bg-gradient-to-b from-transparent to-muted/30" />
+
+        {/* Current Price Row - action buttons only when on a normalized tick */}
         <div className="grid grid-cols-[50px_1fr_70px_55px] px-3 py-2 bg-muted/50 border-y items-center">
-          <span className="text-xs text-muted-foreground text-center">Current</span>
+          {/* Action Buttons - only show when current tick is exactly on a normalized tick */}
+          {currentTick === normalizedCurrentTick ? (
+            <div className="flex gap-1 justify-center">
+              <button
+                onClick={limitOrderAvailability.sellEnabled ? () => handleOrderClick(normalizedCurrentTick, false) : undefined}
+                disabled={!limitOrderAvailability.sellEnabled}
+                className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
+                  limitOrderAvailability.sellEnabled
+                    ? 'hover:bg-red-500/40 text-red-500 cursor-pointer'
+                    : 'text-gray-500/40 cursor-not-allowed'
+                }`}
+                title={limitOrderAvailability.sellEnabled ? `Sell at current price (zero slippage)` : limitOrderAvailability.sellDisabledReason}
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <button
+                onClick={limitOrderAvailability.buyEnabled ? () => handleOrderClick(normalizedCurrentTick, true) : undefined}
+                disabled={!limitOrderAvailability.buyEnabled}
+                className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
+                  limitOrderAvailability.buyEnabled
+                    ? 'hover:bg-green-500/40 text-green-500 cursor-pointer'
+                    : 'text-gray-500/40 cursor-not-allowed'
+                }`}
+                title={limitOrderAvailability.buyEnabled ? `Buy at current price (zero slippage)` : limitOrderAvailability.buyDisabledReason}
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground text-center">Current</span>
+          )}
           <span className="font-mono font-bold text-sm text-center">
             {currentDisplayPrice}
           </span>
@@ -214,6 +249,9 @@ export function OrderBookPanel({
           </span>
           <span className="text-xs text-right">0%</span>
         </div>
+
+        {/* Margin below current price */}
+        <div className="h-2 bg-gradient-to-t from-transparent to-muted/30" />
 
         {/* Levels Below (buy territory) */}
         <div className="max-h-[200px] overflow-auto">

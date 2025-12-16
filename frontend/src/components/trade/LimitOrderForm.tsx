@@ -75,20 +75,22 @@ export function LimitOrderForm({
       // Mark that we're prefilling to prevent auto-select effects from overriding
       isPrefilling.current = true;
 
-      // Set the target tick and price
+      // Set the target tick and price (direction-aware)
       setTargetTick(prefill.tick.toString());
-      const price = tickToPrice(prefill.tick);
-      setPriceInput((Number(price) / 1e18).toFixed(4));
+      const rawPrice = Number(tickToPrice(prefill.tick)) / 1e18;
+      const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
+      setPriceInput(displayPrice.toFixed(4));
 
       // Determine order type and mode based on isBuy and tick position relative to current
-      // Maker orders (contrarian): limit-buy (below), limit-sell (above)
+      // Maker orders (contrarian): limit-buy (below or at current), limit-sell (above or at current)
       // Taker orders (momentum): stop-buy (above), stop-loss (below)
+      // At current tick: only maker orders allowed (zero slippage)
       let newOrderType: OrderType;
       let newOrderMode: OrderMode;
 
       if (prefill.isBuy) {
-        if (prefill.tick < currentTick) {
-          // Buy below current = limit-buy (maker)
+        if (prefill.tick <= currentTick) {
+          // Buy at or below current = limit-buy (maker)
           newOrderType = 'limit-buy';
           newOrderMode = 'maker';
         } else {
@@ -97,8 +99,8 @@ export function LimitOrderForm({
           newOrderMode = 'taker';
         }
       } else {
-        if (prefill.tick > currentTick) {
-          // Sell above current = limit-sell (maker)
+        if (prefill.tick >= currentTick) {
+          // Sell at or above current = limit-sell (maker)
           newOrderType = 'limit-sell';
           newOrderMode = 'maker';
         } else {
@@ -122,7 +124,7 @@ export function LimitOrderForm({
         isPrefilling.current = false;
       }, 100);
     }
-  }, [prefill, currentTick, onPrefillUsed]);
+  }, [prefill, currentTick, onPrefillUsed, zeroForOne]);
 
   const config = ORDER_TYPE_CONFIG[orderType];
 

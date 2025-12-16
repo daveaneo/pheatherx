@@ -1564,14 +1564,124 @@ function swapWithWrap(
 
 ---
 
+---
+
+## 9. Maker/Taker Race Condition Protection
+
+### Problem
+
+**REVIEW NEEDED:** There is a potential race condition when users place limit orders where a **maker order could become a taker order** due to price movement between UI display and transaction execution.
+
+#### Scenario
+
+1. User sees current price at tick 1000
+2. User wants to place a **limit-buy** (maker) at tick 940 (below current)
+3. User submits transaction
+4. While transaction is pending, price drops to tick 900
+5. Tick 940 is now **above** current (900), not below
+6. What was intended as a **limit-buy (maker)** becomes a **stop-buy (taker)**
+
+#### Impact
+
+| Intended | Actual (after race) | Consequence |
+|----------|---------------------|-------------|
+| Maker (limit-buy) | Taker (stop-buy) | Up to 100% slippage instead of exact price |
+| Maker (limit-sell) | Taker (stop-loss) | Up to 100% slippage instead of exact price |
+
+The user's order classification changes based on tick position relative to current price at execution time, not submission time.
+
+### Current Frontend Handling
+
+The `LimitOrderForm` has `maxTickDrift` parameter passed to the contract:
+
+```typescript
+// From deposit function call
+deadline: bigint,
+maxTickDrift: number  // e.g., 10 ticks
+```
+
+**Question:** Does the contract currently enforce that the order type (maker vs taker) cannot change? Or does it only prevent orders if price has moved too far from expected?
+
+### Potential Solutions
+
+#### Option A: Order Type Lock-in at Submission
+
+Store the intended order type (maker/taker) in the transaction and validate on-chain:
+
+```solidity
+function deposit(
+    PoolId poolId,
+    int24 tick,
+    BucketSide side,
+    InEuint128 calldata encAmount,
+    uint256 deadline,
+    int24 maxTickDrift,
+    bool isMakerOrder  // NEW: explicit order type from user
+) external {
+    int24 currentTick = _getCurrentTick(poolId);
+
+    if (isMakerOrder) {
+        // Maker orders: tick must be on the "resting" side
+        // BUY maker: tick <= currentTick
+        // SELL maker: tick >= currentTick
+        require(_isValidMakerPosition(tick, side, currentTick), "Would become taker");
+    }
+    // ... rest of deposit logic
+}
+```
+
+#### Option B: Stricter maxTickDrift Enforcement
+
+Ensure `maxTickDrift` prevents the order from crossing from maker to taker territory:
+
+```solidity
+// If user intended maker order at tick 940 when current was 1000
+// maxTickDrift should prevent execution if current is now < 940
+// (which would make 940 a taker position)
+```
+
+#### Option C: Separate Contract Functions
+
+Have distinct functions for maker vs taker orders with different validation:
+
+```solidity
+function depositMaker(...) external {
+    // Validates tick is on maker side (resting liquidity)
+}
+
+function depositTaker(...) external {
+    // Validates tick is on taker side (momentum order)
+}
+```
+
+### Questions to Resolve
+
+1. **What is the current `maxTickDrift` behavior?** Does it prevent maker→taker transitions?
+2. **Should we fail the transaction or auto-adjust?** If order would become taker, reject or allow with warning?
+3. **How do other DEXs handle this?** Research dYdX, GMX, etc.
+4. **Is this a real problem in practice?** How often does price move enough during transaction pending time?
+
+### Related Code
+
+- `LimitOrderForm.tsx`: `maxTickDrift` parameter
+- `FheatherXv8Mixed.sol` / `FheatherXv8FHE.sol`: `deposit()` function
+- `types/bucket.ts`: `ORDER_TYPE_CONFIG` defines maker/taker modes
+
+### Priority
+
+**High** - This could cause unexpected slippage for users who believe they're placing exact-price maker orders.
+
+---
+
 ## Implementation Priority
 
 1. **High Priority:** FheatherXPeriphery (unlocks ecosystem integration)
-2. **Medium-High Priority:** Hybrid Order Book + AMM matching (proper limit order execution)
-3. **Medium-High Priority:** cancelOrder function (improves position tracking UX)
-4. **Medium-High Priority:** FheatherXRouter (unified interface, simplifies frontend)
-5. **Medium Priority:** FHE Token Vault (universal ERC20 wrapping)
-6. **Medium Priority:** Auto-wrap on deposit (improves UX)
-7. **Medium Priority:** FHE.div optimization (reduces gas costs)
-8. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
-9. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
+2. **High Priority:** Maker/Taker Race Condition Protection (prevents unexpected slippage)
+3. **Medium-High Priority:** Hybrid Order Book + AMM matching (proper limit order execution)
+4. **Medium-High Priority:** cancelOrder function (improves position tracking UX)
+5. **Medium-High Priority:** FheatherXRouter (unified interface, simplifies frontend)
+6. **Medium Priority:** FHE Token Vault (universal ERC20 wrapping)
+7. **Medium Priority:** Auto-wrap on deposit (improves UX)
+8. **Medium Priority:** FHE.div optimization (reduces gas costs)
+9. **Medium Priority:** Official Fhenix FHERC20 support (ecosystem compatibility)
+10. **Lower Priority:** Cross-chain bridges (complex, future roadmap)
