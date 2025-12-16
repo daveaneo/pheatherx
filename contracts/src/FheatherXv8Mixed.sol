@@ -63,6 +63,8 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     error FeeTooHigh();
     error NotMixedPair();
     error InputTokenMustBeFherc20();
+    error NoPendingClaim();
+    error ClaimNotReady();
 
     // ═══════════════════════════════════════════════════════════════════════
     //                               TYPES
@@ -97,6 +99,13 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         uint256 blockNumber;
     }
 
+    struct PendingErc20Claim {
+        euint128 encryptedAmount;
+        address token;
+        uint256 requestedAt;
+        bool pending;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //                               STATE
     // ═══════════════════════════════════════════════════════════════════════
@@ -116,6 +125,7 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     mapping(PoolId => mapping(int16 => uint256)) internal buyBitmaps;
     mapping(PoolId => mapping(int16 => uint256)) internal sellBitmaps;
     mapping(PoolId => int24) public lastProcessedTick;
+    mapping(PoolId => mapping(address => mapping(int24 => mapping(BucketSide => PendingErc20Claim)))) public pendingErc20Claims;
 
     address public feeCollector;
     uint256 public swapFeeBps;
@@ -130,6 +140,8 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     event Deposit(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
     event Withdraw(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
     event Claim(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
+    event Erc20ClaimQueued(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side, address token);
+    event Erc20ClaimCompleted(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side, uint256 amount);
     event LiquidityAdded(PoolId indexed poolId, address indexed user, uint256 amount0, uint256 amount1, uint256 lpAmount);
     event LiquidityRemoved(PoolId indexed poolId, address indexed user, uint256 amount0, uint256 amount1, uint256 lpAmount);
     event ReserveSyncRequested(PoolId indexed poolId, uint256 indexed requestId, uint256 blockNumber);
@@ -733,16 +745,41 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         address proceedsToken = side == BucketSide.SELL ? state.token1 : state.token0;
         bool proceedsIsFherc20 = side == BucketSide.SELL ? state.token1IsFherc20 : state.token0IsFherc20;
 
-        FHE.allow(totalProceeds, proceedsToken);
         if (proceedsIsFherc20) {
+            // FHERC20 proceeds - direct encrypted transfer
+            FHE.allow(totalProceeds, proceedsToken);
             IFHERC20(proceedsToken)._transferEncrypted(msg.sender, totalProceeds);
+            emit Claim(poolId, msg.sender, tick, side);
         } else {
-            // ERC20 output - would need async decrypt in production
-            // For now, fallback to FHERC20 interface (will work if wrapper exists)
-            IFHERC20(proceedsToken)._transferEncrypted(msg.sender, totalProceeds);
+            // ERC20 proceeds - queue async decrypt, user calls claimErc20() after
+            FHE.decrypt(totalProceeds);
+            pendingErc20Claims[poolId][msg.sender][tick][side] = PendingErc20Claim({
+                encryptedAmount: totalProceeds,
+                token: proceedsToken,
+                requestedAt: block.number,
+                pending: true
+            });
+            emit Erc20ClaimQueued(poolId, msg.sender, tick, side, proceedsToken);
+        }
+    }
+
+    /// @notice Complete an ERC20 claim after decrypt has resolved
+    /// @dev Call this after claim() when proceeds are ERC20 (not FHERC20)
+    function claimErc20(PoolId poolId, int24 tick, BucketSide side) external whenNotPaused {
+        PendingErc20Claim storage pending = pendingErc20Claims[poolId][msg.sender][tick][side];
+        if (!pending.pending) revert NoPendingClaim();
+
+        (uint256 amount, bool ready) = FHE.getDecryptResultSafe(pending.encryptedAmount);
+        if (!ready) revert ClaimNotReady();
+
+        address token = pending.token;
+        delete pendingErc20Claims[poolId][msg.sender][tick][side];
+
+        if (amount > 0) {
+            IERC20(token).safeTransfer(msg.sender, amount);
         }
 
-        emit Claim(poolId, msg.sender, tick, side);
+        emit Erc20ClaimCompleted(poolId, msg.sender, tick, side, amount);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
