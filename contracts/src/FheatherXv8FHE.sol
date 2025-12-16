@@ -23,13 +23,58 @@ import {FheatherMath} from "./lib/FheatherMath.sol";
 import {BucketLib} from "./lib/BucketLib.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
-/// @title FheatherX v8 FHE - Full Privacy Pools (FHE:FHE Only)
-/// @notice Uniswap v4 Hook with encrypted AMM + momentum limit orders
-/// @dev Optimized for FHE:FHE pairs only. Key features:
-///      1. Momentum Closure: Binary search for triggered order activation
-///      2. Virtual Slicing: Fair pro-rata allocation to momentum buckets
-///      3. 1x AMM: Single AMM execution per swap
-///      4. Full privacy: Both tokens are FHERC20
+/// @title FheatherX v8 FHE - Full Privacy Pools (FHERC20:FHERC20 Only)
+/// @author FheatherX Team
+/// @notice Uniswap v4 Hook implementing encrypted AMM with momentum-triggered limit orders
+/// @dev This contract handles pools where BOTH tokens are FHERC20 (fully encrypted).
+///
+/// ## Architecture Overview
+/// The contract implements a hybrid AMM + limit order system:
+/// - **Encrypted AMM**: Constant product (x*y=k) with FHE arithmetic on encrypted reserves
+/// - **Momentum Orders**: Limit orders that auto-execute when price moves through their tick
+/// - **Virtual Slicing**: Pro-rata output allocation to simultaneously triggered orders
+///
+/// ## Key Design Decisions
+///
+/// ### 1. Pro-Rata Allocation (vs Priority Slicing)
+/// When multiple momentum orders trigger simultaneously, all participants receive the
+/// same average execution price (pro-rata). This differs from priority-based systems
+/// where earlier triggers get better prices.
+///
+/// **Rationale**: Pro-rata is simpler, more gas-efficient, and avoids complex FHE
+/// prefix-sum operations. It also provides fair treatment to all participants in
+/// the same price band.
+///
+/// ### 2. Tick Price Execution (vs AMM Spot Price)
+/// Limit orders execute at their bucket's designated tick price, not the dynamic
+/// AMM spot price at execution time.
+///
+/// **Rationale**: Tick price provides predictable execution for makers. The tick
+/// represents the price at which they agreed to trade. Using AMM spot price could
+/// result in execution at prices worse than the limit, which violates user expectations.
+///
+/// ### 3. Iterative Momentum Closure (vs Binary Search)
+/// The momentum closure algorithm uses iterative expansion rather than binary search.
+/// This avoids the "phantom fixed point" problem where binary search can find
+/// mathematically valid but physically unreachable price states on step functions.
+///
+/// ### 4. 100% Liquidity Cap
+/// Momentum buckets with liquidity exceeding the output reserve are skipped to
+/// prevent griefing attacks that could cause extreme slippage (>100% of reserves).
+///
+/// ## Swap Pipeline
+/// 1. Match opposing limit orders (direct peer-to-peer, no AMM)
+/// 2. Find momentum closure (which same-side orders trigger)
+/// 3. Sum activated momentum buckets (with liquidity cap)
+/// 4. Execute single AMM swap with total input
+/// 5. Allocate output to momentum buckets via virtual slicing
+/// 6. Transfer output to user
+///
+/// ## Privacy Model
+/// - All balances and order amounts are encrypted (euint128)
+/// - Reserve values are periodically synced to plaintext cache for gas optimization
+/// - Tick bitmap is public (reveals which price levels have orders, not amounts)
+///
 contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
@@ -40,34 +85,71 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                              CONSTANTS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Precision multiplier for fixed-point arithmetic (18 decimals)
     uint256 public constant PRECISION = 1e18;
+
+    /// @notice Tick spacing for price buckets (each tick = ~0.6% price change)
     int24 public constant TICK_SPACING = 60;
+
+    /// @notice Minimum allowed tick value
     int24 public constant MIN_TICK = TickMath.MIN_TICK;
+
+    /// @notice Maximum allowed tick value
     int24 public constant MAX_TICK = TickMath.MAX_TICK;
+
+    /// @dev Maximum tick movement per swap (limits price impact)
     int24 internal constant MAX_TICK_MOVE = 600;
+
+    /// @dev Maximum momentum buckets that can activate in a single swap
     uint8 internal constant MAX_MOMENTUM_BUCKETS = 5;
+
+    /// @dev Iterations for binary search in reserve sync harvesting
     uint8 internal constant BINARY_SEARCH_ITERATIONS = 12;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Thrown when amount parameter is zero
     error ZeroAmount();
+
+    /// @notice Thrown when operating on a pool that hasn't been initialized
     error PoolNotInitialized();
+
+    /// @notice Thrown when swap output is less than minimum expected
     error SlippageExceeded();
+
+    /// @notice Thrown when trying to remove more liquidity than available
     error InsufficientLiquidity();
+
+    /// @notice Thrown when tick is out of range or not aligned to TICK_SPACING
     error InvalidTick();
+
+    /// @notice Thrown when transaction deadline has passed
     error DeadlineExpired();
+
+    /// @notice Thrown when current price has moved beyond maxTickDrift from order tick
     error PriceMoved();
+
+    /// @notice Thrown when protocol fee exceeds maximum (100 bps = 1%)
     error FeeTooHigh();
+
+    /// @notice Thrown when pool tokens are not both FHERC20 (use v8Mixed for mixed pairs)
     error NotFherc20Pair();
 
     // ═══════════════════════════════════════════════════════════════════════
     //                               TYPES
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Side of a limit order bucket
+    /// @dev BUY orders want to buy token0 (sell token1), SELL orders want to sell token0 (buy token1)
     enum BucketSide { BUY, SELL }
 
+    /// @notice Core pool configuration and state
+    /// @param token0 Address of the first token (FHERC20)
+    /// @param token1 Address of the second token (FHERC20)
+    /// @param initialized Whether the pool has been initialized
+    /// @param protocolFeeBps Protocol fee in basis points (max 100 = 1%)
     struct PoolState {
         address token0;
         address token1;
@@ -75,6 +157,16 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         uint256 protocolFeeBps;
     }
 
+    /// @notice Pool reserves and LP tracking
+    /// @dev Maintains both encrypted (source of truth) and plaintext (cache) reserves
+    /// @param encReserve0 Encrypted reserve of token0
+    /// @param encReserve1 Encrypted reserve of token1
+    /// @param encTotalLpSupply Encrypted total LP token supply
+    /// @param reserve0 Plaintext cache of reserve0 (updated via async decrypt)
+    /// @param reserve1 Plaintext cache of reserve1 (updated via async decrypt)
+    /// @param reserveBlockNumber Block when plaintext cache was last updated
+    /// @param nextRequestId Next decrypt request ID to use
+    /// @param lastResolvedId Most recent successfully resolved decrypt request
     struct PoolReserves {
         euint128 encReserve0;
         euint128 encReserve1;
@@ -86,6 +178,10 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         uint256 lastResolvedId;
     }
 
+    /// @notice Pending async decrypt request for reserve sync
+    /// @param reserve0 Encrypted reserve0 at time of request
+    /// @param reserve1 Encrypted reserve1 at time of request
+    /// @param blockNumber Block when request was made
     struct PendingDecrypt {
         euint128 reserve0;
         euint128 reserve1;
@@ -96,44 +192,125 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                               STATE
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @dev Encrypted constant: 0
     euint128 internal immutable ENC_ZERO;
+    /// @dev Encrypted constant: 1e18 (PRECISION)
     euint128 internal immutable ENC_PRECISION;
+    /// @dev Encrypted constant: 1
     euint128 internal immutable ENC_ONE;
+    /// @dev Encrypted swap fee in basis points
     euint128 internal immutable ENC_SWAP_FEE_BPS;
+    /// @dev Encrypted constant: 10000 (for basis point calculations)
     euint128 internal immutable ENC_TEN_THOUSAND;
 
+    /// @notice Pool configuration by pool ID
     mapping(PoolId => PoolState) public poolStates;
+
+    /// @notice Pool reserves and LP data by pool ID
     mapping(PoolId => PoolReserves) public poolReserves;
+
+    /// @notice Pending decrypt requests by pool ID and request ID
     mapping(PoolId => mapping(uint256 => PendingDecrypt)) public pendingDecrypts;
+
+    /// @notice Encrypted LP token balances by pool and user
     mapping(PoolId => mapping(address => euint128)) public encLpBalances;
+
+    /// @notice Limit order buckets by pool, tick, and side
     mapping(PoolId => mapping(int24 => mapping(BucketSide => BucketLib.Bucket))) public buckets;
+
+    /// @notice User positions in limit order buckets
     mapping(PoolId => mapping(address => mapping(int24 => mapping(BucketSide => BucketLib.UserPosition)))) public positions;
+
+    /// @dev Bitmap tracking which ticks have BUY orders
     mapping(PoolId => mapping(int16 => uint256)) internal buyBitmaps;
+
+    /// @dev Bitmap tracking which ticks have SELL orders
     mapping(PoolId => mapping(int16 => uint256)) internal sellBitmaps;
+
+    /// @notice Last processed tick per pool (used for momentum calculations)
     mapping(PoolId => int24) public lastProcessedTick;
 
+    /// @notice Address that receives protocol fees
     address public feeCollector;
+
+    /// @notice Swap fee in basis points (e.g., 30 = 0.3%)
     uint256 public swapFeeBps;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                               EVENTS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Emitted when a new pool is initialized
+    /// @param poolId The unique identifier of the pool
+    /// @param token0 Address of token0 (FHERC20)
+    /// @param token1 Address of token1 (FHERC20)
     event PoolInitialized(PoolId indexed poolId, address token0, address token1);
+
+    /// @notice Emitted when a swap is executed
+    /// @param poolId The pool where the swap occurred
+    /// @param user The address that initiated the swap
+    /// @param zeroForOne True if swapping token0 for token1
     event SwapExecuted(PoolId indexed poolId, address indexed user, bool zeroForOne);
+
+    /// @notice Emitted when momentum orders are activated during a swap
+    /// @param poolId The pool where momentum was activated
+    /// @param fromTick Starting tick before momentum
+    /// @param toTick Final tick after momentum cascade
+    /// @param bucketsActivated Number of buckets that were activated
     event MomentumActivated(PoolId indexed poolId, int24 fromTick, int24 toTick, uint8 bucketsActivated);
+
+    /// @notice Emitted when a user deposits into a limit order bucket
+    /// @param poolId The pool ID
+    /// @param user The depositor's address
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     event Deposit(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
+
+    /// @notice Emitted when a user withdraws unfilled liquidity from a bucket
+    /// @param poolId The pool ID
+    /// @param user The withdrawer's address
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     event Withdraw(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
+
+    /// @notice Emitted when a user claims proceeds from filled orders
+    /// @param poolId The pool ID
+    /// @param user The claimer's address
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     event Claim(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
+
+    /// @notice Emitted when liquidity is added to the AMM
+    /// @param poolId The pool ID
+    /// @param user The liquidity provider's address
     event LiquidityAdded(PoolId indexed poolId, address indexed user);
+
+    /// @notice Emitted when liquidity is removed from the AMM
+    /// @param poolId The pool ID
+    /// @param user The liquidity provider's address
     event LiquidityRemoved(PoolId indexed poolId, address indexed user);
+
+    /// @notice Emitted when an async decrypt is requested for reserve sync
+    /// @param poolId The pool ID
+    /// @param requestId The unique request identifier
+    /// @param blockNumber Block when request was made
     event ReserveSyncRequested(PoolId indexed poolId, uint256 indexed requestId, uint256 blockNumber);
+
+    /// @notice Emitted when reserves are synced from a resolved decrypt
+    /// @param poolId The pool ID
+    /// @param reserve0 New plaintext reserve0 value
+    /// @param reserve1 New plaintext reserve1 value
+    /// @param requestId The request ID that was resolved
     event ReservesSynced(PoolId indexed poolId, uint256 reserve0, uint256 reserve1, uint256 indexed requestId);
 
     // ═══════════════════════════════════════════════════════════════════════
     //                           CONSTRUCTOR
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Initialize the FheatherX v8 FHE hook
+    /// @param _poolManager The Uniswap v4 PoolManager contract
+    /// @param _owner Address that will own this contract (can pause, set fees)
+    /// @param _swapFeeBps Swap fee in basis points (e.g., 30 = 0.3%)
     constructor(
         IPoolManager _poolManager,
         address _owner,
@@ -662,6 +839,17 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                    LIMIT ORDER FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Deposit tokens into a limit order bucket
+    /// @dev Creates a limit order that will execute when price reaches the specified tick.
+    ///      For SELL orders, you're selling token0 at the tick price.
+    ///      For BUY orders, you're buying token0 (selling token1) at the tick price.
+    ///      The order executes at the bucket's tick price, not the AMM spot price.
+    /// @param poolId The pool to place the order in
+    /// @param tick The price tick for the order (must be aligned to TICK_SPACING)
+    /// @param side BUY or SELL
+    /// @param encryptedAmount Encrypted amount of tokens to deposit
+    /// @param deadline Transaction deadline (reverts if block.timestamp > deadline)
+    /// @param maxTickDrift Maximum allowed difference between current tick and order tick
     function deposit(
         PoolId poolId,
         int24 tick,
@@ -725,6 +913,13 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         emit Deposit(poolId, msg.sender, tick, side);
     }
 
+    /// @notice Withdraw unfilled liquidity from a limit order bucket
+    /// @dev Only unfilled portions of orders can be withdrawn. Filled portions must be claimed.
+    ///      The actual withdrawal amount is min(requested, unfilled).
+    /// @param poolId The pool to withdraw from
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
+    /// @param encryptedAmount Encrypted amount to withdraw (capped at unfilled amount)
     function withdraw(
         PoolId poolId,
         int24 tick,
@@ -758,6 +953,13 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         emit Withdraw(poolId, msg.sender, tick, side);
     }
 
+    /// @notice Claim proceeds from filled limit orders
+    /// @dev Proceeds are the tokens received when your order was filled.
+    ///      For SELL orders, proceeds are token1. For BUY orders, proceeds are token0.
+    ///      Claims both realized proceeds (from auto-claim on deposit) and current unrealized.
+    /// @param poolId The pool to claim from
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     function claim(PoolId poolId, int24 tick, BucketSide side) external whenNotPaused {
         PoolState storage state = poolStates[poolId];
         if (!state.initialized) revert PoolNotInitialized();
@@ -787,6 +989,14 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                    LP FUNCTIONS (Encrypted Only)
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Add liquidity to the encrypted AMM
+    /// @dev Liquidity is provided in encrypted amounts. LP tokens are also encrypted.
+    ///      First deposit uses geometric mean, subsequent deposits use proportional calculation.
+    ///      Both amounts are fully consumed (no refunds for imbalanced deposits).
+    /// @param poolId The pool to add liquidity to
+    /// @param amount0 Encrypted amount of token0 to deposit
+    /// @param amount1 Encrypted amount of token1 to deposit
+    /// @return lpAmount Encrypted LP tokens minted to the caller
     function addLiquidity(
         PoolId poolId,
         InEuint128 calldata amount0,
@@ -848,6 +1058,13 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         emit LiquidityAdded(poolId, msg.sender);
     }
 
+    /// @notice Remove liquidity from the encrypted AMM
+    /// @dev Burns LP tokens and returns proportional share of both tokens.
+    ///      If requested amount exceeds balance, uses full balance instead.
+    /// @param poolId The pool to remove liquidity from
+    /// @param lpAmount Encrypted LP tokens to burn
+    /// @return amount0 Encrypted amount of token0 returned
+    /// @return amount1 Encrypted amount of token1 returned
     function removeLiquidity(
         PoolId poolId,
         InEuint128 calldata lpAmount
@@ -922,6 +1139,10 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         emit ReserveSyncRequested(poolId, newId, block.number);
     }
 
+    /// @notice Attempt to sync plaintext reserves from resolved decrypts
+    /// @dev Can be called by anyone to update the plaintext reserve cache.
+    ///      Useful when reserves are stale and no swaps are occurring.
+    /// @param poolId The pool to sync
     function trySyncReserves(PoolId poolId) external {
         _harvestResolvedDecrypts(poolId);
     }
@@ -985,16 +1206,29 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                         VIEW FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Get the current plaintext reserve cache for a pool
+    /// @dev These are cached values from async decrypts, may be slightly stale
+    /// @param poolId The pool to query
+    /// @return reserve0 Cached reserve of token0
+    /// @return reserve1 Cached reserve of token1
     function getReserves(PoolId poolId) external view returns (uint256, uint256) {
         PoolReserves storage r = poolReserves[poolId];
         return (r.reserve0, r.reserve1);
     }
 
+    /// @notice Get the current price tick based on cached reserves
+    /// @param poolId The pool to query
+    /// @return The current tick (price = 1.006^tick)
     function getCurrentTick(PoolId poolId) external view returns (int24) {
         PoolReserves storage r = poolReserves[poolId];
         return FheatherMath.getCurrentTick(r.reserve0, r.reserve1, TICK_SPACING);
     }
 
+    /// @notice Get a quote for a swap (estimated output based on cached reserves)
+    /// @param poolId The pool to query
+    /// @param zeroForOne True if swapping token0 for token1
+    /// @param amountIn Amount of input tokens
+    /// @return Estimated output amount (actual may differ due to price movement)
     function getQuote(PoolId poolId, bool zeroForOne, uint256 amountIn) external view returns (uint256) {
         PoolReserves storage r = poolReserves[poolId];
         uint256 reserveIn = zeroForOne ? r.reserve0 : r.reserve1;
@@ -1006,13 +1240,21 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                         ADMIN FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Pause all user-facing operations (emergency only)
     function pause() external onlyOwner { _pause(); }
+
+    /// @notice Unpause the contract
     function unpause() external onlyOwner { _unpause(); }
 
+    /// @notice Set the address that receives protocol fees
+    /// @param _feeCollector New fee collector address
     function setFeeCollector(address _feeCollector) external onlyOwner {
         feeCollector = _feeCollector;
     }
 
+    /// @notice Set the protocol fee for a specific pool
+    /// @param poolId The pool to configure
+    /// @param _feeBps Fee in basis points (max 100 = 1%)
     function setProtocolFee(PoolId poolId, uint256 _feeBps) external onlyOwner {
         if (_feeBps > 100) revert FeeTooHigh();
         poolStates[poolId].protocolFeeBps = _feeBps;
@@ -1022,6 +1264,9 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                         INTERNAL HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @dev Check if a token implements FHERC20 interface
+    /// @param token Address to check
+    /// @return True if token has balanceOfEncrypted function
     function _isFherc20(address token) internal view returns (bool) {
         (bool success, ) = token.staticcall(
             abi.encodeWithSelector(bytes4(keccak256("balanceOfEncrypted(address)")), address(0))

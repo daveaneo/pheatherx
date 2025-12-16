@@ -23,14 +23,71 @@ import {FheatherMath} from "./lib/FheatherMath.sol";
 import {BucketLib} from "./lib/BucketLib.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
-/// @title FheatherX v8 Mixed - FHE:ERC and ERC:FHE Pools
-/// @notice Uniswap v4 Hook for mixed token pair pools
-/// @dev Optimized for pools where exactly one token is FHERC20
-///      Key features:
-///      1. Momentum closure with binary search
-///      2. Virtual slicing for fair allocation
-///      3. 1x AMM update per swap
-///      4. Plaintext LP functions (since one token is ERC20)
+/// @title FheatherX v8 Mixed - FHERC20:ERC20 and ERC20:FHERC20 Pools
+/// @author FheatherX Team
+/// @notice Uniswap v4 Hook implementing encrypted AMM with momentum-triggered limit orders for mixed token pairs
+/// @dev This contract handles pools where exactly ONE token is FHERC20 (mixed pairs).
+///      For pools where both tokens are FHERC20, use FheatherXv8FHE instead.
+///
+/// ## Architecture Overview
+/// Similar to v8FHE but optimized for mixed token pairs:
+/// - **Encrypted AMM**: Constant product (x*y=k) with FHE arithmetic on encrypted reserves
+/// - **Momentum Orders**: Limit orders that auto-execute when price moves through their tick
+/// - **Plaintext LP**: Since one token is ERC20, LP operations use plaintext amounts
+/// - **Two-Step ERC20 Claims**: When proceeds are ERC20, requires async decrypt then transfer
+///
+/// ## Key Design Decisions
+///
+/// ### 1. Pro-Rata Allocation (vs Priority Slicing)
+/// When multiple momentum orders trigger simultaneously, all participants receive the
+/// same average execution price (pro-rata). This differs from priority-based systems
+/// where earlier triggers get better prices.
+///
+/// **Rationale**: Pro-rata is simpler, more gas-efficient, and avoids complex FHE
+/// prefix-sum operations. It also provides fair treatment to all participants in
+/// the same price band.
+///
+/// ### 2. Tick Price Execution (vs AMM Spot Price)
+/// Limit orders execute at their bucket's designated tick price, not the dynamic
+/// AMM spot price at execution time.
+///
+/// **Rationale**: Tick price provides predictable execution for makers. The tick
+/// represents the price at which they agreed to trade. Using AMM spot price could
+/// result in execution at prices worse than the limit, which violates user expectations.
+///
+/// ### 3. Iterative Momentum Closure (vs Binary Search)
+/// The momentum closure algorithm uses iterative expansion rather than binary search.
+/// This avoids the "phantom fixed point" problem where binary search can find
+/// mathematically valid but physically unreachable price states on step functions.
+///
+/// ### 4. 100% Liquidity Cap
+/// Momentum buckets with liquidity exceeding the output reserve are skipped to
+/// prevent griefing attacks that could cause extreme slippage (>100% of reserves).
+///
+/// ### 5. FHERC20-Only Deposits
+/// Only the FHERC20 side of the pair can be deposited as limit orders.
+/// This is because limit order amounts must be encrypted to maintain privacy.
+///
+/// ### 6. Two-Step ERC20 Claims
+/// When claiming proceeds that are ERC20 (not FHERC20):
+/// 1. `claim()` queues an async decrypt of the encrypted proceeds amount
+/// 2. `claimErc20()` completes the transfer after decrypt resolves
+/// This is necessary because ERC20 transfers require plaintext amounts.
+///
+/// ## Swap Pipeline
+/// 1. Match opposing limit orders (direct peer-to-peer, no AMM)
+/// 2. Find momentum closure (which same-side orders trigger)
+/// 3. Sum activated momentum buckets (with liquidity cap)
+/// 4. Execute single AMM swap with total input
+/// 5. Allocate output to momentum buckets via virtual slicing
+/// 6. Transfer output to user
+///
+/// ## Privacy Model
+/// - FHERC20 balances and order amounts are encrypted (euint128)
+/// - ERC20 balances are plaintext (standard ERC20 visibility)
+/// - Reserve values are periodically synced to plaintext cache for gas optimization
+/// - Tick bitmap is public (reveals which price levels have orders, not amounts)
+///
 contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
@@ -41,37 +98,82 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     //                              CONSTANTS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Precision multiplier for fixed-point arithmetic (18 decimals)
     uint256 public constant PRECISION = 1e18;
+
+    /// @notice Tick spacing for price buckets (each tick = ~0.6% price change)
     int24 public constant TICK_SPACING = 60;
+
+    /// @notice Minimum allowed tick value
     int24 public constant MIN_TICK = TickMath.MIN_TICK;
+
+    /// @notice Maximum allowed tick value
     int24 public constant MAX_TICK = TickMath.MAX_TICK;
+
+    /// @dev Maximum tick movement per swap (limits price impact)
     int24 internal constant MAX_TICK_MOVE = 600;
+
+    /// @dev Maximum momentum buckets that can activate in a single swap
     uint8 internal constant MAX_MOMENTUM_BUCKETS = 5;
+
+    /// @dev Iterations for binary search in reserve sync harvesting
     uint8 internal constant BINARY_SEARCH_ITERATIONS = 12;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Thrown when amount parameter is zero
     error ZeroAmount();
+
+    /// @notice Thrown when operating on a pool that hasn't been initialized
     error PoolNotInitialized();
+
+    /// @notice Thrown when swap output is less than minimum expected
     error SlippageExceeded();
+
+    /// @notice Thrown when trying to remove more liquidity than available
     error InsufficientLiquidity();
+
+    /// @notice Thrown when tick is out of range or not aligned to TICK_SPACING
     error InvalidTick();
+
+    /// @notice Thrown when transaction deadline has passed
     error DeadlineExpired();
+
+    /// @notice Thrown when current price has moved beyond maxTickDrift from order tick
     error PriceMoved();
+
+    /// @notice Thrown when protocol fee exceeds maximum (100 bps = 1%)
     error FeeTooHigh();
+
+    /// @notice Thrown when pool tokens are not exactly one FHERC20 and one ERC20
     error NotMixedPair();
+
+    /// @notice Thrown when trying to deposit ERC20 side (only FHERC20 deposits allowed)
     error InputTokenMustBeFherc20();
+
+    /// @notice Thrown when calling claimErc20() with no pending claim
     error NoPendingClaim();
+
+    /// @notice Thrown when calling claimErc20() before decrypt has resolved
     error ClaimNotReady();
 
     // ═══════════════════════════════════════════════════════════════════════
     //                               TYPES
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Side of a limit order bucket
+    /// @dev BUY orders want to buy token0 (sell token1), SELL orders want to sell token0 (buy token1)
     enum BucketSide { BUY, SELL }
 
+    /// @notice Core pool configuration and state for mixed pairs
+    /// @param token0 Address of the first token
+    /// @param token1 Address of the second token
+    /// @param token0IsFherc20 True if token0 is FHERC20
+    /// @param token1IsFherc20 True if token1 is FHERC20
+    /// @param initialized Whether the pool has been initialized
+    /// @param protocolFeeBps Protocol fee in basis points (max 100 = 1%)
     struct PoolState {
         address token0;
         address token1;
@@ -81,6 +183,17 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         uint256 protocolFeeBps;
     }
 
+    /// @notice Pool reserves and LP tracking
+    /// @dev Maintains both encrypted reserves and plaintext LP supply
+    /// @param encReserve0 Encrypted reserve of token0
+    /// @param encReserve1 Encrypted reserve of token1
+    /// @param encTotalLpSupply Encrypted total LP supply (not used in mixed, kept for compatibility)
+    /// @param reserve0 Plaintext reserve of token0
+    /// @param reserve1 Plaintext reserve of token1
+    /// @param totalLpSupply Plaintext total LP token supply
+    /// @param reserveBlockNumber Block when reserves were last synced
+    /// @param nextRequestId Next decrypt request ID to use
+    /// @param lastResolvedId Most recent successfully resolved decrypt request
     struct PoolReserves {
         euint128 encReserve0;
         euint128 encReserve1;
@@ -93,12 +206,22 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         uint256 lastResolvedId;
     }
 
+    /// @notice Pending async decrypt request for reserve sync
+    /// @param reserve0 Encrypted reserve0 at time of request
+    /// @param reserve1 Encrypted reserve1 at time of request
+    /// @param blockNumber Block when request was made
     struct PendingDecrypt {
         euint128 reserve0;
         euint128 reserve1;
         uint256 blockNumber;
     }
 
+    /// @notice Pending ERC20 claim awaiting decrypt resolution
+    /// @dev Used for two-step claim process when proceeds are ERC20
+    /// @param encryptedAmount The encrypted amount awaiting decrypt
+    /// @param token The ERC20 token to transfer
+    /// @param requestedAt Block number when claim was initiated
+    /// @param pending Whether there is a pending claim
     struct PendingErc20Claim {
         euint128 encryptedAmount;
         address token;
@@ -110,47 +233,154 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     //                               STATE
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @dev Encrypted constant: 0
     euint128 internal immutable ENC_ZERO;
+    /// @dev Encrypted constant: 1e18 (PRECISION)
     euint128 internal immutable ENC_PRECISION;
+    /// @dev Encrypted constant: 1
     euint128 internal immutable ENC_ONE;
+    /// @dev Encrypted swap fee in basis points
     euint128 internal immutable ENC_SWAP_FEE_BPS;
+    /// @dev Encrypted constant: 10000 (for basis point calculations)
     euint128 internal immutable ENC_TEN_THOUSAND;
 
+    /// @notice Pool configuration by pool ID
     mapping(PoolId => PoolState) public poolStates;
+
+    /// @notice Pool reserves and LP data by pool ID
     mapping(PoolId => PoolReserves) public poolReserves;
+
+    /// @notice Pending decrypt requests by pool ID and request ID
     mapping(PoolId => mapping(uint256 => PendingDecrypt)) public pendingDecrypts;
+
+    /// @notice Plaintext LP token balances by pool and user (mixed pairs use plaintext LP)
     mapping(PoolId => mapping(address => uint256)) public lpBalances;
+
+    /// @notice Limit order buckets by pool, tick, and side
     mapping(PoolId => mapping(int24 => mapping(BucketSide => BucketLib.Bucket))) public buckets;
+
+    /// @notice User positions in limit order buckets
     mapping(PoolId => mapping(address => mapping(int24 => mapping(BucketSide => BucketLib.UserPosition)))) public positions;
+
+    /// @dev Bitmap tracking which ticks have BUY orders
     mapping(PoolId => mapping(int16 => uint256)) internal buyBitmaps;
+
+    /// @dev Bitmap tracking which ticks have SELL orders
     mapping(PoolId => mapping(int16 => uint256)) internal sellBitmaps;
+
+    /// @notice Last processed tick per pool (used for momentum calculations)
     mapping(PoolId => int24) public lastProcessedTick;
+
+    /// @notice Pending ERC20 claims awaiting decrypt resolution
     mapping(PoolId => mapping(address => mapping(int24 => mapping(BucketSide => PendingErc20Claim)))) public pendingErc20Claims;
 
+    /// @notice Address that receives protocol fees
     address public feeCollector;
+
+    /// @notice Swap fee in basis points (e.g., 30 = 0.3%)
     uint256 public swapFeeBps;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                               EVENTS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Emitted when a new mixed pool is initialized
+    /// @param poolId The unique identifier of the pool
+    /// @param token0 Address of token0
+    /// @param token1 Address of token1
+    /// @param token0IsFherc20 True if token0 is FHERC20
+    /// @param token1IsFherc20 True if token1 is FHERC20
     event PoolInitialized(PoolId indexed poolId, address token0, address token1, bool token0IsFherc20, bool token1IsFherc20);
+
+    /// @notice Emitted when a swap is executed
+    /// @param poolId The pool where the swap occurred
+    /// @param user The address that initiated the swap
+    /// @param zeroForOne True if swapping token0 for token1
+    /// @param amountIn Amount of input tokens
+    /// @param amountOut Amount of output tokens
     event SwapExecuted(PoolId indexed poolId, address indexed user, bool zeroForOne, uint256 amountIn, uint256 amountOut);
+
+    /// @notice Emitted when momentum orders are activated during a swap
+    /// @param poolId The pool where momentum was activated
+    /// @param fromTick Starting tick before momentum
+    /// @param toTick Final tick after momentum cascade
+    /// @param bucketsActivated Number of buckets that were activated
     event MomentumActivated(PoolId indexed poolId, int24 fromTick, int24 toTick, uint8 bucketsActivated);
+
+    /// @notice Emitted when a user deposits into a limit order bucket
+    /// @param poolId The pool ID
+    /// @param user The depositor's address
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     event Deposit(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
+
+    /// @notice Emitted when a user withdraws unfilled liquidity from a bucket
+    /// @param poolId The pool ID
+    /// @param user The withdrawer's address
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     event Withdraw(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
+
+    /// @notice Emitted when FHERC20 proceeds are claimed directly
+    /// @param poolId The pool ID
+    /// @param user The claimer's address
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     event Claim(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side);
+
+    /// @notice Emitted when ERC20 claim is queued (step 1 of two-step process)
+    /// @param poolId The pool ID
+    /// @param user The claimer's address
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
+    /// @param token The ERC20 token to be claimed
     event Erc20ClaimQueued(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side, address token);
+
+    /// @notice Emitted when ERC20 claim is completed (step 2 of two-step process)
+    /// @param poolId The pool ID
+    /// @param user The claimer's address
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
+    /// @param amount The plaintext amount transferred
     event Erc20ClaimCompleted(PoolId indexed poolId, address indexed user, int24 tick, BucketSide side, uint256 amount);
+
+    /// @notice Emitted when liquidity is added to the AMM
+    /// @param poolId The pool ID
+    /// @param user The liquidity provider's address
+    /// @param amount0 Amount of token0 deposited
+    /// @param amount1 Amount of token1 deposited
+    /// @param lpAmount LP tokens minted
     event LiquidityAdded(PoolId indexed poolId, address indexed user, uint256 amount0, uint256 amount1, uint256 lpAmount);
+
+    /// @notice Emitted when liquidity is removed from the AMM
+    /// @param poolId The pool ID
+    /// @param user The liquidity provider's address
+    /// @param amount0 Amount of token0 returned
+    /// @param amount1 Amount of token1 returned
+    /// @param lpAmount LP tokens burned
     event LiquidityRemoved(PoolId indexed poolId, address indexed user, uint256 amount0, uint256 amount1, uint256 lpAmount);
+
+    /// @notice Emitted when an async decrypt is requested for reserve sync
+    /// @param poolId The pool ID
+    /// @param requestId The unique request identifier
+    /// @param blockNumber Block when request was made
     event ReserveSyncRequested(PoolId indexed poolId, uint256 indexed requestId, uint256 blockNumber);
+
+    /// @notice Emitted when reserves are synced from a resolved decrypt
+    /// @param poolId The pool ID
+    /// @param reserve0 New plaintext reserve0 value
+    /// @param reserve1 New plaintext reserve1 value
+    /// @param requestId The request ID that was resolved
     event ReservesSynced(PoolId indexed poolId, uint256 reserve0, uint256 reserve1, uint256 indexed requestId);
 
     // ═══════════════════════════════════════════════════════════════════════
     //                           CONSTRUCTOR
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Initialize the FheatherX v8 Mixed hook
+    /// @param _poolManager The Uniswap v4 PoolManager contract
+    /// @param _owner Address that will own this contract (can pause, set fees)
+    /// @param _swapFeeBps Swap fee in basis points (e.g., 30 = 0.3%)
     constructor(
         IPoolManager _poolManager,
         address _owner,
@@ -648,6 +878,17 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     //                    LIMIT ORDER FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Deposit tokens into a limit order bucket
+    /// @dev Only the FHERC20 side of the pair can be deposited.
+    ///      For SELL orders (selling token0), token0 must be FHERC20.
+    ///      For BUY orders (selling token1), token1 must be FHERC20.
+    ///      The order executes at the bucket's tick price, not the AMM spot price.
+    /// @param poolId The pool to place the order in
+    /// @param tick The price tick for the order (must be aligned to TICK_SPACING)
+    /// @param side BUY or SELL
+    /// @param encryptedAmount Encrypted amount of FHERC20 tokens to deposit
+    /// @param deadline Transaction deadline (reverts if block.timestamp > deadline)
+    /// @param maxTickDrift Maximum allowed difference between current tick and order tick
     function deposit(
         PoolId poolId,
         int24 tick,
@@ -713,6 +954,13 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         emit Deposit(poolId, msg.sender, tick, side);
     }
 
+    /// @notice Withdraw unfilled liquidity from a limit order bucket
+    /// @dev Only unfilled portions can be withdrawn. The withdrawal token is FHERC20.
+    ///      Actual withdrawal amount is min(requested, unfilled).
+    /// @param poolId The pool to withdraw from
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
+    /// @param encryptedAmount Encrypted amount to withdraw (capped at unfilled amount)
     function withdraw(
         PoolId poolId,
         int24 tick,
@@ -746,6 +994,13 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         emit Withdraw(poolId, msg.sender, tick, side);
     }
 
+    /// @notice Claim proceeds from filled limit orders
+    /// @dev If proceeds are FHERC20, transfer happens immediately.
+    ///      If proceeds are ERC20, this queues an async decrypt and user must call claimErc20() after.
+    ///      For SELL orders, proceeds are token1. For BUY orders, proceeds are token0.
+    /// @param poolId The pool to claim from
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     function claim(PoolId poolId, int24 tick, BucketSide side) external whenNotPaused {
         PoolState storage state = poolStates[poolId];
         if (!state.initialized) revert PoolNotInitialized();
@@ -786,8 +1041,14 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         }
     }
 
-    /// @notice Complete an ERC20 claim after decrypt has resolved
-    /// @dev Call this after claim() when proceeds are ERC20 (not FHERC20)
+    /// @notice Complete an ERC20 claim after async decrypt has resolved
+    /// @dev This is step 2 of the two-step ERC20 claim process:
+    ///      1. User calls claim() which queues the decrypt
+    ///      2. After decrypt resolves (typically 1-2 blocks), user calls this function
+    ///      Reverts if no pending claim or if decrypt hasn't resolved yet.
+    /// @param poolId The pool to complete the claim for
+    /// @param tick The price tick of the order
+    /// @param side BUY or SELL
     function claimErc20(PoolId poolId, int24 tick, BucketSide side) external whenNotPaused {
         PendingErc20Claim storage pending = pendingErc20Claims[poolId][msg.sender][tick][side];
         if (!pending.pending) revert NoPendingClaim();
@@ -809,6 +1070,14 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     //                    LP FUNCTIONS (Plaintext - Mixed Pair)
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Add liquidity to the AMM using plaintext amounts
+    /// @dev Since one token is ERC20, LP operations use plaintext amounts.
+    ///      First deposit uses geometric mean, subsequent deposits use proportional calculation.
+    ///      Both tokens are transferred using standard ERC20 transferFrom.
+    /// @param poolId The pool to add liquidity to
+    /// @param amount0 Amount of token0 to deposit
+    /// @param amount1 Amount of token1 to deposit
+    /// @return lpAmount LP tokens minted to the caller
     function addLiquidity(
         PoolId poolId,
         uint256 amount0,
@@ -861,6 +1130,13 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         emit LiquidityAdded(poolId, msg.sender, amount0, amount1, lpAmount);
     }
 
+    /// @notice Remove liquidity from the AMM
+    /// @dev Burns LP tokens and returns proportional share of both tokens.
+    ///      Both tokens are transferred using standard ERC20 transfer.
+    /// @param poolId The pool to remove liquidity from
+    /// @param lpAmount LP tokens to burn
+    /// @return amount0 Amount of token0 returned
+    /// @return amount1 Amount of token1 returned
     function removeLiquidity(
         PoolId poolId,
         uint256 lpAmount
@@ -918,6 +1194,10 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         emit ReserveSyncRequested(poolId, newId, block.number);
     }
 
+    /// @notice Attempt to sync plaintext reserves from resolved decrypts
+    /// @dev Can be called by anyone to update the plaintext reserve cache.
+    ///      Useful when reserves are stale and no swaps are occurring.
+    /// @param poolId The pool to sync
     function trySyncReserves(PoolId poolId) external {
         _harvestResolvedDecrypts(poolId);
     }
@@ -981,16 +1261,28 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     //                         VIEW FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Get the current plaintext reserves for a pool
+    /// @param poolId The pool to query
+    /// @return reserve0 Reserve of token0
+    /// @return reserve1 Reserve of token1
     function getReserves(PoolId poolId) external view returns (uint256, uint256) {
         PoolReserves storage r = poolReserves[poolId];
         return (r.reserve0, r.reserve1);
     }
 
+    /// @notice Get the current price tick based on reserves
+    /// @param poolId The pool to query
+    /// @return The current tick (price = 1.006^tick)
     function getCurrentTick(PoolId poolId) external view returns (int24) {
         PoolReserves storage r = poolReserves[poolId];
         return FheatherMath.getCurrentTick(r.reserve0, r.reserve1, TICK_SPACING);
     }
 
+    /// @notice Get a quote for a swap
+    /// @param poolId The pool to query
+    /// @param zeroForOne True if swapping token0 for token1
+    /// @param amountIn Amount of input tokens
+    /// @return Estimated output amount
     function getQuote(PoolId poolId, bool zeroForOne, uint256 amountIn) external view returns (uint256) {
         PoolReserves storage r = poolReserves[poolId];
         uint256 reserveIn = zeroForOne ? r.reserve0 : r.reserve1;
@@ -1002,18 +1294,29 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     //                         ADMIN FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @notice Pause all user-facing operations (emergency only)
     function pause() external onlyOwner { _pause(); }
+
+    /// @notice Unpause the contract
     function unpause() external onlyOwner { _unpause(); }
 
+    /// @notice Set the address that receives protocol fees
+    /// @param _feeCollector New fee collector address
     function setFeeCollector(address _feeCollector) external onlyOwner {
         feeCollector = _feeCollector;
     }
 
+    /// @notice Set the protocol fee for a specific pool
+    /// @param poolId The pool to configure
+    /// @param _feeBps Fee in basis points (max 100 = 1%)
     function setProtocolFee(PoolId poolId, uint256 _feeBps) external onlyOwner {
         if (_feeBps > 100) revert FeeTooHigh();
         poolStates[poolId].protocolFeeBps = _feeBps;
     }
 
+    /// @dev Check if a token implements FHERC20 interface
+    /// @param token Address to check
+    /// @return True if token has balanceOfEncrypted function
     function _isFherc20(address token) internal view returns (bool) {
         (bool success, ) = token.staticcall(
             abi.encodeWithSelector(bytes4(keccak256("balanceOfEncrypted(address)")), address(0))
