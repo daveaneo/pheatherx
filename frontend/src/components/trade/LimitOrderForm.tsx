@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Button, Input, Select, Badge, TransactionModal } from '@/components/ui';
 import { Loader2, Lock, AlertTriangle, ArrowRight, Ban, ChevronUp, ChevronDown } from 'lucide-react';
 import { usePlaceOrder } from '@/hooks/usePlaceOrder';
@@ -34,6 +34,8 @@ export function LimitOrderForm({
   const [orderMode, setOrderMode] = useState<OrderMode>('maker');
   // Default order type based on mode and direction
   const [orderType, setOrderType] = useState<OrderType>(zeroForOne ? 'limit-sell' : 'limit-buy');
+  // Ref to track if we're processing a prefill (to skip auto-select effects)
+  const isPrefilling = useRef(false);
   const [amount, setAmount] = useState('');
   const [targetTick, setTargetTick] = useState<string>('');
   const [priceInput, setPriceInput] = useState<string>('');
@@ -70,32 +72,55 @@ export function LimitOrderForm({
   // Handle prefill from Quick Limit Order panel
   useEffect(() => {
     if (prefill) {
+      // Mark that we're prefilling to prevent auto-select effects from overriding
+      isPrefilling.current = true;
+
       // Set the target tick and price
       setTargetTick(prefill.tick.toString());
       const price = tickToPrice(prefill.tick);
       setPriceInput((Number(price) / 1e18).toFixed(4));
 
-      // Determine order type based on isBuy and tick position relative to current
+      // Determine order type and mode based on isBuy and tick position relative to current
+      // Maker orders (contrarian): limit-buy (below), limit-sell (above)
+      // Taker orders (momentum): stop-buy (above), stop-loss (below)
+      let newOrderType: OrderType;
+      let newOrderMode: OrderMode;
+
       if (prefill.isBuy) {
-        // Buying: if tick is below current, it's a limit-buy; if above, it's a stop-buy
         if (prefill.tick < currentTick) {
-          setOrderType('limit-buy');
+          // Buy below current = limit-buy (maker)
+          newOrderType = 'limit-buy';
+          newOrderMode = 'maker';
         } else {
-          setOrderType('stop-buy');
+          // Buy above current = stop-buy (taker/momentum)
+          newOrderType = 'stop-buy';
+          newOrderMode = 'taker';
         }
       } else {
-        // Selling: if tick is above current, it's a limit-sell; if below, it's a stop-loss
         if (prefill.tick > currentTick) {
-          setOrderType('limit-sell');
+          // Sell above current = limit-sell (maker)
+          newOrderType = 'limit-sell';
+          newOrderMode = 'maker';
         } else {
-          setOrderType('stop-loss');
+          // Sell below current = stop-loss (taker/momentum)
+          newOrderType = 'stop-loss';
+          newOrderMode = 'taker';
         }
       }
+
+      // Set mode first, then type (order matters for the auto-select effect)
+      setOrderMode(newOrderMode);
+      setOrderType(newOrderType);
 
       // Clear prefill after using
       if (onPrefillUsed) {
         onPrefillUsed();
       }
+
+      // Reset the prefilling flag after a short delay to allow state to settle
+      setTimeout(() => {
+        isPrefilling.current = false;
+      }, 100);
     }
   }, [prefill, currentTick, onPrefillUsed]);
 
@@ -233,7 +258,10 @@ export function LimitOrderForm({
   }, [orderMode, limitOrderAvailability.buyEnabled, limitOrderAvailability.sellEnabled]);
 
   // Auto-select appropriate order type when mode changes
+  // Skip if we're processing a prefill (prefill sets both mode and type explicitly)
   useEffect(() => {
+    if (isPrefilling.current) return;
+
     if (orderMode === 'maker') {
       // Default to limit-sell if selling, limit-buy if buying
       setOrderType(zeroForOne ? 'limit-sell' : 'limit-buy');
@@ -244,7 +272,10 @@ export function LimitOrderForm({
   }, [orderMode, zeroForOne]);
 
   // Auto-select first available order type when availability changes
+  // Skip if we're processing a prefill
   useEffect(() => {
+    if (isPrefilling.current) return;
+
     if (orderTypeOptions.length > 0) {
       const currentTypeAvailable = orderTypeOptions.some(opt => opt.value === orderType);
       if (!currentTypeAvailable) {
