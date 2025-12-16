@@ -129,12 +129,41 @@ npm run dev
 
 Open http://localhost:3000
 
-### Contract Deployment
+### Contract Deployment (v8)
+
+The unified deployment script handles everything: hook deployment, pool initialization, seeding, and frontend address updates.
 
 ```bash
 cd contracts
-forge build
-forge script script/DeployEthSepolia.s.sol --rpc-url $ETH_SEPOLIA_RPC --broadcast
+
+# Full deployment to Arbitrum Sepolia
+NETWORK=arb-sepolia node scripts/deploy-complete.cjs
+
+# Full deployment to Ethereum Sepolia
+NETWORK=eth-sepolia node scripts/deploy-complete.cjs
+
+# Dry run (verify current deployment without changes)
+DRY_RUN=true NETWORK=arb-sepolia node scripts/deploy-complete.cjs
+```
+
+**What `deploy-complete.cjs` does:**
+1. Deploys v8FHE and v8Mixed hooks via Foundry
+2. Initializes all 5 FHE pools (1 FHE:FHE + 4 Mixed)
+3. Seeds v8Mixed pools via Foundry (plaintext amounts)
+4. Seeds v8FHE pool via cofhejs (encrypted amounts)
+5. Updates frontend addresses automatically
+6. Saves deployment info to `deployments/v8-{network}-latest.json`
+
+**Individual scripts (for manual steps):**
+```bash
+# Deploy hooks only
+forge script script/DeployV8Only.s.sol --rpc-url $RPC --broadcast
+
+# Initialize and seed v8Mixed pools
+forge script script/InitAndSeedV8.s.sol --rpc-url $RPC --broadcast
+
+# Seed v8FHE pool with encrypted liquidity (requires cofhejs)
+NETWORK=arb-sepolia node scripts/seed-encrypted-liquidity.cjs
 ```
 
 ## Project Structure
@@ -160,6 +189,25 @@ fheatherx/
 │   └── e2e/                     # Playwright E2E tests
 └── docs/
 ```
+
+## Deployment Scripts
+
+### Current Scripts (v8)
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/deploy-complete.cjs` | **Unified deployment** - does everything |
+| `scripts/seed-encrypted-liquidity.cjs` | Seeds v8FHE pools with cofhejs |
+| `script/DeployV8Only.s.sol` | Deploys hooks only (no pool init) |
+| `script/InitAndSeedV8.s.sol` | Initializes pools + seeds v8Mixed |
+| `script/DeployFaucetTokens.s.sol` | Deploys new FHERC20 faucet tokens |
+| `script/SeedNativePool.s.sol` | Seeds native ERC:ERC pools |
+| `script/SmokeTestV8.s.sol` | Basic v8 contract testing |
+| `script/TestSwap.s.sol` | Swap functionality testing |
+
+### Archived Scripts (in `old/` directories)
+
+Legacy and one-time scripts have been moved to `script/old/` and `scripts/old/`.
 
 ## Deployment Configuration
 
