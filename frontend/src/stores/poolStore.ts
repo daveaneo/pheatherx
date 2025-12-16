@@ -73,10 +73,26 @@ export const usePoolStore = create<PoolState>()(
       setPools: (chainId, pools) => {
         const currentSelection = get().selectedPoolKeyByChain[chainId];
         const hasValidSelection = currentSelection && pools.some(p => getPoolKey(p) === currentSelection);
+
+        // Determine best default pool: prefer v8fhe (full privacy) > v8mixed > any
+        let defaultPool: Pool | undefined;
+        if (!hasValidSelection && pools.length > 0) {
+          // First, try to find an FHE:FHE pool (full privacy)
+          defaultPool = pools.find(p => p.contractType === 'v8fhe');
+          // If no FHE:FHE, try mixed pool
+          if (!defaultPool) {
+            defaultPool = pools.find(p => p.contractType === 'v8mixed');
+          }
+          // Fallback to first pool
+          if (!defaultPool) {
+            defaultPool = pools[0];
+          }
+        }
+
         const newSelection = hasValidSelection
           ? currentSelection
-          : pools.length > 0
-            ? getPoolKey(pools[0])
+          : defaultPool
+            ? getPoolKey(defaultPool)
             : null;
         console.log(`[PoolStore] setPools chain=${chainId} pools=${pools.length} selection=${newSelection?.slice(0, 30)}...`);
 
@@ -90,14 +106,10 @@ export const usePoolStore = create<PoolState>()(
             ...state.poolsLoadedByChain,
             [chainId]: true,
           },
-          // Auto-select first pool if no valid selection for this chain
+          // Auto-select best pool if no valid selection for this chain
           selectedPoolKeyByChain: {
             ...state.selectedPoolKeyByChain,
-            [chainId]: hasValidSelection
-              ? currentSelection
-              : pools.length > 0
-                ? getPoolKey(pools[0])
-                : null,
+            [chainId]: newSelection,
           },
         }));
       },

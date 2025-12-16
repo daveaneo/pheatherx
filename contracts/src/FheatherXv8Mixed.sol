@@ -516,6 +516,9 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         uint256 amountIn,
         address sender
     ) internal returns (uint256 amountOut) {
+        // CRITICAL: Harvest resolved decrypts FIRST to get fresh reserves
+        _harvestResolvedDecrypts(poolId);
+
         PoolReserves storage reserves = poolReserves[poolId];
 
         // Take input from PoolManager
@@ -1262,31 +1265,34 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @notice Get the current plaintext reserves for a pool
+    /// @dev Automatically checks for resolved async decrypts via binary search
     /// @param poolId The pool to query
-    /// @return reserve0 Reserve of token0
-    /// @return reserve1 Reserve of token1
+    /// @return reserve0 Current reserve of token0 (includes resolved pending decrypts)
+    /// @return reserve1 Current reserve of token1 (includes resolved pending decrypts)
     function getReserves(PoolId poolId) external view returns (uint256, uint256) {
-        PoolReserves storage r = poolReserves[poolId];
-        return (r.reserve0, r.reserve1);
+        (, uint256 val0, uint256 val1) = _findNewestResolvedDecrypt(poolId);
+        return (val0, val1);
     }
 
     /// @notice Get the current price tick based on reserves
+    /// @dev Automatically checks for resolved async decrypts
     /// @param poolId The pool to query
     /// @return The current tick (price = 1.006^tick)
     function getCurrentTick(PoolId poolId) external view returns (int24) {
-        PoolReserves storage r = poolReserves[poolId];
-        return FheatherMath.getCurrentTick(r.reserve0, r.reserve1, TICK_SPACING);
+        (, uint256 val0, uint256 val1) = _findNewestResolvedDecrypt(poolId);
+        return FheatherMath.getCurrentTick(val0, val1, TICK_SPACING);
     }
 
-    /// @notice Get a quote for a swap
+    /// @notice Get a quote for a swap (estimated output based on current reserves)
+    /// @dev Automatically checks for resolved async decrypts
     /// @param poolId The pool to query
     /// @param zeroForOne True if swapping token0 for token1
     /// @param amountIn Amount of input tokens
-    /// @return Estimated output amount
+    /// @return Estimated output amount (actual may differ due to price movement)
     function getQuote(PoolId poolId, bool zeroForOne, uint256 amountIn) external view returns (uint256) {
-        PoolReserves storage r = poolReserves[poolId];
-        uint256 reserveIn = zeroForOne ? r.reserve0 : r.reserve1;
-        uint256 reserveOut = zeroForOne ? r.reserve1 : r.reserve0;
+        (, uint256 val0, uint256 val1) = _findNewestResolvedDecrypt(poolId);
+        uint256 reserveIn = zeroForOne ? val0 : val1;
+        uint256 reserveOut = zeroForOne ? val1 : val0;
         return FheatherMath.estimateOutput(reserveIn, reserveOut, amountIn, swapFeeBps);
     }
 

@@ -48,13 +48,28 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
   const chainId = useChainId();
   const tokens = useMemo(() => getTokensForChain(chainId), [chainId]);
 
-  // Token pair state - default to first two tokens if available
-  const [token0, setToken0] = useState<Token | undefined>(
-    tokens.length >= 2 ? sortTokens(tokens[0], tokens[1])[0] : undefined
-  );
-  const [token1, setToken1] = useState<Token | undefined>(
-    tokens.length >= 2 ? sortTokens(tokens[0], tokens[1])[1] : undefined
-  );
+  // Get default tokens - prefer FHERC20 pairs for privacy pools
+  const defaultTokens = useMemo(() => {
+    const fheTokens = tokens.filter(t => t.type === 'fheerc20');
+    // If we have 2+ FHE tokens, default to FHE:FHE pool (full privacy)
+    if (fheTokens.length >= 2) {
+      return sortTokens(fheTokens[0], fheTokens[1]);
+    }
+    // If we have 1 FHE token and 1+ ERC20, default to mixed pool
+    const ercTokens = tokens.filter(t => t.type === 'erc20');
+    if (fheTokens.length >= 1 && ercTokens.length >= 1) {
+      return sortTokens(fheTokens[0], ercTokens[0]);
+    }
+    // Fallback to first two tokens
+    if (tokens.length >= 2) {
+      return sortTokens(tokens[0], tokens[1]);
+    }
+    return [undefined, undefined] as [Token | undefined, Token | undefined];
+  }, [tokens]);
+
+  // Token pair state - default to FHE tokens for privacy
+  const [token0, setToken0] = useState<Token | undefined>(defaultTokens[0]);
+  const [token1, setToken1] = useState<Token | undefined>(defaultTokens[1]);
 
   // Get user address for balance queries
   const { address } = useAccount();
@@ -356,7 +371,10 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
     );
   }
 
-  // If no hook address available, show error
+  // Determine if this is a native (ERC:ERC) pool - not supported in FheatherX UI
+  const isNativePool = token0?.type === 'erc20' && token1?.type === 'erc20';
+
+  // If no hook address available, show appropriate message
   if (!hookAddress) {
     return (
       <Card>
@@ -365,8 +383,17 @@ export function AddLiquidityForm({ selectedPoolHook, onSuccess }: AddLiquidityFo
         </CardHeader>
         <CardContent className="py-8">
           <div className="text-center text-feather-white/60">
-            <p>No FheatherX contract deployed on this network</p>
-            <p className="text-sm mt-2">Switch to a supported network or deploy contracts</p>
+            {isNativePool ? (
+              <>
+                <p>ERC20:ERC20 pools are not supported</p>
+                <p className="text-sm mt-2">Select at least one FHERC20 token (fheWETH, fheUSDC) for privacy pools</p>
+              </>
+            ) : (
+              <>
+                <p>No FheatherX contract deployed on this network</p>
+                <p className="text-sm mt-2">Switch to Ethereum Sepolia or Arbitrum Sepolia</p>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>

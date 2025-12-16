@@ -30,6 +30,13 @@ export enum BucketSide {
 export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'take-profit';
 
 /**
+ * Order mode - determines execution behavior
+ * - maker: Orders REST in the book, ADD liquidity, execute at EXACT price (no slippage)
+ * - taker: Orders EXECUTE as swaps, TAKE liquidity, can have slippage up to 100%
+ */
+export type OrderMode = 'maker' | 'taker';
+
+/**
  * Configuration for each order type
  */
 export interface OrderTypeConfig {
@@ -45,6 +52,8 @@ export interface OrderTypeConfig {
   depositToken: 'token0' | 'token1';
   /** Token received when filled (output token) */
   receiveToken: 'token0' | 'token1';
+  /** Order mode: maker (exact price) or taker (can have slippage) */
+  mode: OrderMode;
 }
 
 /**
@@ -58,6 +67,7 @@ export const ORDER_TYPE_CONFIG: Record<OrderType, OrderTypeConfig> = {
     tickRelation: 'below',
     depositToken: 'token1',
     receiveToken: 'token0',
+    mode: 'maker',
   },
   'limit-sell': {
     label: 'Limit Sell',
@@ -66,6 +76,7 @@ export const ORDER_TYPE_CONFIG: Record<OrderType, OrderTypeConfig> = {
     tickRelation: 'above',
     depositToken: 'token0',
     receiveToken: 'token1',
+    mode: 'maker',
   },
   'stop-loss': {
     label: 'Stop Loss',
@@ -74,6 +85,7 @@ export const ORDER_TYPE_CONFIG: Record<OrderType, OrderTypeConfig> = {
     tickRelation: 'below',
     depositToken: 'token0',
     receiveToken: 'token1',
+    mode: 'taker',
   },
   'take-profit': {
     label: 'Take Profit',
@@ -82,6 +94,7 @@ export const ORDER_TYPE_CONFIG: Record<OrderType, OrderTypeConfig> = {
     tickRelation: 'above',
     depositToken: 'token0',
     receiveToken: 'token1',
+    mode: 'taker',
   },
 };
 

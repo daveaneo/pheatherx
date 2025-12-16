@@ -223,7 +223,7 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
               placeholder="0.0"
               value={sellAmount}
               onChange={(e) => setSellAmount(e.target.value)}
-              className="pr-20 text-lg text-center rounded-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className="pr-24 text-lg text-left pl-4 rounded-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               disabled={isSwapping}
               data-testid="sell-amount-input"
             />
@@ -277,7 +277,7 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
             type="text"
             value={estimatedOutput}
             readOnly
-            className="pr-20 text-lg bg-ash-gray/50"
+            className="pr-24 text-lg text-left pl-4 bg-ash-gray/50"
             data-testid="buy-amount-output"
           />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-feather-white/60 font-medium">
@@ -303,22 +303,24 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
       </div>
 
       {/* Price Info */}
-      <div className="p-3 bg-ash-gray/30 rounded-lg text-sm space-y-1">
-        <div className="flex justify-between">
+      <div className="p-3 bg-ash-gray/30 rounded-lg text-sm space-y-2">
+        <div className="flex justify-between items-center">
           <span className="text-feather-white/60">Rate</span>
-          <span>1 {sellToken} = {(() => {
-            if (!currentPrice || currentPrice.reserve0 === 0n || currentPrice.reserve1 === 0n) return '0.0000';
-            // reserve0 is always token0, reserve1 is always token1 - decimals don't depend on swap direction
-            const r0 = Number(currentPrice.reserve0) / Math.pow(10, token0?.decimals ?? 18);
-            const r1 = Number(currentPrice.reserve1) / Math.pow(10, token1?.decimals ?? 18);
-            // zeroForOne: selling token0 for token1, rate = r1/r0
-            // !zeroForOne: selling token1 for token0, rate = r0/r1
-            return zeroForOne ? (r1 / r0).toFixed(4) : (r0 / r1).toFixed(4);
-          })()} {buyToken}</span>
+          <span className="text-right">
+            1 {sellToken} = {(() => {
+              if (!currentPrice || currentPrice.reserve0 === 0n || currentPrice.reserve1 === 0n) return '0.0000';
+              // reserve0 is always token0, reserve1 is always token1 - decimals don't depend on swap direction
+              const r0 = Number(currentPrice.reserve0) / Math.pow(10, token0?.decimals ?? 18);
+              const r1 = Number(currentPrice.reserve1) / Math.pow(10, token1?.decimals ?? 18);
+              // zeroForOne: selling token0 for token1, rate = r1/r0
+              // !zeroForOne: selling token1 for token0, rate = r0/r1
+              return zeroForOne ? (r1 / r0).toFixed(4) : (r0 / r1).toFixed(4);
+            })()} {buyToken}
+          </span>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between items-center">
           <span className="text-feather-white/60">Min Received</span>
-          <span>{(parseFloat(estimatedOutput) * (1 - parseFloat(slippage) / 100)).toFixed(4)} {buyToken}</span>
+          <span className="text-right">{(parseFloat(estimatedOutput) * (1 - parseFloat(slippage) / 100)).toFixed(4)} {buyToken}</span>
         </div>
       </div>
 

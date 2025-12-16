@@ -1,35 +1,35 @@
 {
   "chainId": 11155111,
-  "deployedAt": "1764951960",
+  "deployedAt": "1765912800",
   "tokens": {
     "erc20": {
-      "tUSDC": {
-        "address": "0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56",
-        "symbol": "tUSDC",
-        "name": "Test USDC",
+      "USDC": {
+        "address": "0xD3A106120C25aA31F2783064f26829Cb57066C2c",
+        "symbol": "USDC",
+        "name": "USDC",
         "decimals": 6,
         "type": "erc20"
       },
-      "tWETH": {
-        "address": "0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E",
-        "symbol": "tWETH",
-        "name": "Test WETH",
+      "WETH": {
+        "address": "0x2586AD56EBF7046b32405df62F583662a7086eDD",
+        "symbol": "WETH",
+        "name": "WETH",
         "decimals": 18,
         "type": "erc20"
       }
     },
     "fheerc20": {
       "fheUSDC": {
-        "address": "0x1D77eE754b2080B354733299A5aC678539a0D740",
+        "address": "0xDdc7808AD27a1C45fa216DB6292Eb2f359244014",
         "symbol": "fheUSDC",
-        "name": "FHE Test USDC",
+        "name": "FHE USDC",
         "decimals": 6,
         "type": "fheerc20"
       },
       "fheWETH": {
-        "address": "0xf0F8f49b4065A1B01050Fa358d287106B676a25F",
+        "address": "0xBa1A88cC0FCacF907E55297AC54607E60367019C",
         "symbol": "fheWETH",
-        "name": "FHE Test WETH",
+        "name": "FHE WETH",
         "decimals": 18,
         "type": "fheerc20"
       }

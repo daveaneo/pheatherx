@@ -157,8 +157,15 @@ export function usePoolDiscovery() {
         // Get the correct hook for this token pair
         const { hook, contractType } = getHookForTokenPair(sorted0.type, sorted1.type);
 
-        // Skip if hook is not deployed (except for native which uses address(0))
-        if (contractType !== 'native' && hook === '0x0000000000000000000000000000000000000000') {
+        // Skip native ERC:ERC pools - FheatherX focuses on privacy pools (v8fhe, v8mixed)
+        // Native ERC:ERC trades will be handled by a future router that wraps through FHE pools
+        if (contractType === 'native') {
+          console.log(`[PoolDiscovery] Skipping ${sorted0.symbol}/${sorted1.symbol} - native pools not shown (use FHE pools for privacy)`);
+          continue;
+        }
+
+        // Skip if FHE hook is not deployed
+        if (hook === '0x0000000000000000000000000000000000000000') {
           console.log(`[PoolDiscovery] Skipping ${sorted0.symbol}/${sorted1.symbol} - ${contractType} hook not deployed`);
           continue;
         }

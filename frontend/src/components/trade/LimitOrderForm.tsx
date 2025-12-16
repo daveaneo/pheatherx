@@ -6,7 +6,7 @@ import { Loader2, Lock, AlertTriangle, ArrowRight, Ban, ChevronUp, ChevronDown }
 import { usePlaceOrder } from '@/hooks/usePlaceOrder';
 import { useSelectedPool } from '@/stores/poolStore';
 import { parseUnits, formatUnits } from 'viem';
-import { BucketSide, OrderType, ORDER_TYPE_CONFIG } from '@/types/bucket';
+import { BucketSide, OrderType, OrderMode, ORDER_TYPE_CONFIG } from '@/types/bucket';
 import { TICK_SPACING, tickToPrice, priceToTick, formatPrice, isValidTick, MIN_TICK, MAX_TICK } from '@/lib/constants';
 import { getLimitOrderAvailability } from '@/lib/validation/privacyRules';
 import type { CurrentPrice } from '@/types/bucket';
@@ -30,7 +30,9 @@ export function LimitOrderForm({
   onPrefillUsed,
   zeroForOne,
 }: LimitOrderFormProps) {
-  // Default order type based on direction: zeroForOne=true means selling token0, so default to limit-sell
+  // Order mode: maker (exact price) or taker (can have slippage)
+  const [orderMode, setOrderMode] = useState<OrderMode>('maker');
+  // Default order type based on mode and direction
   const [orderType, setOrderType] = useState<OrderType>(zeroForOne ? 'limit-sell' : 'limit-buy');
   const [amount, setAmount] = useState('');
   const [targetTick, setTargetTick] = useState<string>('');
@@ -203,26 +205,43 @@ export function LimitOrderForm({
 
   const noOrdersAvailable = !limitOrderAvailability.buyEnabled && !limitOrderAvailability.sellEnabled;
 
-  // Generate order type options for select, filtering by availability
-  // Buy orders: limit-buy (deposits token1)
-  // Sell orders: limit-sell, stop-loss, take-profit (all deposit token0)
+  // Generate order type options for select, filtering by mode and availability
+  // Maker mode: limit-buy, limit-sell (exact price, no slippage)
+  // Taker mode: stop-loss, take-profit (execute as swaps, can have slippage)
   const orderTypeOptions = useMemo(() => {
     const options = [];
 
-    if (limitOrderAvailability.buyEnabled) {
-      options.push({ value: 'limit-buy', label: 'Limit Buy' });
-    }
-
-    if (limitOrderAvailability.sellEnabled) {
-      options.push(
-        { value: 'limit-sell', label: 'Limit Sell' },
-        { value: 'stop-loss', label: 'Stop Loss' },
-        { value: 'take-profit', label: 'Take Profit' }
-      );
+    if (orderMode === 'maker') {
+      // Maker orders: limit-buy and limit-sell
+      if (limitOrderAvailability.buyEnabled) {
+        options.push({ value: 'limit-buy', label: 'Limit Buy' });
+      }
+      if (limitOrderAvailability.sellEnabled) {
+        options.push({ value: 'limit-sell', label: 'Limit Sell' });
+      }
+    } else {
+      // Taker orders: stop-loss and take-profit (both deposit token0 = sell side)
+      if (limitOrderAvailability.sellEnabled) {
+        options.push(
+          { value: 'stop-loss', label: 'Stop Loss' },
+          { value: 'take-profit', label: 'Take Profit' }
+        );
+      }
     }
 
     return options;
-  }, [limitOrderAvailability.buyEnabled, limitOrderAvailability.sellEnabled]);
+  }, [orderMode, limitOrderAvailability.buyEnabled, limitOrderAvailability.sellEnabled]);
+
+  // Auto-select appropriate order type when mode changes
+  useEffect(() => {
+    if (orderMode === 'maker') {
+      // Default to limit-sell if selling, limit-buy if buying
+      setOrderType(zeroForOne ? 'limit-sell' : 'limit-buy');
+    } else {
+      // Taker mode: default to stop-loss
+      setOrderType('stop-loss');
+    }
+  }, [orderMode, zeroForOne]);
 
   // Auto-select first available order type when availability changes
   useEffect(() => {
@@ -302,6 +321,34 @@ export function LimitOrderForm({
 
   return (
     <div className="space-y-4" data-testid="limit-form">
+      {/* Maker/Taker Toggle */}
+      <div className="flex gap-1 p-1 bg-ash-gray/30 rounded-lg">
+        <button
+          type="button"
+          onClick={() => setOrderMode('maker')}
+          className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            orderMode === 'maker'
+              ? 'bg-carbon-gray text-feather-white'
+              : 'text-feather-white/60 hover:text-feather-white'
+          }`}
+          data-testid="maker-toggle"
+        >
+          Maker
+        </button>
+        <button
+          type="button"
+          onClick={() => setOrderMode('taker')}
+          className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            orderMode === 'taker'
+              ? 'bg-carbon-gray text-feather-white'
+              : 'text-feather-white/60 hover:text-feather-white'
+          }`}
+          data-testid="taker-toggle"
+        >
+          Taker
+        </button>
+      </div>
+
       {/* Privacy Restriction Notice */}
       {limitOrderAvailability.message && (
         <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
@@ -415,17 +462,43 @@ export function LimitOrderForm({
       </div>
 
       {/* Order Summary */}
-      <div className="p-3 bg-ash-gray/30 rounded-lg text-sm space-y-1">
+      <div className="p-3 bg-ash-gray/30 rounded-lg text-sm space-y-2">
+        {/* Price Behavior - different for Maker vs Taker */}
+        <div className="flex justify-between items-center">
+          <span className="text-feather-white/60">Price</span>
+          {orderMode === 'maker' ? (
+            <span className="text-green-400">EXACT (no slippage)</span>
+          ) : (
+            <span className="text-red-500 font-medium">MARKET (executes as swap)</span>
+          )}
+        </div>
+
+        {/* Slippage Warning - only for Taker mode */}
+        {orderMode === 'taker' && (
+          <div className="flex justify-between items-center">
+            <span className="text-feather-white/60">Slippage</span>
+            <span className="text-red-500 font-bold">UP TO 100%</span>
+          </div>
+        )}
+
+        {/* Fee Display */}
+        <div className="flex justify-between items-center">
+          <span className="text-feather-white/60">Fee</span>
+          <span>~0.35% (swap + protocol)</span>
+        </div>
+
+        <div className="border-t border-ash-gray/50 my-2" />
+
         <div className="flex justify-between">
           <span className="text-feather-white/60">Order Size</span>
           <span>{amount || '0'} {depositTokenSymbol}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-feather-white/60">Receive (when filled)</span>
+          <span className="text-feather-white/60">{orderMode === 'maker' ? 'Receive (when filled)' : 'Min Receive'}</span>
           <span>{receiveAmount} {receiveTokenSymbol}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-feather-white/60">Target Price</span>
+          <span className="text-feather-white/60">{orderMode === 'maker' ? 'Target Price' : 'Trigger Price'}</span>
           <span>
             {(() => {
               const rawPrice = Number(tickToPrice(selectedTick)) / 1e18;
@@ -501,7 +574,7 @@ export function LimitOrderForm({
              step === 'submitting' ? 'Placing Order...' : 'Processing...'}
           </>
         ) : (
-          `Place ${config.label} Order`
+          `Place ${orderMode === 'maker' ? 'Maker' : 'Taker'} Order`
         )}
       </Button>
 

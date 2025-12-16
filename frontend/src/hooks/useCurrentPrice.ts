@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePublicClient, useAccount } from 'wagmi';
-import { FHEATHERX_V6_ABI } from '@/lib/contracts/fheatherXv6Abi';
-import { FHEATHERX_ADDRESSES } from '@/lib/contracts/addresses';
+import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
+import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
 import { useBucketStore } from '@/stores/bucketStore';
 import { useSelectedPool } from '@/stores/poolStore';
 import { tickToPrice, formatPrice, PRECISION, TICK_SPACING } from '@/lib/constants';
@@ -103,20 +103,16 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
   const { chainId } = useAccount();
   const publicClient = usePublicClient();
 
-  // Get hook address and tokens from selected pool (multi-pool support)
-  const { hookAddress: selectedHookAddress, token0, token1 } = useSelectedPool();
+  // Get hook address, tokens, and contract type from selected pool (multi-pool support)
+  const { hookAddress, token0, token1, contractType } = useSelectedPool();
 
-  // Validate hook address matches current chain - prevents using stale data from wrong chain
-  const expectedHookAddress = chainId ? FHEATHERX_ADDRESSES[chainId] : undefined;
-  const hookAddress = useMemo(() => {
-    // Only use the selected hook if it matches the current chain's expected hook
-    if (selectedHookAddress && expectedHookAddress &&
-        selectedHookAddress.toLowerCase() === expectedHookAddress.toLowerCase()) {
-      return selectedHookAddress;
-    }
-    // Fall back to the chain's hook address
-    return expectedHookAddress;
-  }, [selectedHookAddress, expectedHookAddress]);
+  // Get the appropriate ABI based on contract type
+  const abi = useMemo(() => {
+    if (contractType === 'v8fhe') return FHEATHERX_V8_FHE_ABI;
+    if (contractType === 'v8mixed') return FHEATHERX_V8_MIXED_ABI;
+    // Default to v8FHE ABI (most common)
+    return FHEATHERX_V8_FHE_ABI;
+  }, [contractType]);
 
   // Compute pool ID from tokens and hook
   const poolId = useMemo(() => {
@@ -144,13 +140,13 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
     setError(null);
 
     try {
-      // Fetch reserves from contract using v6 API: getPoolReserves(poolId)
+      // Fetch reserves from contract using v8 API: getReserves(poolId)
       const result = await publicClient.readContract({
         address: hookAddress,
-        abi: FHEATHERX_V6_ABI,
-        functionName: 'getPoolReserves',
+        abi,
+        functionName: 'getReserves',
         args: [poolId],
-      }) as [bigint, bigint, bigint]; // [reserve0, reserve1, lpSupply]
+      }) as [bigint, bigint]; // [reserve0, reserve1]
 
       const [reserve0, reserve1] = result;
 
@@ -196,7 +192,7 @@ export function useCurrentPrice(): UseCurrentPriceReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [chainId, publicClient, hookAddress, poolId, token0, token1, setReserves, setCurrentTick]);
+  }, [chainId, publicClient, hookAddress, poolId, token0, token1, abi, setReserves, setCurrentTick]);
 
   // Auto-refresh on mount and chain change
   useEffect(() => {

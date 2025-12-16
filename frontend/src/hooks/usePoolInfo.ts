@@ -4,9 +4,13 @@ import { useReadContracts, useChainId } from 'wagmi';
 import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
 import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
 import { UNISWAP_V4_POOL_MANAGER_ABI } from '@/lib/contracts/uniswapV4-abi';
-import { POOL_MANAGER_ADDRESSES } from '@/lib/contracts/addresses';
+import {
+  POOL_MANAGER_ADDRESSES,
+  FHEATHERX_V8_FHE_ADDRESSES,
+  FHEATHERX_V8_MIXED_ADDRESSES,
+} from '@/lib/contracts/addresses';
 import { getPoolIdFromTokens } from '@/lib/poolId';
-import { usePoolStore, determineContractType } from '@/stores/poolStore';
+import { usePoolStore } from '@/stores/poolStore';
 import type { Token } from '@/lib/tokens';
 import type { Pool, ContractType } from '@/types/pool';
 
@@ -22,6 +26,37 @@ function getAbiForContractType(type: ContractType) {
     case 'native':
     default:
       return UNISWAP_V4_POOL_MANAGER_ABI;
+  }
+}
+
+/**
+ * Determine hook address and contract type based on token types
+ * This is used as fallback when pool is not yet discovered
+ */
+function getHookForTokenTypes(
+  tokenA: Token | undefined,
+  tokenB: Token | undefined,
+  chainId: number
+): { hook: `0x${string}` | undefined; contractType: ContractType } {
+  if (!tokenA || !tokenB) {
+    return { hook: undefined, contractType: 'native' };
+  }
+
+  const t0IsFhe = tokenA.type === 'fheerc20';
+  const t1IsFhe = tokenB.type === 'fheerc20';
+
+  if (t0IsFhe && t1IsFhe) {
+    // Both FHE - use v8FHE hook
+    const hook = FHEATHERX_V8_FHE_ADDRESSES[chainId];
+    return { hook: hook && hook !== '0x0000000000000000000000000000000000000000' ? hook : undefined, contractType: 'v8fhe' };
+  } else if (t0IsFhe || t1IsFhe) {
+    // One FHE - use v8Mixed hook
+    const hook = FHEATHERX_V8_MIXED_ADDRESSES[chainId];
+    return { hook: hook && hook !== '0x0000000000000000000000000000000000000000' ? hook : undefined, contractType: 'v8mixed' };
+  } else {
+    // Both ERC - native pools not supported in FheatherX UI
+    // Users should select at least one FHERC20 token for privacy benefits
+    return { hook: undefined, contractType: 'native' };
   }
 }
 
@@ -55,13 +90,17 @@ export function usePoolInfo(
   // Find if a pool exists for this token pair
   const pool = findPoolForPair(pools, tokenA, tokenB);
 
+  // Get fallback hook address based on token types (used when pool not yet discovered)
+  const fallback = getHookForTokenTypes(tokenA, tokenB, chainId);
+
   // Determine contract type based on pool or token types
-  const contractType = determineContractType(pool);
+  const contractType = pool?.contractType ?? fallback.contractType;
   const isNative = contractType === 'native';
   const abi = getAbiForContractType(contractType);
 
   // For native pools, use PoolManager; for FHE pools, use hook address
-  const hookAddress = pool?.hook ?? (isNative ? undefined : undefined);
+  // Fall back to configured addresses when pool not yet discovered
+  const hookAddress = pool?.hook ?? fallback.hook;
   const contractAddress = isNative
     ? POOL_MANAGER_ADDRESSES[chainId]
     : hookAddress;

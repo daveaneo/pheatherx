@@ -28,13 +28,13 @@ export function isNativeEth(address: string): boolean {
 //                      TOKEN ADDRESSES BY CHAIN
 // ═══════════════════════════════════════════════════════════════════════
 
-// Ethereum Sepolia Token Addresses (from contracts/deployments/v8-eth-sepolia.json)
+// Ethereum Sepolia Token Addresses (deployed 2024-12-16)
 const ETH_SEPOLIA_TOKENS = {
-  WETH: '0xe9Df64F549Eb1d2778909F339B9Bd795d14cF32E' as `0x${string}`,
-  USDC: '0xF7Ff2A5E74eaA6E0463358BB26780049d3D45C56' as `0x${string}`,
-  // New FHERC20 tokens with proper balanceOfEncrypted() interface
-  fheWETH: '0xa22df71352FbE7f78e9fC6aFFA78a3A1dF57b80e' as `0x${string}`,
-  fheUSDC: '0xCa72923536c48704858C9207D2496010498b77c4' as `0x${string}`,
+  WETH: '0x2586AD56EBF7046b32405df62F583662a7086eDD' as `0x${string}`,
+  USDC: '0xD3A106120C25aA31F2783064f26829Cb57066C2c' as `0x${string}`,
+  // FHERC20 tokens with proper balanceOfEncrypted() interface
+  fheWETH: '0xBa1A88cC0FCacF907E55297AC54607E60367019C' as `0x${string}`,
+  fheUSDC: '0xDdc7808AD27a1C45fa216DB6292Eb2f359244014' as `0x${string}`,
 } as const;
 
 // Arbitrum Sepolia Token Addresses (from contracts/deployments/v6-arb-sepolia.json)

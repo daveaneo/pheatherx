@@ -13,21 +13,38 @@ const path = require('path');
 require('dotenv').config();
 
 // ============ Configuration ============
-// Ethereum Sepolia v8 deployment
-const ETH_SEPOLIA_RPC = process.env.ETH_SEPOLIA_RPC || 'https://ethereum-sepolia-rpc.publicnode.com';
+// Select network: 'eth-sepolia' or 'arb-sepolia'
+const NETWORK = process.env.NETWORK || 'eth-sepolia';
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
 if (!PRIVATE_KEY) {
   throw new Error('PRIVATE_KEY not set in .env');
 }
 
-// v8 Eth Sepolia deployment addresses (from deployments/v8-eth-sepolia.json)
-const HOOK_ADDRESS = '0x15a1d97B331A343927d949b82376C7Dec9839088';  // v8FHE hook
-const FHE_WETH_ADDRESS = '0xa22df71352FbE7f78e9fC6aFFA78a3A1dF57b80e';
-const FHE_USDC_ADDRESS = '0xCa72923536c48704858C9207D2496010498b77c4';
+// Network configurations
+const NETWORKS = {
+  'eth-sepolia': {
+    rpc: process.env.ETH_SEPOLIA_RPC || 'https://ethereum-sepolia-rpc.publicnode.com',
+    hookAddress: '0x297987BD9647d06Ac83bCc662ae89Fc6a4019088', // v8FHE 2024-12-16
+    fheWethAddress: '0xBa1A88cC0FCacF907E55297AC54607E60367019C',
+    fheUsdcAddress: '0xDdc7808AD27a1C45fa216DB6292Eb2f359244014',
+    poolId: '0xb382430a22f759a0d3101920ff63de25e56a1708026685ff5a4007a15f99a972', // Pool B 2024-12-16
+  },
+  'arb-sepolia': {
+    rpc: process.env.ARB_SEPOLIA_RPC || 'https://sepolia-rollup.arbitrum.io/rpc',
+    hookAddress: '0x74A83BA9AbD7aE1f579319DC62BEE0D628Ac1088', // v8FHE 2024-12-16
+    fheWethAddress: '0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0',
+    fheUsdcAddress: '0x987731d456B5996E7414d79474D8aba58d4681DC',
+    poolId: '0x345031dc6f6c054664d432571860222e43c684a6979afcb6a03dd0fa3ca8b238', // Pool B 2024-12-16
+  },
+};
 
-// Pool B (fheWETH/fheUSDC) pool ID - v8 Eth Sepolia
-const POOL_ID_B = '0xb0bf8c67183ca9add4575d94cdfb1857818c5fc6e125a14bf8c669212b012bd8';
+const config = NETWORKS[NETWORK];
+if (!config) {
+  throw new Error(`Unknown network: ${NETWORK}. Use 'eth-sepolia' or 'arb-sepolia'`);
+}
+
+const { rpc: RPC_URL, hookAddress: HOOK_ADDRESS, fheWethAddress: FHE_WETH_ADDRESS, fheUsdcAddress: FHE_USDC_ADDRESS, poolId: POOL_ID_B } = config;
 
 // Amounts for initial liquidity
 const INIT_FHE_WETH_AMOUNT = ethers.parseEther('10');
@@ -54,11 +71,11 @@ async function main() {
   console.log('===========================================');
   console.log('  Seed Encrypted Liquidity');
   console.log('  Pool B: fheWETH/fheUSDC (v8FHE)');
-  console.log('  Ethereum Sepolia');
+  console.log(`  Network: ${NETWORK}`);
   console.log('===========================================\n');
 
   // Setup provider and wallet
-  const provider = new ethers.JsonRpcProvider(ETH_SEPOLIA_RPC);
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
   const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
   const deployer = await wallet.getAddress();
 

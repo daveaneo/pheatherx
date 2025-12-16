@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AddLiquidityForm, PositionsList, RemoveLiquidityForm } from '@/components/liquidity';
+import { AddLiquidityForm, PositionsList, RemoveLiquidityForm, PoolStats } from '@/components/liquidity';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { FheSessionGuard } from '@/components/common/FheSessionGuard';
@@ -40,6 +40,9 @@ export default function LiquidityPage() {
               Provide liquidity to earn trading fees
             </p>
           </div>
+
+          {/* Pool Stats - Shows current price and liquidity */}
+          <PoolStats />
 
           {/* Tabbed Interface for Add/Remove */}
           <Card>
