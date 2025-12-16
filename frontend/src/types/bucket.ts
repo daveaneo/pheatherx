@@ -27,7 +27,7 @@ export enum BucketSide {
  * Order types use traditional trading terminology
  * These map to bucket deposits at specific ticks/sides
  */
-export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'take-profit';
+export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'stop-buy';
 
 /**
  * Order mode - determines execution behavior
@@ -87,13 +87,13 @@ export const ORDER_TYPE_CONFIG: Record<OrderType, OrderTypeConfig> = {
     receiveToken: 'token1',
     mode: 'taker',
   },
-  'take-profit': {
-    label: 'Take Profit',
-    description: 'Sell token0 when price rises to target',
-    side: BucketSide.SELL,
+  'stop-buy': {
+    label: 'Stop Buy',
+    description: 'Buy token0 when price rises to trigger',
+    side: BucketSide.BUY,
     tickRelation: 'above',
-    depositToken: 'token0',
-    receiveToken: 'token1',
+    depositToken: 'token1',
+    receiveToken: 'token0',
     mode: 'taker',
   },
 };
@@ -349,6 +349,14 @@ export function getSideName(side: BucketSide): string {
 
 /**
  * Determine order type from tick position relative to current
+ *
+ * Maker orders (contrarian - opposite to price movement):
+ *   - Limit Buy: BUY bucket below current (buy the dip)
+ *   - Limit Sell: SELL bucket above current (sell the rip)
+ *
+ * Taker orders (momentum - same direction as price movement):
+ *   - Stop-Loss: SELL bucket below current (sell on drop)
+ *   - Stop-Buy: BUY bucket above current (buy on rise)
  */
 export function deriveOrderType(
   tick: number,
@@ -359,12 +367,11 @@ export function deriveOrderType(
   const isBelow = tick < currentTick;
 
   if (side === BucketSide.BUY) {
-    // BUY bucket: only valid below current (limit buy)
-    if (isBelow) return 'limit-buy';
+    if (isBelow) return 'limit-buy';   // Maker: buy the dip
+    if (isAbove) return 'stop-buy';    // Taker: momentum buy
   } else {
-    // SELL bucket: can be above (limit sell / take profit) or below (stop loss)
-    if (isAbove) return 'limit-sell'; // or 'take-profit' - they're the same mechanically
-    if (isBelow) return 'stop-loss';
+    if (isAbove) return 'limit-sell';  // Maker: sell the rip
+    if (isBelow) return 'stop-loss';   // Taker: stop loss
   }
 
   return null;

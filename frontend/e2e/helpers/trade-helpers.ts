@@ -33,13 +33,13 @@ export {
 } from './liquidity-helpers';
 
 // Order types for limit orders
-export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'take-profit';
+export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'stop-buy';
 
 export const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   'limit-buy': 'Limit Buy',
   'limit-sell': 'Limit Sell',
   'stop-loss': 'Stop Loss',
-  'take-profit': 'Take Profit',
+  'stop-buy': 'Stop Buy',
 };
 
 /**

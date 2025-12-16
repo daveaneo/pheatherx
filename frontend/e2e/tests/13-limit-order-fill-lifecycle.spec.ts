@@ -180,12 +180,12 @@ async function clickMarketTab(page: Page): Promise<void> {
 /**
  * Select order type from dropdown
  */
-async function selectOrderType(page: Page, orderType: 'limit-buy' | 'limit-sell' | 'stop-loss' | 'take-profit'): Promise<void> {
+async function selectOrderType(page: Page, orderType: 'limit-buy' | 'limit-sell' | 'stop-loss' | 'stop-buy'): Promise<void> {
   const labels: Record<string, string> = {
     'limit-buy': 'Limit Buy',
     'limit-sell': 'Limit Sell',
     'stop-loss': 'Stop Loss',
-    'take-profit': 'Take Profit',
+    'stop-buy': 'Stop Buy',
   };
 
   console.log(`[Test] Selecting order type: ${orderType}`);
@@ -209,7 +209,7 @@ async function selectOrderType(page: Page, orderType: 'limit-buy' | 'limit-sell'
  */
 async function placeLimitOrder(
   page: Page,
-  orderType: 'limit-buy' | 'limit-sell' | 'stop-loss' | 'take-profit',
+  orderType: 'limit-buy' | 'limit-sell' | 'stop-loss' | 'stop-buy',
   amount: string
 ): Promise<{ success: boolean; txConfirmed: boolean }> {
   console.log(`[Test] Placing ${orderType} order with amount: ${amount}`);
@@ -603,7 +603,7 @@ test.describe('Taker Momentum Order Fill Lifecycle (FHE:FHE)', () => {
     }
   });
 
-  test('15 - Place take-profit order (taker)', async ({ page, waitForWalletConnected }) => {
+  test('15 - Place stop-buy order (taker)', async ({ page, waitForWalletConnected }) => {
     await navigateAndWait(page, '/trade');
     await waitForTestModeConnection(page, waitForWalletConnected);
     await page.waitForTimeout(3000);
@@ -615,15 +615,15 @@ test.describe('Taker Momentum Order Fill Lifecycle (FHE:FHE)', () => {
     await clickLimitTab(page);
     await initializeFheSession(page);
 
-    // Place take-profit (taker/momentum) order
-    const result = await placeLimitOrder(page, 'take-profit', ORDER_AMOUNT);
+    // Place stop-buy (taker/momentum) order
+    const result = await placeLimitOrder(page, 'stop-buy', ORDER_AMOUNT);
     console.log(`[Test 15] Take-profit placed: success=${result.success}`);
 
-    testResults.push({ test: '15-place-take-profit', success: result.success });
+    testResults.push({ test: '15-place-stop-buy', success: result.success });
     expect(result.success).toBe(true);
   });
 
-  test('16 - Trigger and claim take-profit', async ({ page, waitForWalletConnected }) => {
+  test('16 - Trigger and claim stop-buy', async ({ page, waitForWalletConnected }) => {
     await navigateAndWait(page, '/trade');
     await waitForTestModeConnection(page, waitForWalletConnected);
     await page.waitForTimeout(3000);
@@ -634,7 +634,7 @@ test.describe('Taker Momentum Order Fill Lifecycle (FHE:FHE)', () => {
 
     await clickMarketTab(page);
 
-    // Execute swap to trigger take-profit
+    // Execute swap to trigger stop-buy
     const swapResult = await executeSwap(page, FULL_FILL_SWAP);
     console.log(`[Test 16] Trigger swap: success=${swapResult.success}`);
 
@@ -647,9 +647,9 @@ test.describe('Taker Momentum Order Fill Lifecycle (FHE:FHE)', () => {
     const hasOrders = await hasClaimableOrders(page);
     if (hasOrders) {
       const claimResult = await claimProceeds(page);
-      testResults.push({ test: '16-take-profit-cycle', success: claimResult.success });
+      testResults.push({ test: '16-stop-buy-cycle', success: claimResult.success });
     } else {
-      testResults.push({ test: '16-take-profit-cycle', success: true });
+      testResults.push({ test: '16-stop-buy-cycle', success: true });
     }
   });
 });

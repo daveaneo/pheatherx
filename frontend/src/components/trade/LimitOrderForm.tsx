@@ -77,11 +77,11 @@ export function LimitOrderForm({
 
       // Determine order type based on isBuy and tick position relative to current
       if (prefill.isBuy) {
-        // Buying: if tick is below current, it's a limit-buy; if above, it's a take-profit
+        // Buying: if tick is below current, it's a limit-buy; if above, it's a stop-buy
         if (prefill.tick < currentTick) {
           setOrderType('limit-buy');
         } else {
-          setOrderType('take-profit');
+          setOrderType('stop-buy');
         }
       } else {
         // Selling: if tick is above current, it's a limit-sell; if below, it's a stop-loss
@@ -207,7 +207,7 @@ export function LimitOrderForm({
 
   // Generate order type options for select, filtering by mode and availability
   // Maker mode: limit-buy, limit-sell (exact price, no slippage)
-  // Taker mode: stop-loss, take-profit (execute as swaps, can have slippage)
+  // Taker mode: stop-loss, stop-buy (execute as swaps, can have slippage)
   const orderTypeOptions = useMemo(() => {
     const options = [];
 
@@ -220,12 +220,12 @@ export function LimitOrderForm({
         options.push({ value: 'limit-sell', label: 'Limit Sell' });
       }
     } else {
-      // Taker orders: stop-loss and take-profit (both deposit token0 = sell side)
+      // Taker orders: stop-loss (sell) and stop-buy (buy)
       if (limitOrderAvailability.sellEnabled) {
-        options.push(
-          { value: 'stop-loss', label: 'Stop Loss' },
-          { value: 'take-profit', label: 'Take Profit' }
-        );
+        options.push({ value: 'stop-loss', label: 'Stop Loss' });
+      }
+      if (limitOrderAvailability.buyEnabled) {
+        options.push({ value: 'stop-buy', label: 'Stop Buy' });
       }
     }
 

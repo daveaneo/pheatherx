@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { OrderType } from '@/lib/orders';
 
-export const ORDER_TYPES = ['limit-buy', 'limit-sell', 'stop-loss', 'take-profit'] as const;
+export const ORDER_TYPES = ['limit-buy', 'limit-sell', 'stop-loss', 'stop-buy'] as const;
 
 export const orderFormSchema = z.object({
   orderType: z.enum(ORDER_TYPES, {
@@ -72,11 +72,11 @@ export function validateTriggerPrice(
       }
       break;
 
-    case 'take-profit':
+    case 'stop-buy':
       if (triggerPrice <= currentPrice) {
         return {
           valid: false,
-          error: `Take-profit trigger must be above current price (${currentPrice.toFixed(4)})`,
+          error: `Stop-buy trigger must be above current price (${currentPrice.toFixed(4)})`,
         };
       }
       break;

@@ -33,7 +33,7 @@ const debugLog = (stage: string, data?: unknown) => {
 interface UsePlaceOrderResult {
   /**
    * Place a limit order
-   * @param orderType - The type of order (limit-buy, limit-sell, stop-loss, take-profit)
+   * @param orderType - The type of order (limit-buy, limit-sell, stop-loss, stop-buy)
    * @param triggerTick - The tick at which the order triggers
    * @param amount - The amount to deposit (will be encrypted)
    */

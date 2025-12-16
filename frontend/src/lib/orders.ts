@@ -1,4 +1,4 @@
-export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'take-profit';
+export type OrderType = 'limit-buy' | 'limit-sell' | 'stop-loss' | 'stop-buy';
 export type OrderStatus = 'active' | 'filled' | 'cancelled' | 'slippage_failed';
 
 export interface OrderInfo {
@@ -16,12 +16,20 @@ export interface OrderInfo {
 
 /**
  * Derive human-readable order type from contract flags
+ *
+ * Maker orders (isStopOrder=false):
+ *   - limit-buy: isBuyOrder=true (buy below current)
+ *   - limit-sell: isBuyOrder=false (sell above current)
+ *
+ * Taker/momentum orders (isStopOrder=true):
+ *   - stop-loss: isBuyOrder=false (sell below current)
+ *   - stop-buy: isBuyOrder=true (buy above current)
  */
 export function deriveOrderType(isBuyOrder: boolean, isStopOrder: boolean): OrderType {
   if (isBuyOrder && !isStopOrder) return 'limit-buy';
   if (!isBuyOrder && !isStopOrder) return 'limit-sell';
-  if (isBuyOrder && isStopOrder) return 'stop-loss';
-  return 'take-profit';
+  if (!isBuyOrder && isStopOrder) return 'stop-loss';
+  return 'stop-buy';
 }
 
 /**
@@ -46,9 +54,9 @@ export function orderTypeToFlags(orderType: OrderType): {
     case 'stop-loss':
       // Stop-loss: Sell token0 if price drops → deposit token0
       return { isBuyOrder: false, isStopOrder: true, depositToken: 'token0' };
-    case 'take-profit':
-      // Take-profit: Sell token0 when price rises → deposit token0
-      return { isBuyOrder: false, isStopOrder: true, depositToken: 'token0' };
+    case 'stop-buy':
+      // Stop-buy: Buy token0 when price rises → deposit token1
+      return { isBuyOrder: true, isStopOrder: true, depositToken: 'token1' };
   }
 }
 
@@ -79,15 +87,15 @@ export const ORDER_TYPE_INFO: Record<OrderType, {
     description: 'Sell if price drops to limit loss',
     triggerDirection: 'below',
   },
-  'take-profit': {
-    label: 'Take Profit',
-    icon: '💰',
-    description: 'Sell when price rises to lock profit',
+  'stop-buy': {
+    label: 'Stop Buy',
+    icon: '🚀',
+    description: 'Buy when price rises to trigger',
     triggerDirection: 'above',
   },
 };
 
-export const ORDER_TYPES: OrderType[] = ['limit-buy', 'limit-sell', 'stop-loss', 'take-profit'];
+export const ORDER_TYPES: OrderType[] = ['limit-buy', 'limit-sell', 'stop-loss', 'stop-buy'];
 
 /**
  * Derive order status from events

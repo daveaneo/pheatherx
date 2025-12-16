@@ -122,9 +122,9 @@ export const PRIVACY_INFO = {
  * - Buy orders deposit token1, Sell orders deposit token0
  */
 export interface LimitOrderAvailability {
-  /** Can place buy orders (limit-buy) */
+  /** Can place buy orders (limit-buy, stop-buy) */
   buyEnabled: boolean;
-  /** Can place sell orders (limit-sell, stop-loss, take-profit) */
+  /** Can place sell orders (limit-sell, stop-loss) */
   sellEnabled: boolean;
   /** Reason why buy is disabled */
   buyDisabledReason?: string;

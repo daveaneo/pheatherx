@@ -392,8 +392,8 @@ test.describe('Limit Order Lifecycle - FHE:ERC Pool', () => {
     }
   });
 
-  test('14 - Place take-profit order (taker)', async ({ page, waitForWalletConnected }) => {
-    console.log('[Test 14] Placing take-profit order (taker)...');
+  test('14 - Place stop-buy order (taker)', async ({ page, waitForWalletConnected }) => {
+    console.log('[Test 14] Placing stop-buy order (taker)...');
 
     await navigateAndWait(page, '/trade');
     await waitForTestModeConnection(page, waitForWalletConnected);
@@ -407,12 +407,12 @@ test.describe('Limit Order Lifecycle - FHE:ERC Pool', () => {
     await verifyLimitFormVisible(page);
     await initializeFheSession(page);
 
-    // Place take-profit order (Test Mode - no wallet needed)
-    const result = await placeLimitOrderTestMode(page, 'take-profit', TEST_ORDER_AMOUNT);
+    // Place stop-buy order (Test Mode - no wallet needed)
+    const result = await placeLimitOrderTestMode(page, 'stop-buy', TEST_ORDER_AMOUNT);
     console.log(`[Test 14] Order result: success=${result.success}, txConfirmed=${result.txConfirmed}`);
 
     testResults.push({
-      test: '14-place-take-profit',
+      test: '14-place-stop-buy',
       pool: 'fheWETH/USDC',
       success: result.txConfirmed,
     });

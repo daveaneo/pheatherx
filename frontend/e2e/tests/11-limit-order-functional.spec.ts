@@ -2,7 +2,7 @@
  * Limit Order Functional E2E Tests
  *
  * Tests all 4 order types on the default pool:
- * - Order types: limit-buy, limit-sell, stop-loss, take-profit
+ * - Order types: limit-buy, limit-sell, stop-loss, stop-buy
  *
  * Uses whatever pool is configured via env vars.
  *
@@ -193,8 +193,8 @@ test.describe('Limit Order Tests', () => {
     expect(result.txConfirmed).toBe(true);
   });
 
-  test('05 - Place take-profit order', async ({ page, wallet }) => {
-    console.log('[Test 05] Place take-profit order...');
+  test('05 - Place stop-buy order', async ({ page, wallet }) => {
+    console.log('[Test 05] Place stop-buy order...');
 
     await navigateAndWait(page, '/trade');
     await connectWalletIfNeeded(page, wallet);
@@ -217,11 +217,11 @@ test.describe('Limit Order Tests', () => {
     const currentPool = await getCurrentPoolPair(page);
     console.log(`[Test 05] Using pool: ${currentPool || 'default'}`);
 
-    const result = await placeLimitOrder(page, wallet, 'take-profit', TEST_AMOUNT);
+    const result = await placeLimitOrder(page, wallet, 'stop-buy', TEST_AMOUNT);
 
     placedOrders.push({
       pool: currentPool || 'default',
-      orderType: 'take-profit',
+      orderType: 'stop-buy',
       success: result.success,
     });
 

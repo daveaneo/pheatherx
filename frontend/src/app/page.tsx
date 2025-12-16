@@ -32,7 +32,7 @@ const features = [
       </svg>
     ),
     title: 'Private Limit Orders',
-    description: 'Place encrypted limit orders, stop-losses, and take-profits with hidden amounts.',
+    description: 'Place encrypted limit orders, stop-losses, and stop-buys with hidden amounts.',
   },
   {
     icon: (

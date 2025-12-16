@@ -152,7 +152,7 @@ Rule: The INPUT token (what you're selling) must be FHERC20 to place a limit ord
     answer: `Different token pair combinations support different features:
 
 FHERC20:FHERC20 Pools (e.g., fheWETH:fheUSDC):
-- All 4 limit order types (limit buy, limit sell, stop-loss, take-profit)
+- All 4 limit order types (limit buy, limit sell, stop-loss, stop-buy)
 - Full privacy for order amounts
 
 ERC20:FHERC20 Pools (e.g., WETH:fheUSDC):
