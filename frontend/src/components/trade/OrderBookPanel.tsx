@@ -64,15 +64,9 @@ export function OrderBookPanel({
     return displayPrice.toFixed(4);
   };
 
-  // Format current price based on direction
-  const currentDisplayPrice = (() => {
-    if (currentPrice?.priceFormatted) {
-      const rawPrice = parseFloat(currentPrice.priceFormatted);
-      const displayPrice = zeroForOne ? rawPrice : (rawPrice > 0 ? 1 / rawPrice : 0);
-      return displayPrice.toFixed(4);
-    }
-    return formatDisplayPrice(currentTick);
-  })();
+  // Format current price based on the normalized tick (what you'd actually get)
+  // This ensures the displayed price matches the order price
+  const currentDisplayPrice = formatDisplayPrice(normalizedCurrentTick);
 
   // Calculate limit order availability based on token types
   const limitOrderAvailability = useMemo(() => {
