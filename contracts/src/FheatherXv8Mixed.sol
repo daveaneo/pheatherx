@@ -435,6 +435,11 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         FHE.allowThis(remainingInput);
     }
 
+    /// @notice Find momentum closure using iterative expansion
+    /// @dev Replaces binary search to avoid phantom fixed point problem.
+    ///      Uses fixed estimate (1e18 per bucket) for PREDICTION, but execution
+    ///      uses actual encrypted sums. This preserves privacy while avoiding
+    ///      the phantom fixed point issue where binary search finds unreachable states.
     function _findMomentumClosure(
         PoolId poolId,
         bool zeroForOne,
@@ -442,48 +447,56 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         int24 startTick
     ) internal view returns (int24 finalTick, uint8 activatedCount) {
         PoolReserves storage reserves = poolReserves[poolId];
-        BucketSide momentumSide = zeroForOne ? BucketSide.SELL : BucketSide.BUY;
-        mapping(int16 => uint256) storage bitmap = momentumSide == BucketSide.SELL
-            ? sellBitmaps[poolId] : buyBitmaps[poolId];
-
-        int24 boundaryTick = zeroForOne ? startTick - MAX_TICK_MOVE : startTick + MAX_TICK_MOVE;
-        int24 lo = zeroForOne ? boundaryTick : startTick;
-        int24 hi = zeroForOne ? startTick : boundaryTick;
 
         finalTick = startTick;
-        activatedCount = 0;
 
-        for (uint8 i = 0; i < BINARY_SEARCH_ITERATIONS; i++) {
-            if (lo >= hi) break;
-            int24 mid = lo + (hi - lo) / 2;
-            mid = (mid / TICK_SPACING) * TICK_SPACING;
+        // Iterative expansion - follow the actual cascade path
+        for (uint8 i = 0; i < MAX_MOMENTUM_BUCKETS + 2; i++) {
+            int24 nextTick = _iterateOnce(poolId, zeroForOne, userRemainderPlaintext, startTick, finalTick, reserves);
 
-            uint8 bucketCount = _countMomentumBuckets(bitmap, startTick, mid, zeroForOne);
-            uint256 momentumEstimate = uint256(bucketCount) * 1e18;
-            uint256 totalInput = userRemainderPlaintext + momentumEstimate;
+            // Check convergence (fixed point reached when tick stops moving)
+            if (zeroForOne ? nextTick >= finalTick : nextTick <= finalTick) break;
 
-            bool crossesMid = _predicateCrossesTickPlaintext(
-                reserves.reserve0, reserves.reserve1, totalInput, mid, zeroForOne
-            );
-
-            if (crossesMid) {
-                if (zeroForOne) hi = mid; else lo = mid + TICK_SPACING;
-                finalTick = mid;
-                activatedCount = bucketCount;
-            } else {
-                if (zeroForOne) lo = mid + TICK_SPACING; else hi = mid;
-            }
+            finalTick = nextTick;
         }
 
-        if (activatedCount > MAX_MOMENTUM_BUCKETS) activatedCount = MAX_MOMENTUM_BUCKETS;
+        // Final count of activated buckets
+        activatedCount = _countMomentumBuckets(poolId, startTick, finalTick, zeroForOne);
     }
 
+    /// @notice Single iteration of momentum closure calculation
+    function _iterateOnce(
+        PoolId poolId,
+        bool zeroForOne,
+        uint256 userInput,
+        int24 startTick,
+        int24 currentTick,
+        PoolReserves storage reserves
+    ) internal view returns (int24 nextTick) {
+        uint8 bucketCount = _countMomentumBuckets(poolId, startTick, currentTick, zeroForOne);
+        uint256 totalInput = userInput + uint256(bucketCount) * 1e18;
+
+        nextTick = _tickAfterSwapPlaintext(reserves.reserve0, reserves.reserve1, totalInput, zeroForOne);
+
+        // Enforce MAX_TICK_MOVE limit
+        if (zeroForOne) {
+            if (startTick - nextTick > MAX_TICK_MOVE) nextTick = startTick - MAX_TICK_MOVE;
+        } else {
+            if (nextTick - startTick > MAX_TICK_MOVE) nextTick = startTick + MAX_TICK_MOVE;
+        }
+    }
+
+    /// @notice Count momentum buckets between two ticks
     function _countMomentumBuckets(
-        mapping(int16 => uint256) storage bitmap,
+        PoolId poolId,
         int24 fromTick,
         int24 toTick,
         bool zeroForOne
     ) internal view returns (uint8 count) {
+        BucketSide side = zeroForOne ? BucketSide.SELL : BucketSide.BUY;
+        mapping(int16 => uint256) storage bitmap = side == BucketSide.SELL
+            ? sellBitmaps[poolId] : buyBitmaps[poolId];
+
         int24 current = fromTick;
         while (count < MAX_MOMENTUM_BUCKETS) {
             (int24 nextTick, bool found) = TickBitmapLib.findNextInitializedTick(
@@ -497,35 +510,39 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         }
     }
 
-    function _predicateCrossesTickPlaintext(
+    /// @notice Calculate the resulting tick after a swap with given input
+    function _tickAfterSwapPlaintext(
         uint256 reserve0,
         uint256 reserve1,
         uint256 amountIn,
-        int24 targetTick,
         bool zeroForOne
-    ) internal pure returns (bool) {
-        if (reserve0 == 0 || reserve1 == 0) return false;
-        uint256 k = reserve0 * reserve1;
-        uint256 targetPrice = FheatherMath.calculateTickPrice(targetTick);
+    ) internal pure returns (int24) {
+        if (reserve0 == 0 || reserve1 == 0) return 0;
 
         if (zeroForOne) {
-            uint256 newReserve0 = reserve0 + amountIn;
-            return k * 1e18 <= targetPrice * newReserve0 * newReserve0;
+            uint256 newR0 = reserve0 + amountIn;
+            return FheatherMath.getCurrentTick(newR0, (reserve0 * reserve1) / newR0, TICK_SPACING);
         } else {
-            uint256 newReserve1 = reserve1 + amountIn;
-            return k * 1e18 >= targetPrice * newReserve1 * newReserve1;
+            uint256 newR1 = reserve1 + amountIn;
+            return FheatherMath.getCurrentTick((reserve0 * reserve1) / newR1, newR1, TICK_SPACING);
         }
     }
 
+    /// @notice Sum momentum bucket liquidity with 100% reserve cap
+    /// @dev Buckets larger than the output reserve are zeroed to prevent extreme slippage
     function _sumMomentumBucketsEnc(
         PoolId poolId,
         bool zeroForOne,
         int24 fromTick,
         int24 toTick
     ) internal returns (euint128 totalLiquidity) {
+        PoolReserves storage reserves = poolReserves[poolId];
         BucketSide side = zeroForOne ? BucketSide.SELL : BucketSide.BUY;
         mapping(int16 => uint256) storage bitmap = side == BucketSide.SELL
             ? sellBitmaps[poolId] : buyBitmaps[poolId];
+
+        // Reserve cap: bucket input shouldn't exceed output reserve (prevents >100% slippage)
+        euint128 encReserveLimit = zeroForOne ? reserves.encReserve1 : reserves.encReserve0;
 
         totalLiquidity = ENC_ZERO;
         int24 current = fromTick;
@@ -541,7 +558,13 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
 
             BucketLib.Bucket storage bucket = buckets[poolId][nextTick][side];
             if (bucket.initialized && Common.isInitialized(bucket.liquidity)) {
-                totalLiquidity = FHE.add(totalLiquidity, bucket.liquidity);
+                // Cap oversized buckets: if liquidity > reserve, use 0 instead
+                // This prevents griefing attacks where huge orders cause extreme slippage
+                ebool isOversized = FHE.gt(bucket.liquidity, encReserveLimit);
+                euint128 cappedLiquidity = FHE.select(isOversized, ENC_ZERO, bucket.liquidity);
+                FHE.allowThis(cappedLiquidity);
+
+                totalLiquidity = FHE.add(totalLiquidity, cappedLiquidity);
                 FHE.allowThis(totalLiquidity);
                 count++;
             }
