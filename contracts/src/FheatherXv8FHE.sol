@@ -58,9 +58,9 @@ import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 /// This avoids the "phantom fixed point" problem where binary search can find
 /// mathematically valid but physically unreachable price states on step functions.
 ///
-/// ### 4. 100% Liquidity Cap
-/// Momentum buckets with liquidity exceeding the output reserve are skipped to
-/// prevent griefing attacks that could cause extreme slippage (>100% of reserves).
+/// ### 4. Reserve-Based Slippage Cap (~50% max)
+/// Momentum buckets with liquidity exceeding the output reserve are skipped.
+/// This caps slippage at ~50% (when bucket = 100% of reserve, AMM math yields ~50% output).
 ///
 /// ## Swap Pipeline
 /// 1. Match opposing limit orders (direct peer-to-peer, no AMM)
@@ -728,8 +728,8 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                    MOMENTUM SUM & VIRTUAL SLICING
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Sum momentum bucket liquidity with 100% reserve cap
-    /// @dev Buckets larger than the output reserve are zeroed to prevent extreme slippage
+    /// @notice Sum momentum bucket liquidity with reserve cap (~50% max slippage)
+    /// @dev Buckets larger than the output reserve are zeroed to cap slippage at ~50%
     function _sumMomentumBucketsEnc(
         PoolId poolId,
         bool zeroForOne,
@@ -741,7 +741,7 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         mapping(int16 => uint256) storage bitmap = side == BucketSide.SELL
             ? sellBitmaps[poolId] : buyBitmaps[poolId];
 
-        // Reserve cap: bucket input shouldn't exceed output reserve (prevents >100% slippage)
+        // Reserve cap: bucket input shouldn't exceed output reserve (caps slippage at ~50%)
         euint128 encReserveLimit = zeroForOne ? reserves.encReserve1 : reserves.encReserve0;
 
         totalLiquidity = ENC_ZERO;

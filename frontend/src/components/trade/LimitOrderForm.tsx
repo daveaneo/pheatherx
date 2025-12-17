@@ -202,7 +202,9 @@ export function LimitOrderForm({
     setPriceInput(actualDisplayPrice.toFixed(4));
   };
 
-  // Calculate receive amount (when filled) based on tick price
+  // Calculate receive amount based on tick price and order mode
+  // - Maker orders: exact price execution (show expected receive minus fees)
+  // - Taker orders: execute as market swaps with up to ~50% slippage
   const receiveAmount = useMemo(() => {
     if (!amount || !targetTick || parseFloat(amount) === 0) return '0';
     const amountNum = parseFloat(amount);
@@ -214,16 +216,35 @@ export function LimitOrderForm({
 
     const receiveDecimals = receiveToken?.decimals ?? 18;
 
+    // For taker orders, min receive is ~50% of expected due to reserve cap
+    // These orders execute as market swaps when triggered
+    if (orderMode === 'taker') {
+      // Calculate expected, then show 50% as worst-case min receive
+      const feeMultiplier = 0.9965; // 1 - 0.35%
+      const slippageMultiplier = 0.5; // ~50% max slippage from reserve cap
+
+      if (config.depositToken === 'token1') {
+        const result = (amountNum / tickPrice) * feeMultiplier * slippageMultiplier;
+        return `~${result.toFixed(Math.min(6, receiveDecimals))}`;
+      } else {
+        const result = (amountNum * tickPrice) * feeMultiplier * slippageMultiplier;
+        return `~${result.toFixed(Math.min(6, receiveDecimals))}`;
+      }
+    }
+
+    // Maker orders get exact tick price (minus ~0.35% fee)
+    const feeMultiplier = 0.9965; // 1 - 0.35%
+
     if (config.depositToken === 'token1') {
       // Buying token0 with token1: receiveAmount = deposit / price
-      const result = amountNum / tickPrice;
+      const result = (amountNum / tickPrice) * feeMultiplier;
       return result.toFixed(Math.min(6, receiveDecimals));
     } else {
       // Selling token0 for token1: receiveAmount = deposit * price
-      const result = amountNum * tickPrice;
+      const result = (amountNum * tickPrice) * feeMultiplier;
       return result.toFixed(Math.min(6, receiveDecimals));
     }
-  }, [amount, targetTick, config.depositToken, receiveToken]);
+  }, [amount, targetTick, config.depositToken, receiveToken, orderMode]);
 
   // Calculate limit order availability based on token types
   const limitOrderAvailability = useMemo(() => {
@@ -510,7 +531,7 @@ export function LimitOrderForm({
         {orderMode === 'taker' && (
           <div className="flex justify-between items-center">
             <span className="text-feather-white/60">Slippage</span>
-            <span className="text-red-500 font-bold">UP TO 100%</span>
+            <span className="text-red-500 font-bold">UP TO ~50%</span>
           </div>
         )}
 
