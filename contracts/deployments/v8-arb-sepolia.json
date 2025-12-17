@@ -1,82 +1,23 @@
 {
-  "version": "v8",
   "network": "arb-sepolia",
   "chainId": 421614,
-  "deployedAt": "1765734731",
-  "contracts": {
-    "v8FheHook": "0x080a2d39687B6ED1F9E4ef9D7121c3f2cE815088",
-    "v8MixedHook": "0xB058257E3C8347059690605163384BA933B0D088",
-    "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
-    "swapRouter": "0xf3A39C86dbd13C45365E57FB90fe413371F65AF8",
-    "positionManager": "0xAc631556d3d4019C95769033B5E719dD77124BAc"
+  "timestamp": "2025-12-17T18:31:09.326Z",
+  "hooks": {
+    "v8FHE": "0x4c450F5b069dFf4c1606A953dF575e200Bc29088",
+    "v8Mixed": "0x833b21ce0E3c931560801e1e5114138776935088",
+    "privateSwapRouter": "0x5e27FF3e6deD04eF293936F051b8BE46c053eDfe"
+  },
+  "poolIds": {
+    "B": "0x7c52690cfbea35ac85023032e5ef9818c3a935632988e8115922f61b04525026",
+    "C": "0x5322c072032a937da1fb9d2b350c20d267e2571683950d40b046da3e70e3e4af",
+    "D": "0x5063526346d13978eefb8ed44b72852c3dcb439d1b1ad5508d2a54cdc459c597",
+    "E": "0x5f3492b1dd6fbbc70a5d66ff6af489d423c5b62ae97018317b9ff0c52c979f59",
+    "F": "0x2deabf51b0533fa4cf047dcc931bcfb03ca2fa2222aa8be88f4be90770e39aad"
   },
   "tokens": {
-    "WETH": { "address": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13", "decimals": 18, "type": "ERC20" },
-    "USDC": { "address": "0x00F7DC53A57b980F839767a6C6214b4089d916b1", "decimals": 6, "type": "ERC20" },
-    "fheWETH": { "address": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0", "decimals": 18, "type": "FHERC20" },
-    "fheUSDC": { "address": "0x987731d456B5996E7414d79474D8aba58d4681DC", "decimals": 6, "type": "FHERC20" }
-  },
-  "pools": {
-    "WETH_USDC": {
-      "poolId": "0x508023401a4fd3358c2fb8f6487cd54e66526bdb47b158e0f05e0b3b9a3efb81",
-      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
-      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
-      "hook": "0x0000000000000000000000000000000000000000",
-      "type": "native",
-      "contractType": "native"
-    },
-    "fheWETH_fheUSDC": {
-      "poolId": "0xef32021335934bc7bdaafe352c75009aee72b1ae7c3d8f2154fac36717a2b4df",
-      "token0": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
-      "token1": "0x987731d456B5996E7414d79474D8aba58d4681DC",
-      "hook": "0x080a2d39687B6ED1F9E4ef9D7121c3f2cE815088",
-      "type": "FHE:FHE",
-      "contractType": "v8fhe"
-    },
-    "WETH_fheUSDC": {
-      "poolId": "0x41916bfac052f6e4b5d8eff9fbc5bdcac0c45ddcc75548af8a6e2d3cc413bb3e",
-      "token0": "0x987731d456B5996E7414d79474D8aba58d4681DC",
-      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
-      "hook": "0xB058257E3C8347059690605163384BA933B0D088",
-      "type": "ERC:FHE",
-      "contractType": "v8mixed"
-    },
-    "fheWETH_USDC": {
-      "poolId": "0xbd854dfc04217be8e5d32fee22fddcc4c2bc65bfa69ea87eed9213664d63546c",
-      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
-      "token1": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
-      "hook": "0xB058257E3C8347059690605163384BA933B0D088",
-      "type": "FHE:ERC",
-      "contractType": "v8mixed"
-    },
-    "WETH_fheWETH": {
-      "poolId": "0xa462a29413849701e0888361ccbd32580cde3859dede02aea081ef56250e5a1a",
-      "token0": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
-      "token1": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
-      "hook": "0xB058257E3C8347059690605163384BA933B0D088",
-      "type": "ERC:FHE",
-      "contractType": "v8mixed"
-    },
-    "USDC_fheUSDC": {
-      "poolId": "0x1f2e4b37512fb968c5dcf9f71dc788a65b8b87ba2b23324ae61ef6d1615bec4e",
-      "token0": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
-      "token1": "0x987731d456B5996E7414d79474D8aba58d4681DC",
-      "hook": "0xB058257E3C8347059690605163384BA933B0D088",
-      "type": "ERC:FHE",
-      "contractType": "v8mixed"
-    }
-  },
-  "poolConfig": {
-    "fee": 3000,
-    "tickSpacing": 60,
-    "swapFeeBps": 30
-  },
-  "features": {
-    "multiPool": true,
-    "encryptedAMM": true,
-    "limitOrders": true,
-    "mixedPairs": true,
-    "v4Settlement": true,
-    "nativePools": true
+    "WETH": "0xC5EcD76Db9f00B07088DDbFbdf7BF9927F6DDE13",
+    "USDC": "0x00F7DC53A57b980F839767a6C6214b4089d916b1",
+    "fheWETH": "0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0",
+    "fheUSDC": "0x987731d456B5996E7414d79474D8aba58d4681DC"
   }
 }

@@ -65,9 +65,9 @@ const NETWORKS = {
     },
     // Current deployed hooks (for dry run / verification)
     currentHooks: {
-      v8FHE: '0x297987BD9647d06Ac83bCc662ae89Fc6a4019088',
-      v8Mixed: '0x26c3413D190Da7B7dB6f17C477050b4F2828D088',
-      privateSwapRouter: '0x0000000000000000000000000000000000000000', // Update after deployment
+      v8FHE: '0x487840Bba82EcE99413CCace426AaB80f6CEd088',
+      v8Mixed: '0x7c184daA24E11E70bBf4294df67Cb436B38b1088',
+      privateSwapRouter: '0xeaf02c062A245c71f1D8ab9CeF1e9783433529Fe',
     },
   },
 };
@@ -468,7 +468,7 @@ async function main() {
       tokens: config.tokens,
     };
 
-    const deploymentPath = path.join(__dirname, `../deployments/v8-${NETWORK}-latest.json`);
+    const deploymentPath = path.join(__dirname, `../deployments/v8-${NETWORK}.json`);
     fs.mkdirSync(path.dirname(deploymentPath), { recursive: true });
     fs.writeFileSync(deploymentPath, JSON.stringify(deploymentInfo, null, 2));
     console.log(`\nDeployment saved to: ${deploymentPath}`);

@@ -25,10 +25,10 @@ if (!PRIVATE_KEY) {
 const NETWORKS = {
   'eth-sepolia': {
     rpc: process.env.ETH_SEPOLIA_RPC || 'https://ethereum-sepolia-rpc.publicnode.com',
-    hookAddress: '0x297987BD9647d06Ac83bCc662ae89Fc6a4019088', // v8FHE 2024-12-16
+    hookAddress: '0x487840Bba82EcE99413CCace426AaB80f6CEd088', // v8FHE 2025-12-17
     fheWethAddress: '0xBa1A88cC0FCacF907E55297AC54607E60367019C',
     fheUsdcAddress: '0xDdc7808AD27a1C45fa216DB6292Eb2f359244014',
-    poolId: '0xb382430a22f759a0d3101920ff63de25e56a1708026685ff5a4007a15f99a972', // Pool B 2024-12-16
+    poolId: '0x070aa909c6cde53ed845959a602ace13e35098fb77d8d6a63747fc21840e7707', // Pool B 2025-12-17
   },
   'arb-sepolia': {
     rpc: process.env.ARB_SEPOLIA_RPC || 'https://sepolia-rollup.arbitrum.io/rpc',

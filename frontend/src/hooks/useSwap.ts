@@ -158,7 +158,7 @@ export function useSwap(): UseSwapResult {
         functionName: 'approve',
         args: [spender, amount],
         chainId,
-        gas: 100000n,
+        gas: 500000n, // FHERC20 tokens need more gas due to FHE operations
       });
 
       addTransaction({
@@ -356,7 +356,8 @@ export function useSwap(): UseSwapResult {
 
       try {
         const tokenIn = zeroForOne ? token0.address : token1.address;
-        await checkAndApproveToken(tokenIn, routerAddress, amountIn);
+        // v8 hooks transfer directly from user, so approve the HOOK (not router)
+        await checkAndApproveToken(tokenIn, hookAddress!, amountIn);
 
         setStep('swapping');
 

@@ -1040,6 +1040,112 @@ contract FheatherXv8MixedTest is Test, Fixtures, CoFheTest {
         assertTrue(perms.beforeSwapReturnDelta, "Hook should return delta");
     }
 
+    /// @notice Test swap via PoolSwapTest router - replicates frontend flow
+    /// This tests the exact flow the frontend uses:
+    /// 1. User approves tokens to the HOOK (for direct transfer)
+    /// 2. Router calls poolManager.swap()
+    /// 3. Hook's beforeSwap extracts user from hookData and transfers directly
+    function testSwap_ViaRouter_WithHookData() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        uint256 swapAmount = 1 ether;
+
+        // Mint tokens to swapper
+        _mintTokensTo(swapper, swapAmount * 2, swapAmount * 2);
+
+        // Get initial balances
+        uint256 swapperToken0Before = IERC20(token0Addr).balanceOf(swapper);
+        uint256 swapperToken1Before = IERC20(token1Addr).balanceOf(swapper);
+
+        vm.startPrank(swapper);
+
+        // Approve tokens to the HOOK (hook does safeTransferFrom in _executeSwapWithMomentum)
+        IERC20(token0Addr).approve(address(hook), type(uint256).max);
+        IERC20(token1Addr).approve(address(hook), type(uint256).max);
+
+        // Also approve to router for the standard v4 settlement flow
+        IERC20(token0Addr).approve(address(swapRouter), type(uint256).max);
+        IERC20(token1Addr).approve(address(swapRouter), type(uint256).max);
+
+        vm.stopPrank();
+
+        // Encode hookData with swapper's address (like frontend does)
+        bytes memory hookData = abi.encode(swapper);
+
+        // Execute swap via router (zeroForOne = true, exact input)
+        vm.prank(swapper);
+        BalanceDelta delta = swapRouter.swap(
+            poolKey,
+            SwapParams({
+                zeroForOne: true,
+                amountSpecified: -int256(swapAmount), // negative = exact input
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            hookData
+        );
+
+        // Verify swap executed - swapper should have less token0, more token1
+        uint256 swapperToken0After = IERC20(token0Addr).balanceOf(swapper);
+        uint256 swapperToken1After = IERC20(token1Addr).balanceOf(swapper);
+
+        assertLt(swapperToken0After, swapperToken0Before, "Swapper should have less token0");
+        assertGt(swapperToken1After, swapperToken1Before, "Swapper should have more token1");
+
+        // The delta should show input consumed and output received
+        // Since we return NoOp delta (0,0), the hook handles everything directly
+        // So delta values may be 0 depending on implementation
+    }
+
+    /// @notice Test swap via router with reverse direction (oneForZero)
+    function testSwap_ViaRouter_ReverseDirection() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        uint256 swapAmount = 1 ether;
+
+        // Mint tokens to swapper
+        _mintTokensTo(swapper, swapAmount * 2, swapAmount * 2);
+
+        // Get initial balances
+        uint256 swapperToken0Before = IERC20(token0Addr).balanceOf(swapper);
+        uint256 swapperToken1Before = IERC20(token1Addr).balanceOf(swapper);
+
+        vm.startPrank(swapper);
+
+        // Approve tokens to the HOOK
+        IERC20(token0Addr).approve(address(hook), type(uint256).max);
+        IERC20(token1Addr).approve(address(hook), type(uint256).max);
+
+        // Also approve to router
+        IERC20(token0Addr).approve(address(swapRouter), type(uint256).max);
+        IERC20(token1Addr).approve(address(swapRouter), type(uint256).max);
+
+        vm.stopPrank();
+
+        // Encode hookData with swapper's address
+        bytes memory hookData = abi.encode(swapper);
+
+        // Execute swap via router (zeroForOne = false, exact input of token1)
+        vm.prank(swapper);
+        swapRouter.swap(
+            poolKey,
+            SwapParams({
+                zeroForOne: false,
+                amountSpecified: -int256(swapAmount), // negative = exact input
+                sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            hookData
+        );
+
+        // Verify swap executed - swapper should have more token0, less token1
+        uint256 swapperToken0After = IERC20(token0Addr).balanceOf(swapper);
+        uint256 swapperToken1After = IERC20(token1Addr).balanceOf(swapper);
+
+        assertGt(swapperToken0After, swapperToken0Before, "Swapper should have more token0");
+        assertLt(swapperToken1After, swapperToken1Before, "Swapper should have less token1");
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //                    HELPER: Add Liquidity
     // ═══════════════════════════════════════════════════════════════════════

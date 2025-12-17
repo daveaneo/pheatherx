@@ -438,16 +438,13 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
             return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
         }
 
-        uint256 amountOut = _executeSwapWithMomentum(poolId, key, params.zeroForOne, amountIn, sender);
+        // Extract actual user address from hookData (sender is the router, not the user)
+        address user = hookData.length >= 32 ? abi.decode(hookData, (address)) : sender;
 
-        return (
-            this.beforeSwap.selector,
-            toBeforeSwapDelta(
-                int128(-params.amountSpecified),
-                -int128(int256(amountOut))
-            ),
-            0
-        );
+        _executeSwapWithMomentum(poolId, key, params.zeroForOne, amountIn, user);
+
+        // Return NoOp delta - we handle all transfers directly (user<->hook)
+        return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -459,16 +456,18 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         PoolKey calldata key,
         bool zeroForOne,
         uint256 amountIn,
-        address sender
+        address user
     ) internal returns (uint256 amountOut) {
         // CRITICAL: Harvest resolved decrypts FIRST to get fresh reserves
         _harvestResolvedDecrypts(poolId);
 
         PoolReserves storage reserves = poolReserves[poolId];
+        PoolState storage state = poolStates[poolId];
 
-        // Take input from PoolManager
-        Currency inputCurrency = zeroForOne ? key.currency0 : key.currency1;
-        poolManager.take(inputCurrency, address(this), amountIn);
+        // Transfer input directly from user (bypasses PoolManager settlement)
+        // Note: For FHE:FHE pools, both tokens are FHERC20 but we use plaintext amounts here
+        address inputToken = zeroForOne ? state.token0 : state.token1;
+        IERC20(inputToken).safeTransferFrom(user, address(this), amountIn);
 
         // Encrypt input
         euint128 userInputEnc = FHE.asEuint128(uint128(amountIn));
@@ -524,15 +523,13 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         uint256 fee = (amountOut * poolStates[poolId].protocolFeeBps) / 10000;
         amountOut -= fee;
 
-        // Settle output to PoolManager
-        Currency outputCurrency = zeroForOne ? key.currency1 : key.currency0;
-        poolManager.sync(outputCurrency);
-        IERC20(Currency.unwrap(outputCurrency)).transfer(address(poolManager), amountOut);
-        poolManager.settle();
+        // Transfer output directly to user (bypasses PoolManager settlement)
+        address outputToken = zeroForOne ? state.token1 : state.token0;
+        IERC20(outputToken).safeTransfer(user, amountOut);
 
         // Transfer fee
         if (fee > 0 && feeCollector != address(0)) {
-            IERC20(Currency.unwrap(outputCurrency)).safeTransfer(feeCollector, fee);
+            IERC20(outputToken).safeTransfer(feeCollector, fee);
         }
 
         // Update plaintext cache
@@ -547,7 +544,7 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         lastProcessedTick[poolId] = finalTick;
         _requestReserveSync(poolId);
 
-        emit SwapExecuted(poolId, sender, zeroForOne);
+        emit SwapExecuted(poolId, user, zeroForOne);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

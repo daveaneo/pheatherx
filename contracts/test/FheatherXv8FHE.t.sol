@@ -1511,6 +1511,12 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
         vm.stopPrank();
     }
 
+    // NOTE: Router-based plaintext swap tests are NOT applicable to v8FHE because:
+    // - v8FHE uses fully encrypted reserves (addLiquidity takes encrypted amounts)
+    // - The plaintext swap path requires plaintext reserves for output calculation
+    // - v8FHE is designed for encrypted swaps via PrivateSwapRouter
+    // See FheatherXv8Mixed.t.sol for router-based plaintext swap tests
+
     // ═══════════════════════════════════════════════════════════════════════
     //                    HELPER: Add Liquidity
     // ═══════════════════════════════════════════════════════════════════════
