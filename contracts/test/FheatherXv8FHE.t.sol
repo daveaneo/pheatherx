@@ -1577,18 +1577,15 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
         InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
         InEuint128 memory encMinOutput = createInEuint128(0, swapper);
 
-        // Record the tick before swap
-        int24 tickBefore = hook.lastProcessedTick(poolId);
-
-        // Use swapFheWithMomentum for momentum-enabled swaps (plaintext direction + encrypted amounts)
-        // NOTE: Temporarily removing vm.expectEmit to debug the arithmetic overflow
-        privateSwapRouter.swapFheWithMomentum(poolKey, true, encAmountIn, encMinOutput);
+        // Use swapEncrypted for fully encrypted swaps (unified path handles momentum orders)
+        InEbool memory encDirection = createInEbool(true, swapper);
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
 
         vm.stopPrank();
 
-        // Verify the tick moved negative (momentum was activated)
-        int24 tickAfter = hook.lastProcessedTick(poolId);
-        assertTrue(tickAfter < tickBefore, "Tick should move negative after zeroForOne momentum activation");
+        // NOTE: lastProcessedTick is NOT updated in fully encrypted swaps to preserve privacy.
+        // The tick state is derived from reserves which ARE synced.
+        // We verify momentum orders triggered by checking that the user can claim proceeds.
 
         // After fix: The momentum order should have been triggered
         // User1 should be able to claim proceeds from their triggered order
@@ -1624,8 +1621,9 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
         InEuint128 memory encAmountIn = createInEuint128(uint128(largeSwapAmount), swapper);
         InEuint128 memory encMinOutput = createInEuint128(0, swapper);
 
-        // Should trigger momentum orders - use swapFheWithMomentum for momentum processing
-        privateSwapRouter.swapFheWithMomentum(poolKey, true, encAmountIn, encMinOutput);
+        // Should trigger momentum orders - unified encrypted path handles all order matching
+        InEbool memory encDirection = createInEbool(true, swapper);
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
 
         vm.stopPrank();
     }
@@ -1654,8 +1652,9 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
         // This should:
         // 1. Match against the opposing BUY order at tick -60
         // 2. Execute remaining through AMM
-        // Use swapFheWithMomentum for momentum/limit order processing
-        privateSwapRouter.swapFheWithMomentum(poolKey, true, encAmountIn, encMinOutput);
+        // Use swapEncrypted for unified encrypted swap with order matching
+        InEbool memory encDirection = createInEbool(true, swapper);
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
 
         vm.stopPrank();
 
@@ -1686,6 +1685,289 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
 
         // Add liquidity
         hook.addLiquidity(poolId, encAmount0, encAmount1);
+
+        vm.stopPrank();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //                    ADVERSARIAL FUZZ TESTS - TRY TO BREAK THE CODE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Fuzz: Try to drain pool with very large swap
+    function testFuzz_Adversarial_DrainPool(uint128 swapAmount) public {
+        // Setup pool with modest liquidity
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+        hook.MOCK_setPlaintextReserves(poolId, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        // Try swap amounts from tiny to 10x pool size
+        swapAmount = uint128(bound(uint256(swapAmount), 1e12, LIQUIDITY_AMOUNT * 10));
+
+        fheToken0.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEbool memory encDirection = createInEbool(true, swapper);
+        InEuint128 memory encAmountIn = createInEuint128(swapAmount, swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper); // No slippage protection
+
+        // Should NOT revert - just execute with whatever output is available
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Verify swap lock prevents multiple swaps in same transaction (anti-MEV protection)
+    function testAdversarial_SwapLockPreventsDoubleSwap() public {
+        uint128 baseAmount = 1 ether;
+
+        // Setup liquidity
+        uint256 reserveAmount = LIQUIDITY_AMOUNT * 100;
+        _addLiquidity(lp, reserveAmount, reserveAmount);
+        hook.MOCK_setPlaintextReserves(poolId, reserveAmount, reserveAmount);
+
+        // First swap should succeed
+        fheToken0.mint(swapper, baseAmount * 2);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+        fheToken1.approve(address(hook), type(uint256).max);
+
+        InEbool memory encDirection = createInEbool(true, swapper);
+        InEuint128 memory encAmountIn = createInEuint128(baseAmount, swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
+
+        // Second swap in same transaction should revert with SwapAlreadyExecuted
+        // This is intentional anti-MEV protection
+        vm.expectRevert(); // SwapAlreadyExecuted wrapped in HookCallFailed
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Swap with many maker orders on both sides (fixed values)
+    function testAdversarial_ManyMakerOrders() public {
+        uint8 orderCount = 3;
+        uint128 orderSize = 1 ether;
+
+        _addLiquidity(lp, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+        hook.MOCK_setPlaintextReserves(poolId, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+
+        // Mint tokens for depositors (BUY orders deposit token1, SELL orders deposit token0)
+        fheToken1.mint(user1, orderSize * orderCount);
+        fheToken0.mint(user2, orderSize * orderCount);
+
+        // Approve once before loop
+        vm.prank(user1);
+        fheToken1.approve(address(hook), type(uint256).max);
+        vm.prank(user2);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        // Place BUY orders at negative ticks (makers for zeroForOne)
+        for (uint8 i = 0; i < orderCount; i++) {
+            int24 tick = -int24(uint24((i + 1) * 60)); // -60, -120, -180
+
+            vm.startPrank(user1);
+            InEuint128 memory amt = createInEuint128(orderSize, user1);
+            hook.deposit(poolId, tick, FheatherXv8FHE.BucketSide.BUY, amt, block.timestamp + 1 hours, 20000);
+            vm.stopPrank();
+        }
+
+        // Place SELL orders at positive ticks (makers for oneForZero)
+        for (uint8 i = 0; i < orderCount; i++) {
+            int24 tick = int24(uint24((i + 1) * 60)); // 60, 120, 180
+
+            vm.startPrank(user2);
+            InEuint128 memory amt = createInEuint128(orderSize, user2);
+            hook.deposit(poolId, tick, FheatherXv8FHE.BucketSide.SELL, amt, block.timestamp + 1 hours, 20000);
+            vm.stopPrank();
+        }
+
+        // Execute swap - should match makers
+        uint256 swapAmount = orderSize * orderCount;
+        fheToken0.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEbool memory encDirection = createInEbool(true, swapper);
+        InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+
+        // Makers should be able to claim
+        vm.startPrank(user1);
+        for (uint8 i = 0; i < orderCount; i++) {
+            int24 tick = -int24(uint24((i + 1) * 60));
+            hook.claim(poolId, tick, FheatherXv8FHE.BucketSide.BUY);
+        }
+        vm.stopPrank();
+    }
+
+    /// @notice Swap with taker orders that could cascade (fixed values)
+    function testAdversarial_TakerCascade() public {
+        uint8 takerCount = 3;
+        uint128 takerSize = 1 ether;
+
+        _addLiquidity(lp, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+        hook.MOCK_setPlaintextReserves(poolId, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+
+        // Mint tokens for depositors (SELL orders at negative tick deposit token0)
+        fheToken0.mint(user1, takerSize * takerCount);
+
+        // Approve once before loop
+        vm.prank(user1);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        // Place SELL orders at negative ticks (takers for zeroForOne - trigger when price drops)
+        for (uint8 i = 0; i < takerCount; i++) {
+            int24 tick = -int24(uint24((i + 1) * 60)); // -60, -120, -180
+
+            vm.startPrank(user1);
+            InEuint128 memory amt = createInEuint128(takerSize, user1);
+            hook.deposit(poolId, tick, FheatherXv8FHE.BucketSide.SELL, amt, block.timestamp + 1 hours, 20000);
+            vm.stopPrank();
+        }
+
+        // Large swap to trigger taker cascade
+        uint256 swapAmount = LIQUIDITY_AMOUNT / 2;
+        fheToken0.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEbool memory encDirection = createInEbool(true, swapper);
+        InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+
+        // Takers should have proceeds to claim
+        vm.startPrank(user1);
+        for (uint8 i = 0; i < takerCount; i++) {
+            int24 tick = -int24(uint24((i + 1) * 60));
+            hook.claim(poolId, tick, FheatherXv8FHE.BucketSide.SELL);
+        }
+        vm.stopPrank();
+    }
+
+    /// @notice Fuzz: User share calculation edge case - no takers
+    function testFuzz_Adversarial_UserShareNoTakers(uint128 amount) public {
+        amount = uint128(bound(uint256(amount), 1e15, 1e20));
+
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+        hook.MOCK_setPlaintextReserves(poolId, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        // No limit orders - just AMM swap
+        fheToken0.mint(swapper, amount);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEbool memory encDirection = createInEbool(true, swapper);
+        InEuint128 memory encAmountIn = createInEuint128(amount, swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        // This tests the user share calculation when totalAmmInput == userRemainder (no takers)
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Fuzz: User share calculation edge case - all filled by makers
+    function testFuzz_Adversarial_AllFilledByMakers(uint128 orderSize) public {
+        orderSize = uint128(bound(uint256(orderSize), 1e16, 1e19));
+
+        _addLiquidity(lp, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+        hook.MOCK_setPlaintextReserves(poolId, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+
+        // Place large BUY orders to absorb entire swap
+        vm.startPrank(user1);
+        InEuint128 memory amt = createInEuint128(orderSize * 10, user1);
+        hook.deposit(poolId, -60, FheatherXv8FHE.BucketSide.BUY, amt, block.timestamp + 1 hours, 20000);
+        vm.stopPrank();
+
+        // Small swap that should be fully absorbed by maker
+        fheToken0.mint(swapper, orderSize);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEbool memory encDirection = createInEbool(true, swapper);
+        InEuint128 memory encAmountIn = createInEuint128(orderSize, swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        // This tests when userRemainder could be 0 after maker matching
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Fuzz: Both makers and takers active
+    function testFuzz_Adversarial_MakersAndTakers(uint128 makerSize, uint128 takerSize, uint128 swapSize) public {
+        makerSize = uint128(bound(uint256(makerSize), 1e15, 1e18));
+        takerSize = uint128(bound(uint256(takerSize), 1e15, 1e18));
+        swapSize = uint128(bound(uint256(swapSize), 1e16, 5e18));
+
+        _addLiquidity(lp, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+        hook.MOCK_setPlaintextReserves(poolId, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+
+        // Place BUY order (maker for zeroForOne)
+        vm.startPrank(user1);
+        InEuint128 memory makerAmt = createInEuint128(makerSize, user1);
+        hook.deposit(poolId, -60, FheatherXv8FHE.BucketSide.BUY, makerAmt, block.timestamp + 1 hours, 20000);
+        vm.stopPrank();
+
+        // Place SELL order at negative tick (taker for zeroForOne)
+        vm.startPrank(user2);
+        InEuint128 memory takerAmt = createInEuint128(takerSize, user2);
+        hook.deposit(poolId, -120, FheatherXv8FHE.BucketSide.SELL, takerAmt, block.timestamp + 1 hours, 20000);
+        vm.stopPrank();
+
+        // Execute swap
+        fheToken0.mint(swapper, swapSize);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEbool memory encDirection = createInEbool(true, swapper);
+        InEuint128 memory encAmountIn = createInEuint128(swapSize, swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Fuzz: Imbalanced pool reserves
+    function testFuzz_Adversarial_ImbalancedReserves(uint128 reserve0Mult, uint128 reserve1Mult, uint128 swapAmt) public {
+        reserve0Mult = uint128(bound(uint256(reserve0Mult), 1, 100));
+        reserve1Mult = uint128(bound(uint256(reserve1Mult), 1, 100));
+        swapAmt = uint128(bound(uint256(swapAmt), 1e15, 1e19));
+
+        uint256 res0 = uint256(reserve0Mult) * 1e18;
+        uint256 res1 = uint256(reserve1Mult) * 1e18;
+
+        _addLiquidity(lp, res0, res1);
+        hook.MOCK_setPlaintextReserves(poolId, res0, res1);
+
+        fheToken0.mint(swapper, swapAmt);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEbool memory encDirection = createInEbool(true, swapper);
+        InEuint128 memory encAmountIn = createInEuint128(swapAmt, swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        privateSwapRouter.swapEncrypted(poolKey, encDirection, encAmountIn, encMinOutput);
 
         vm.stopPrank();
     }

@@ -250,23 +250,10 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     /// @param token1 Address of token1 (FHERC20)
     event PoolInitialized(PoolId indexed poolId, address token0, address token1);
 
-    /// @notice Emitted when a swap is executed
-    /// @param poolId The pool where the swap occurred
-    /// @param user The address that initiated the swap
-    /// @param zeroForOne True if swapping token0 for token1
-    event SwapExecuted(PoolId indexed poolId, address indexed user, bool zeroForOne);
-
     /// @notice Emitted when an encrypted swap is executed (direction hidden)
     /// @param poolId The pool where the swap occurred
     /// @param user The address that initiated the swap
     event EncryptedSwapExecuted(PoolId indexed poolId, address indexed user);
-
-    /// @notice Emitted when momentum orders are activated during a swap
-    /// @param poolId The pool where momentum was activated
-    /// @param fromTick Starting tick before momentum
-    /// @param toTick Final tick after momentum cascade
-    /// @param bucketsActivated Number of buckets that were activated
-    event MomentumActivated(PoolId indexed poolId, int24 fromTick, int24 toTick, uint8 bucketsActivated);
 
     /// @notice Emitted when a user deposits into a limit order bucket
     /// @param poolId The pool ID
