@@ -16,6 +16,10 @@ import {FheatherXv8Mixed} from "../src/FheatherXv8Mixed.sol";
 /// @dev Environment variables required:
 ///   PRIVATE_KEY, POOL_MANAGER, V8_FHE_HOOK, V8_MIXED_HOOK,
 ///   WETH, USDC, FHE_WETH, FHE_USDC
+/// @dev This script initializes all pools (B, C, D, E, F) and seeds v8Mixed pools.
+///   For Pool B (v8FHE - fheWETH/fheUSDC), run the JS script after this:
+///     NETWORK=eth-sepolia node scripts/seed-encrypted-liquidity.cjs
+///     NETWORK=arb-sepolia node scripts/seed-encrypted-liquidity.cjs
 contract InitAndSeedV8 is Script {
     using PoolIdLibrary for PoolKey;
 
@@ -146,7 +150,8 @@ contract InitAndSeedV8 is Script {
         // ============ Seed Liquidity for v8Mixed Pools ============
         console.log("");
         console.log("--- Seeding v8Mixed Pools ---");
-        console.log("(v8FHE pool requires encrypted inputs - seed via frontend)");
+        console.log("(Pool B v8FHE requires encrypted inputs - run JS script after)");
+        console.log("  NETWORK=<network> node scripts/seed-encrypted-liquidity.cjs");
 
         // Check balances
         console.log("");
@@ -245,8 +250,12 @@ contract InitAndSeedV8 is Script {
 
         console.log("");
         console.log("===========================================");
-        console.log("  DONE");
+        console.log("  v8Mixed Pools Initialized & Seeded");
         console.log("===========================================");
+        console.log("");
+        console.log("NEXT: Seed Pool B (v8FHE) with encrypted liquidity:");
+        console.log("  NETWORK=eth-sepolia node scripts/seed-encrypted-liquidity.cjs");
+        console.log("  NETWORK=arb-sepolia node scripts/seed-encrypted-liquidity.cjs");
     }
 
     function _sort(address a, address b) internal pure returns (address, address) {

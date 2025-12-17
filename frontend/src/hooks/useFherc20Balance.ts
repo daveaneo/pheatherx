@@ -49,7 +49,7 @@ export function useFherc20Balance(
   const [error, setError] = useState<string | null>(null);
 
   const { unseal, isReady, isMock } = useFheSession();
-  const { cacheBalance, getCachedBalance } = useFheStore();
+  const { cacheBalance, getCachedBalance, clearBalance } = useFheStore();
 
   // Track if we've attempted auto-reveal to prevent loops
   const hasAttemptedRef = useRef(false);
@@ -167,6 +167,11 @@ export function useFherc20Balance(
   const invalidateAndRefresh = useCallback(async () => {
     if (!isFherc20 || !token || !userAddress) return;
 
+    // Clear the cached balance for this token so reveal() fetches fresh data
+    if (cacheKey) {
+      clearBalance(cacheKey);
+    }
+
     // Set balance to null to trigger UI update
     setBalance(null);
     setError(null);
@@ -179,7 +184,7 @@ export function useFherc20Balance(
 
     // Trigger fresh reveal (will refetch encrypted and unseal)
     await reveal();
-  }, [isFherc20, token, userAddress, refetchPlaintextBalance, reveal]);
+  }, [isFherc20, token, userAddress, cacheKey, clearBalance, refetchPlaintextBalance, reveal]);
 
   // Auto-reveal when FHE session becomes ready AND initial query has completed
   useEffect(() => {

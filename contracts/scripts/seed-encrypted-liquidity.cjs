@@ -25,17 +25,17 @@ if (!PRIVATE_KEY) {
 const NETWORKS = {
   'eth-sepolia': {
     rpc: process.env.ETH_SEPOLIA_RPC || 'https://ethereum-sepolia-rpc.publicnode.com',
-    hookAddress: '0x487840Bba82EcE99413CCace426AaB80f6CEd088', // v8FHE 2025-12-17
+    hookAddress: '0x0b56ad0057B88252eACE75f7C066e5778e255088', // v8FHE 2024-12-17 - TickBitmapLib overflow fix
     fheWethAddress: '0xBa1A88cC0FCacF907E55297AC54607E60367019C',
     fheUsdcAddress: '0xDdc7808AD27a1C45fa216DB6292Eb2f359244014',
-    poolId: '0x070aa909c6cde53ed845959a602ace13e35098fb77d8d6a63747fc21840e7707', // Pool B 2025-12-17
+    poolId: '0x66d85a910b3b6f491f5233d2eb51f2eab72846a0056833d1fcd1c4cdf36dd7a3', // Pool B 2024-12-17
   },
   'arb-sepolia': {
     rpc: process.env.ARB_SEPOLIA_RPC || 'https://sepolia-rollup.arbitrum.io/rpc',
-    hookAddress: '0x74A83BA9AbD7aE1f579319DC62BEE0D628Ac1088', // v8FHE 2024-12-16
+    hookAddress: '0xeF13A37401E1bb43aBED8F0108510eBb91401088', // v8FHE 2024-12-17 - TickBitmapLib overflow fix
     fheWethAddress: '0x7Da141eeA1F3c2dD0cC41915eE0AA19bE545d3e0',
     fheUsdcAddress: '0x987731d456B5996E7414d79474D8aba58d4681DC',
-    poolId: '0x345031dc6f6c054664d432571860222e43c684a6979afcb6a03dd0fa3ca8b238', // Pool B 2024-12-16
+    poolId: '0x92c5e351bf239ffea024d746621c2046854ac042f5b3357b5aa9a67e1d9341de', // Pool B 2024-12-17
   },
 };
 

@@ -81,6 +81,48 @@ library BucketLib {
         FHE.allowThis(bucket.filledPerShare);
     }
 
+    /// @notice Conditionally update bucket accumulators when a fill occurs
+    /// @dev Used for encrypted direction swaps where both sides are evaluated but only one applies
+    /// @param bucket The bucket being filled
+    /// @param fillAmount Amount being filled from bucket liquidity
+    /// @param proceedsAmount Proceeds going to bucket depositors
+    /// @param encZero Pre-computed encrypted zero
+    /// @param encOne Pre-computed encrypted one
+    /// @param encPrecision Pre-computed encrypted precision
+    /// @param shouldApply Encrypted boolean - only apply if true
+    function updateOnFillConditional(
+        Bucket storage bucket,
+        euint128 fillAmount,
+        euint128 proceedsAmount,
+        euint128 encZero,
+        euint128 encOne,
+        euint128 encPrecision,
+        ebool shouldApply
+    ) internal {
+        ebool hasShares = FHE.gt(bucket.totalShares, encZero);
+        euint128 safeDenom = FHE.select(hasShares, bucket.totalShares, encOne);
+        FHE.allowThis(safeDenom);
+
+        // Calculate proceeds increment (but conditionally apply)
+        euint128 proceedsInc = FHE.div(FHE.mul(proceedsAmount, encPrecision), safeDenom);
+        proceedsInc = FHE.select(hasShares, proceedsInc, encZero);
+        // Only apply if shouldApply is true
+        proceedsInc = FHE.select(shouldApply, proceedsInc, encZero);
+        FHE.allowThis(proceedsInc);
+        bucket.proceedsPerShare = FHE.add(bucket.proceedsPerShare, proceedsInc);
+
+        // Calculate filled increment (but conditionally apply)
+        euint128 filledInc = FHE.div(FHE.mul(fillAmount, encPrecision), safeDenom);
+        filledInc = FHE.select(hasShares, filledInc, encZero);
+        // Only apply if shouldApply is true
+        filledInc = FHE.select(shouldApply, filledInc, encZero);
+        FHE.allowThis(filledInc);
+        bucket.filledPerShare = FHE.add(bucket.filledPerShare, filledInc);
+
+        FHE.allowThis(bucket.proceedsPerShare);
+        FHE.allowThis(bucket.filledPerShare);
+    }
+
     /// @notice Calculate pending proceeds for a user position
     /// @param pos User's position
     /// @param bucket The bucket the position is in

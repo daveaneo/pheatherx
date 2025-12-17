@@ -31,6 +31,7 @@ interface FheState {
   setInitSource: (source: InitSource) => void;
   cacheBalance: (key: string, value: bigint) => void;
   getCachedBalance: (key: string) => RevealedBalance | null;
+  clearBalance: (key: string) => void;
   clearBalances: () => void;
   reset: () => void;
 }
@@ -89,6 +90,11 @@ export const useFheStore = create<FheState>()(
           revealedAt: cached.revealedAt,
         };
       },
+
+      clearBalance: key =>
+        set(state => {
+          delete state.revealedBalances[key];
+        }),
 
       clearBalances: () =>
         set(state => {

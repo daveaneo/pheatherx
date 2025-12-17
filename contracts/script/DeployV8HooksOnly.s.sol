@@ -13,10 +13,11 @@ import {FheatherXv8FHE} from "../src/FheatherXv8FHE.sol";
 import {FheatherXv8Mixed} from "../src/FheatherXv8Mixed.sol";
 import {PrivateSwapRouter} from "../src/PrivateSwapRouter.sol";
 
-/// @title DeployV8Only
-/// @notice Deploy v8 hooks only (no pool initialization)
-/// @dev Run with: PRIVATE_KEY=0x... POOL_MANAGER=0x... forge script script/DeployV8Only.s.sol:DeployV8Only --rpc-url <RPC> --broadcast -vvv
-contract DeployV8Only is Script {
+/// @title DeployV8HooksOnly
+/// @notice Deploy v8 hooks only (no pool initialization or liquidity seeding)
+/// @dev Run with: PRIVATE_KEY=0x... POOL_MANAGER=0x... forge script script/DeployV8HooksOnly.s.sol:DeployV8HooksOnly --rpc-url <RPC> --broadcast -vvv
+/// @dev NOTE: Use InitAndSeedV8.s.sol after this to initialize pools and seed liquidity
+contract DeployV8HooksOnly is Script {
     using PoolIdLibrary for PoolKey;
 
     // CREATE2 Deployer Proxy (standard across EVM chains)

@@ -110,11 +110,6 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     /// @notice When hookData starts with this byte, the swap params are encrypted
     bytes1 internal constant ENCRYPTED_SWAP_MAGIC = 0x01;
 
-    /// @dev Magic byte prefix for encrypted swap with momentum order processing
-    /// @notice When hookData starts with this byte, use plaintext direction + encrypted amounts
-    ///         This enables momentum order triggering during the swap
-    bytes1 internal constant ENCRYPTED_MOMENTUM_MAGIC = 0x02;
-
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
     // ═══════════════════════════════════════════════════════════════════════
@@ -413,9 +408,9 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     }
 
     function _beforeSwap(
-        address sender,
+        address, // sender - unused
         PoolKey calldata key,
-        SwapParams calldata params,
+        SwapParams calldata, // params - unused (direction/amount in hookData)
         bytes calldata hookData
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         PoolId poolId = key.toId();
@@ -425,218 +420,15 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
         SwapLockTransient.enforceOnce(poolId);
 
-        // Check for encrypted swap via hookData
+        // SINGLE encrypted swap path - all swaps use this unified flow
+        // Direction, amounts, and order matching are all handled with full FHE privacy
         if (hookData.length > 0 && hookData[0] == ENCRYPTED_SWAP_MAGIC) {
-            // Encrypted swap path - params are in hookData, not in SwapParams
-            // NOTE: This path does NOT process momentum orders (for simple AMM swaps)
             _executeEncryptedSwap(poolId, hookData);
-            // Return NoOp delta - we handled everything via direct FHERC20 transfers
             return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
         }
 
-        // Check for encrypted swap with momentum order processing
-        if (hookData.length > 0 && hookData[0] == ENCRYPTED_MOMENTUM_MAGIC) {
-            // Momentum-enabled encrypted swap path
-            // Uses plaintext direction (for momentum processing) + encrypted amounts
-            _executeEncryptedSwapWithMomentum(poolId, hookData);
-            // Return NoOp delta - we handled everything via direct FHERC20 transfers
-            return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
-        }
-
-        // Normal plaintext swap path
-        if (params.amountSpecified >= 0) {
-            return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
-        }
-
-        uint256 amountIn = uint256(-params.amountSpecified);
-        if (amountIn == 0) {
-            return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
-        }
-
-        // Extract actual user address from hookData (sender is the router, not the user)
-        address user = hookData.length >= 32 ? abi.decode(hookData, (address)) : sender;
-
-        _executeSwapWithMomentum(poolId, key, params.zeroForOne, amountIn, user);
-
-        // Return NoOp delta - we handle all transfers directly (user<->hook)
+        // No valid swap path - return NoOp
         return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //                    SWAP WITH MOMENTUM (Core Pipeline)
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function _executeSwapWithMomentum(
-        PoolId poolId,
-        PoolKey calldata key,
-        bool zeroForOne,
-        uint256 amountIn,
-        address user
-    ) internal returns (uint256 amountOut) {
-        // CRITICAL: Harvest resolved decrypts FIRST to get fresh reserves
-        _harvestResolvedDecrypts(poolId);
-
-        PoolReserves storage reserves = poolReserves[poolId];
-        PoolState storage state = poolStates[poolId];
-
-        // Transfer input directly from user (bypasses PoolManager settlement)
-        // Note: For FHE:FHE pools, both tokens are FHERC20 but we use plaintext amounts here
-        address inputToken = zeroForOne ? state.token0 : state.token1;
-        IERC20(inputToken).safeTransferFrom(user, address(this), amountIn);
-
-        // Encrypt input
-        euint128 userInputEnc = FHE.asEuint128(uint128(amountIn));
-        FHE.allowThis(userInputEnc);
-
-        int24 startTick = lastProcessedTick[poolId];
-
-        // Step 1: Match opposing limits (no AMM)
-        (euint128 remainderEnc, euint128 outputFromLimits) = _matchOpposingLimits(
-            poolId, zeroForOne, userInputEnc, startTick
-        );
-        FHE.allowThis(remainderEnc);
-        FHE.allowThis(outputFromLimits);
-
-        // Step 2: Find momentum closure via binary search
-        (int24 finalTick, uint8 activatedCount) = _findMomentumClosure(
-            poolId, zeroForOne, amountIn, startTick
-        );
-
-        // Step 3: Sum activated momentum buckets
-        euint128 momentumSumEnc = ENC_ZERO;
-        if (activatedCount > 0) {
-            momentumSumEnc = _sumMomentumBucketsEnc(poolId, zeroForOne, startTick, finalTick);
-            FHE.allowThis(momentumSumEnc);
-        }
-
-        // Step 4: Execute AMM ONCE with total input
-        euint128 totalInputEnc = FHE.add(remainderEnc, momentumSumEnc);
-        FHE.allowThis(totalInputEnc);
-
-        ebool direction = FHE.asEbool(zeroForOne);
-        euint128 totalAmmOutputEnc = _executeSwapMath(poolId, direction, totalInputEnc);
-        FHE.allowThis(totalAmmOutputEnc);
-
-        // Step 5: Allocate output to momentum buckets via virtual slicing
-        if (activatedCount > 0) {
-            _allocateVirtualSlicing(
-                poolId, zeroForOne, startTick, finalTick,
-                momentumSumEnc, totalAmmOutputEnc
-            );
-            emit MomentumActivated(poolId, startTick, finalTick, activatedCount);
-        }
-
-        // Step 6: Calculate user's output (use plaintext estimate for transfer)
-        amountOut = FheatherMath.estimateOutput(
-            zeroForOne ? reserves.reserve0 : reserves.reserve1,
-            zeroForOne ? reserves.reserve1 : reserves.reserve0,
-            amountIn,
-            swapFeeBps
-        );
-
-        // Apply protocol fee
-        uint256 fee = (amountOut * poolStates[poolId].protocolFeeBps) / 10000;
-        amountOut -= fee;
-
-        // Transfer output directly to user (bypasses PoolManager settlement)
-        address outputToken = zeroForOne ? state.token1 : state.token0;
-        IERC20(outputToken).safeTransfer(user, amountOut);
-
-        // Transfer fee
-        if (fee > 0 && feeCollector != address(0)) {
-            IERC20(outputToken).safeTransfer(feeCollector, fee);
-        }
-
-        // Update plaintext cache
-        if (zeroForOne) {
-            reserves.reserve0 += amountIn;
-            reserves.reserve1 = reserves.reserve1 > amountOut + fee ? reserves.reserve1 - amountOut - fee : 0;
-        } else {
-            reserves.reserve1 += amountIn;
-            reserves.reserve0 = reserves.reserve0 > amountOut + fee ? reserves.reserve0 - amountOut - fee : 0;
-        }
-
-        lastProcessedTick[poolId] = finalTick;
-        _requestReserveSync(poolId);
-
-        emit SwapExecuted(poolId, user, zeroForOne);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //                    OPPOSING LIMIT MATCHING
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function _matchOpposingLimits(
-        PoolId poolId,
-        bool zeroForOne,
-        euint128 userInputEnc,
-        int24 startTick
-    ) internal returns (euint128 remainderEnc, euint128 userOutputEnc) {
-        BucketSide opposingSide = zeroForOne ? BucketSide.BUY : BucketSide.SELL;
-        mapping(int16 => uint256) storage bitmap = opposingSide == BucketSide.BUY
-            ? buyBitmaps[poolId] : sellBitmaps[poolId];
-
-        remainderEnc = userInputEnc;
-        userOutputEnc = ENC_ZERO;
-
-        // Match up to MAX_MOMENTUM_BUCKETS opposing buckets
-        int24 current = startTick;
-        for (uint8 i = 0; i < MAX_MOMENTUM_BUCKETS; i++) {
-            (int24 nextTick, bool found) = TickBitmapLib.findNextInitializedTick(
-                bitmap, current, TICK_SPACING, zeroForOne, 2
-            );
-
-            if (!found) break;
-
-            // Fill opposing bucket
-            (euint128 newRemainder, euint128 bucketOutput) = _fillOpposingBucket(
-                poolId, nextTick, opposingSide, remainderEnc, zeroForOne
-            );
-
-            remainderEnc = newRemainder;
-            userOutputEnc = FHE.add(userOutputEnc, bucketOutput);
-            FHE.allowThis(remainderEnc);
-            FHE.allowThis(userOutputEnc);
-
-            current = zeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
-        }
-    }
-
-    function _fillOpposingBucket(
-        PoolId poolId,
-        int24 tick,
-        BucketSide side,
-        euint128 userInputEnc,
-        bool zeroForOne
-    ) internal returns (euint128 remainingInput, euint128 outputToUser) {
-        BucketLib.Bucket storage bucket = buckets[poolId][tick][side];
-        if (!bucket.initialized || !Common.isInitialized(bucket.liquidity)) {
-            return (userInputEnc, ENC_ZERO);
-        }
-
-        euint128 encTickPrice = FHE.asEuint128(uint128(FheatherMath.calculateTickPrice(tick)));
-        FHE.allowThis(encTickPrice);
-
-        // Capacity in user's input units
-        euint128 capacity = zeroForOne
-            ? FHE.div(FHE.mul(bucket.liquidity, ENC_PRECISION), encTickPrice)
-            : FHE.div(FHE.mul(bucket.liquidity, encTickPrice), ENC_PRECISION);
-        FHE.allowThis(capacity);
-
-        euint128 fill = FHE.select(FHE.gt(userInputEnc, capacity), capacity, userInputEnc);
-        FHE.allowThis(fill);
-
-        outputToUser = zeroForOne
-            ? FHE.div(FHE.mul(fill, encTickPrice), ENC_PRECISION)
-            : FHE.div(FHE.mul(fill, ENC_PRECISION), encTickPrice);
-        FHE.allowThis(outputToUser);
-
-        BucketLib.updateOnFill(bucket, outputToUser, fill, ENC_ZERO, ENC_ONE, ENC_PRECISION);
-        bucket.liquidity = FHE.sub(bucket.liquidity, outputToUser);
-        FHE.allowThis(bucket.liquidity);
-
-        remainingInput = FHE.sub(userInputEnc, fill);
-        FHE.allowThis(remainingInput);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -737,98 +529,6 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //                    MOMENTUM SUM & VIRTUAL SLICING
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /// @notice Sum momentum bucket liquidity with reserve cap (~50% max slippage)
-    /// @dev Buckets larger than the output reserve are zeroed to cap slippage at ~50%
-    function _sumMomentumBucketsEnc(
-        PoolId poolId,
-        bool zeroForOne,
-        int24 fromTick,
-        int24 toTick
-    ) internal returns (euint128 totalLiquidity) {
-        PoolReserves storage reserves = poolReserves[poolId];
-        BucketSide side = zeroForOne ? BucketSide.SELL : BucketSide.BUY;
-        mapping(int16 => uint256) storage bitmap = side == BucketSide.SELL
-            ? sellBitmaps[poolId] : buyBitmaps[poolId];
-
-        // Reserve cap: bucket input shouldn't exceed output reserve (caps slippage at ~50%)
-        euint128 encReserveLimit = zeroForOne ? reserves.encReserve1 : reserves.encReserve0;
-
-        totalLiquidity = ENC_ZERO;
-        int24 current = fromTick;
-        uint8 count = 0;
-
-        while (count < MAX_MOMENTUM_BUCKETS) {
-            (int24 nextTick, bool found) = TickBitmapLib.findNextInitializedTick(
-                bitmap, current, TICK_SPACING, zeroForOne, 2
-            );
-            if (!found) break;
-            if (zeroForOne && nextTick < toTick) break;
-            if (!zeroForOne && nextTick > toTick) break;
-
-            BucketLib.Bucket storage bucket = buckets[poolId][nextTick][side];
-            if (bucket.initialized && Common.isInitialized(bucket.liquidity)) {
-                // Cap oversized buckets: if liquidity > reserve, use 0 instead
-                // This prevents griefing attacks where huge orders cause extreme slippage
-                ebool isOversized = FHE.gt(bucket.liquidity, encReserveLimit);
-                euint128 cappedLiquidity = FHE.select(isOversized, ENC_ZERO, bucket.liquidity);
-                FHE.allowThis(cappedLiquidity);
-
-                totalLiquidity = FHE.add(totalLiquidity, cappedLiquidity);
-                FHE.allowThis(totalLiquidity);
-                count++;
-            }
-            current = zeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
-        }
-    }
-
-    function _allocateVirtualSlicing(
-        PoolId poolId,
-        bool zeroForOne,
-        int24 fromTick,
-        int24 toTick,
-        euint128 totalMomentumInput,
-        euint128 totalOutput
-    ) internal {
-        BucketSide side = zeroForOne ? BucketSide.SELL : BucketSide.BUY;
-        mapping(int16 => uint256) storage bitmap = side == BucketSide.SELL
-            ? sellBitmaps[poolId] : buyBitmaps[poolId];
-
-        ebool hasInput = FHE.gt(totalMomentumInput, ENC_ZERO);
-        euint128 safeDenom = FHE.select(hasInput, totalMomentumInput, ENC_ONE);
-        FHE.allowThis(safeDenom);
-
-        int24 current = fromTick;
-        uint8 count = 0;
-
-        while (count < MAX_MOMENTUM_BUCKETS) {
-            (int24 nextTick, bool found) = TickBitmapLib.findNextInitializedTick(
-                bitmap, current, TICK_SPACING, zeroForOne, 2
-            );
-            if (!found) break;
-            if (zeroForOne && nextTick < toTick) break;
-            if (!zeroForOne && nextTick > toTick) break;
-
-            BucketLib.Bucket storage bucket = buckets[poolId][nextTick][side];
-            if (bucket.initialized && Common.isInitialized(bucket.liquidity)) {
-                euint128 bucketOutput = FHE.div(
-                    FHE.mul(bucket.liquidity, totalOutput),
-                    safeDenom
-                );
-                FHE.allowThis(bucketOutput);
-
-                BucketLib.updateOnFill(bucket, bucket.liquidity, bucketOutput, ENC_ZERO, ENC_ONE, ENC_PRECISION);
-                bucket.liquidity = ENC_ZERO;
-                FHE.allowThis(bucket.liquidity);
-                count++;
-            }
-            current = zeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
     //                    ENCRYPTED AMM MATH
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -872,19 +572,29 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     //                    ENCRYPTED SWAP (Full Privacy)
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Execute a fully encrypted swap where direction, amount, and minOutput are all hidden
-    /// @dev Called from _beforeSwap when hookData contains encrypted swap parameters.
+    /// @notice Execute a fully encrypted swap with complete order matching
+    /// @dev The ONLY swap path for v8FHE. Full privacy with full functionality.
     ///      hookData format: [0x01 (magic)] [sender] [directionHandle] [amountInHandle] [minOutputHandle]
-    ///      The PrivateSwapRouter has already converted InEuint128 → euint128 handles and granted ACL.
-    ///      All token transfers use FHERC20._transferEncrypted for full privacy.
+    ///
+    ///      Pipeline:
+    ///      1. Match MAKER orders (opposing side) - direct peer-to-peer fills
+    ///      2. Find TAKER orders (same side) - momentum orders that trigger
+    ///      3. ONE AMM call with total input (user remainder + taker liquidity)
+    ///      4. Distribute output: user gets their share, takers get proceeds
+    ///
+    ///      All operations use FHE.select to evaluate both sides, only affecting the correct one.
+    ///      Direction, amounts, and order fills are all encrypted - zero information leakage.
+    ///
     /// @param poolId The pool to swap in
-    /// @param hookData Encoded encrypted swap parameters (handles, not InEuint128)
+    /// @param hookData Encoded encrypted swap parameters
     function _executeEncryptedSwap(PoolId poolId, bytes calldata hookData) internal {
-        PoolState storage state = poolStates[poolId];
+        // Harvest any pending reserve decrypts first
+        _harvestResolvedDecrypts(poolId);
 
-        // Decode hookData: skip magic byte (1), then decode params
-        // Format: magic (1 byte) + abi.encode(sender, directionHandle, amountInHandle, minOutputHandle)
-        // Router has already converted InEuint128 → euint128 handles and granted ACL permission
+        PoolState storage state = poolStates[poolId];
+        PoolReserves storage reserves = poolReserves[poolId];
+
+        // Decode hookData
         (
             address sender,
             uint256 directionHandle,
@@ -892,7 +602,7 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
             uint256 minOutputHandle
         ) = abi.decode(hookData[1:], (address, uint256, uint256, uint256));
 
-        // Wrap handles back to FHE types (no signature verification needed - router already did it)
+        // Wrap handles to FHE types
         ebool direction = ebool.wrap(directionHandle);
         euint128 amountIn = euint128.wrap(amountInHandle);
         euint128 minOutput = euint128.wrap(minOutputHandle);
@@ -900,14 +610,12 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         FHE.allowThis(amountIn);
         FHE.allowThis(minOutput);
 
-        // Transfer input tokens from sender to this contract
-        // Use FHE.select to pick the correct token based on encrypted direction
-        // direction = true means zeroForOne (sell token0), direction = false means oneForZero (sell token1)
         address token0 = state.token0;
         address token1 = state.token1;
 
-        // Transfer input: if direction, transfer token0; else transfer token1
-        // We need to do both transfers but with conditional amounts
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 0: Transfer input tokens (conditional on encrypted direction)
+        // ═══════════════════════════════════════════════════════════════════
         euint128 token0InputAmount = FHE.select(direction, amountIn, ENC_ZERO);
         euint128 token1InputAmount = FHE.select(direction, ENC_ZERO, amountIn);
         FHE.allowThis(token0InputAmount);
@@ -915,21 +623,118 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         FHE.allow(token0InputAmount, token0);
         FHE.allow(token1InputAmount, token1);
 
-        // Transfer inputs from sender
         IFHERC20(token0)._transferFromEncrypted(sender, address(this), token0InputAmount);
         IFHERC20(token1)._transferFromEncrypted(sender, address(this), token1InputAmount);
 
-        // Execute AMM math with encrypted values
-        euint128 amountOut = _executeSwapMath(poolId, direction, amountIn);
+        int24 startTick = lastProcessedTick[poolId];
 
-        // Check slippage: amountOut >= minOutput
-        ebool slippageOk = FHE.gte(amountOut, minOutput);
-        // If slippage check fails, output becomes 0 (user gets nothing but also sent nothing meaningful)
-        // This is a soft revert via FHE - actual revert would leak information
-        euint128 finalOutput = FHE.select(slippageOk, amountOut, ENC_ZERO);
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 1: Match MAKER orders (opposing limit orders)
+        // Run matching on BOTH sides, use FHE.select to pick correct results
+        // ═══════════════════════════════════════════════════════════════════
+        (euint128 remainderIfZeroForOne, euint128 makerOutputIfZeroForOne) =
+            _matchMakerOrdersEncrypted(poolId, true, amountIn, startTick, direction);
+        (euint128 remainderIfOneForZero, euint128 makerOutputIfOneForZero) =
+            _matchMakerOrdersEncrypted(poolId, false, amountIn, startTick, direction);
+
+        euint128 userRemainder = FHE.select(direction, remainderIfZeroForOne, remainderIfOneForZero);
+        euint128 outputFromMakers = FHE.select(direction, makerOutputIfZeroForOne, makerOutputIfOneForZero);
+        FHE.allowThis(userRemainder);
+        FHE.allowThis(outputFromMakers);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 2: Find TAKER orders (momentum orders on same side)
+        // Use plaintext reserves for closure finding, encrypted for actual sums
+        // ═══════════════════════════════════════════════════════════════════
+        // Find momentum closure for both directions using reserve estimates
+        uint256 estimateForZeroForOne = reserves.reserve0 / 5;
+        uint256 estimateForOneForZero = reserves.reserve1 / 5;
+
+        (int24 finalTickZFO, uint8 countZFO) = _findMomentumClosure(poolId, true, estimateForZeroForOne, startTick);
+        (int24 finalTickOFZ, uint8 countOFZ) = _findMomentumClosure(poolId, false, estimateForOneForZero, startTick);
+
+        // Sum taker liquidity for both directions
+        euint128 takerSumZFO = (countZFO > 0) ? _sumTakerBucketsEncrypted(poolId, true, startTick, finalTickZFO, direction) : ENC_ZERO;
+        euint128 takerSumOFZ = (countOFZ > 0) ? _sumTakerBucketsEncrypted(poolId, false, startTick, finalTickOFZ, direction) : ENC_ZERO;
+        FHE.allowThis(takerSumZFO);
+        FHE.allowThis(takerSumOFZ);
+
+        euint128 takerSum = FHE.select(direction, takerSumZFO, takerSumOFZ);
+        FHE.allowThis(takerSum);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 3: ONE AMM call with total input
+        // ═══════════════════════════════════════════════════════════════════
+        euint128 totalAmmInput = FHE.add(userRemainder, takerSum);
+        FHE.allowThis(totalAmmInput);
+
+        euint128 totalAmmOutput = _executeSwapMath(poolId, direction, totalAmmInput);
+        FHE.allowThis(totalAmmOutput);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 4: Distribute output to taker orders (virtual slicing)
+        // ═══════════════════════════════════════════════════════════════════
+        if (countZFO > 0) {
+            _allocateTakerOutputEncrypted(poolId, true, startTick, finalTickZFO, takerSumZFO, totalAmmOutput, direction);
+        }
+        if (countOFZ > 0) {
+            _allocateTakerOutputEncrypted(poolId, false, startTick, finalTickOFZ, takerSumOFZ, totalAmmOutput, direction);
+        }
+
+        // NOTE: lastProcessedTick is NOT updated here to preserve full privacy.
+        // The tick is used for momentum closure calculation which uses plaintext reserves.
+        // Reserves are synced via _requestReserveSync, so momentum closure still works.
+        // TODO: For optimal momentum ordering across multiple encrypted swaps,
+        // consider tracking tick state per-direction or deriving from reserves.
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 5: Calculate user's final output
+        // ═══════════════════════════════════════════════════════════════════
+        // User output = maker fills + their share of AMM output
+        // userAmmShare = (userRemainder / totalAmmInput) * totalAmmOutput
+        // When no takers: totalAmmInput = userRemainder, so userAmmShare = totalAmmOutput (100%)
+        // When takers exist: pro-rata split based on input contribution
+        euint128 userAmmShare;
+        ebool hasAmmInput = FHE.gt(totalAmmInput, ENC_ZERO);
+        euint128 safeTotalInput = FHE.select(hasAmmInput, totalAmmInput, ENC_ONE);
+        FHE.allowThis(safeTotalInput);
+
+        // userAmmShare = (userRemainder / totalAmmInput) * totalAmmOutput
+        euint128 userShareNumerator = FHE.mul(userRemainder, totalAmmOutput);
+        FHE.allowThis(userShareNumerator);
+        userAmmShare = FHE.div(userShareNumerator, safeTotalInput);
+        FHE.allowThis(userAmmShare);
+
+        euint128 userTotalOutput = FHE.add(outputFromMakers, userAmmShare);
+        FHE.allowThis(userTotalOutput);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 5b: Apply protocol fee (encrypted)
+        // ═══════════════════════════════════════════════════════════════════
+        uint256 feeBps = poolStates[poolId].protocolFeeBps;
+        euint128 encFeeBps = FHE.asEuint128(uint128(feeBps));
+        FHE.allowThis(encFeeBps);
+
+        // fee = userTotalOutput * feeBps / 10000
+        euint128 feeNumerator = FHE.mul(userTotalOutput, encFeeBps);
+        FHE.allowThis(feeNumerator);
+        euint128 fee = FHE.div(feeNumerator, ENC_TEN_THOUSAND);
+        FHE.allowThis(fee);
+
+        // outputAfterFee = userTotalOutput - fee
+        euint128 outputAfterFee = FHE.sub(userTotalOutput, fee);
+        FHE.allowThis(outputAfterFee);
+
+        // Slippage check (on output AFTER fee)
+        ebool slippageOk = FHE.gte(outputAfterFee, minOutput);
+        euint128 finalOutput = FHE.select(slippageOk, outputAfterFee, ENC_ZERO);
+        euint128 finalFee = FHE.select(slippageOk, fee, ENC_ZERO);
         FHE.allowThis(finalOutput);
+        FHE.allowThis(finalFee);
 
-        // Transfer output: if direction (zeroForOne), output is token1; else output is token0
+        // ═══════════════════════════════════════════════════════════════════
+        // STEP 6: Transfer output to user and fee to collector
+        // ═══════════════════════════════════════════════════════════════════
         euint128 token0OutputAmount = FHE.select(direction, ENC_ZERO, finalOutput);
         euint128 token1OutputAmount = FHE.select(direction, finalOutput, ENC_ZERO);
         FHE.allowThis(token0OutputAmount);
@@ -937,150 +742,231 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         FHE.allow(token0OutputAmount, token0);
         FHE.allow(token1OutputAmount, token1);
 
-        // Transfer outputs to sender
         IFHERC20(token0)._transferEncrypted(sender, token0OutputAmount);
         IFHERC20(token1)._transferEncrypted(sender, token1OutputAmount);
+
+        // Transfer fee to collector (if set)
+        if (feeCollector != address(0)) {
+            euint128 token0FeeAmount = FHE.select(direction, ENC_ZERO, finalFee);
+            euint128 token1FeeAmount = FHE.select(direction, finalFee, ENC_ZERO);
+            FHE.allowThis(token0FeeAmount);
+            FHE.allowThis(token1FeeAmount);
+            FHE.allow(token0FeeAmount, token0);
+            FHE.allow(token1FeeAmount, token1);
+
+            IFHERC20(token0)._transferEncrypted(feeCollector, token0FeeAmount);
+            IFHERC20(token1)._transferEncrypted(feeCollector, token1FeeAmount);
+        }
+
+        // Sync reserves
+        _requestReserveSync(poolId);
 
         emit EncryptedSwapExecuted(poolId, sender);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //                ENCRYPTED SWAP WITH MOMENTUM (Hybrid Privacy)
-    // ═══════════════════════════════════════════════════════════════════════
+    /// @notice Match maker orders with encrypted direction
+    /// @dev Evaluates fills but only applies them if direction matches
+    function _matchMakerOrdersEncrypted(
+        PoolId poolId,
+        bool evalZeroForOne,
+        euint128 userInput,
+        int24 startTick,
+        ebool actualDirection
+    ) internal returns (euint128 remainder, euint128 userOutput) {
+        // Makers for zeroForOne swaps are on the BUY side (they want to buy token0)
+        // Makers for oneForZero swaps are on the SELL side (they want to sell token0)
+        BucketSide makerSide = evalZeroForOne ? BucketSide.BUY : BucketSide.SELL;
+        mapping(int16 => uint256) storage bitmap = makerSide == BucketSide.BUY
+            ? buyBitmaps[poolId] : sellBitmaps[poolId];
 
-    /// @notice Execute an encrypted swap with momentum order processing
-    /// @dev Called from _beforeSwap when hookData contains ENCRYPTED_MOMENTUM_MAGIC (0x02).
-    ///      hookData format: [0x02 (magic)] [sender] [zeroForOne (bool)] [amountInHandle] [minOutputHandle]
-    ///      Direction is plaintext (required for momentum order processing), amounts are encrypted.
-    ///      This enables limit orders to be triggered while keeping amounts private.
-    /// @param poolId The pool to swap in
-    /// @param hookData Encoded swap parameters
-    function _executeEncryptedSwapWithMomentum(PoolId poolId, bytes calldata hookData) internal {
-        // CRITICAL: Harvest resolved decrypts FIRST to get fresh reserves
-        _harvestResolvedDecrypts(poolId);
+        remainder = userInput;
+        userOutput = ENC_ZERO;
 
-        PoolState storage state = poolStates[poolId];
-        PoolReserves storage reserves = poolReserves[poolId];
+        // Should we actually apply changes? Only if evalZeroForOne matches actualDirection
+        ebool shouldApply = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
+        FHE.allowThis(shouldApply);
 
-        // Decode hookData: skip magic byte (1), then decode params
-        // Format: magic (1 byte) + abi.encode(sender, zeroForOne, amountInHandle, minOutputHandle)
-        (
-            address sender,
-            bool zeroForOne,
-            uint256 amountInHandle,
-            uint256 minOutputHandle
-        ) = abi.decode(hookData[1:], (address, bool, uint256, uint256));
-
-        // Wrap handles back to FHE types
-        euint128 amountIn = euint128.wrap(amountInHandle);
-        euint128 minOutput = euint128.wrap(minOutputHandle);
-        FHE.allowThis(amountIn);
-        FHE.allowThis(minOutput);
-
-        // Transfer input tokens from sender to hook (encrypted)
-        address token0 = state.token0;
-        address token1 = state.token1;
-        address inputToken = zeroForOne ? token0 : token1;
-        address outputToken = zeroForOne ? token1 : token0;
-
-        FHE.allow(amountIn, inputToken);
-        IFHERC20(inputToken)._transferFromEncrypted(sender, address(this), amountIn);
-
-        int24 startTick = lastProcessedTick[poolId];
-
-        // Step 1: Match opposing limits (encrypted)
-        (euint128 remainderEnc, euint128 outputFromLimits) = _matchOpposingLimits(
-            poolId, zeroForOne, amountIn, startTick
-        );
-        FHE.allowThis(remainderEnc);
-        FHE.allowThis(outputFromLimits);
-
-        // Step 2: Find momentum closure using plaintext estimates
-        // Note: We estimate plaintext amountIn from reserves for momentum finding
-        // Using 20% of input reserve as estimate - large enough to trigger nearby momentum orders
-        // This is an approximation but maintains privacy of actual amount
-        uint256 estimatedAmountIn = (zeroForOne ? reserves.reserve0 : reserves.reserve1) / 5;
-        (int24 finalTick, uint8 activatedCount) = _findMomentumClosure(
-            poolId, zeroForOne, estimatedAmountIn, startTick
-        );
-
-        // Step 3: Sum activated momentum buckets (encrypted)
-        euint128 momentumSumEnc = ENC_ZERO;
-        if (activatedCount > 0) {
-            momentumSumEnc = _sumMomentumBucketsEnc(poolId, zeroForOne, startTick, finalTick);
-            FHE.allowThis(momentumSumEnc);
-        }
-
-        // Step 4: Execute AMM ONCE with total input (encrypted)
-        euint128 totalInputEnc = FHE.add(remainderEnc, momentumSumEnc);
-        FHE.allowThis(totalInputEnc);
-
-        ebool direction = FHE.asEbool(zeroForOne);
-        euint128 totalAmmOutputEnc = _executeSwapMath(poolId, direction, totalInputEnc);
-        FHE.allowThis(totalAmmOutputEnc);
-
-        // Step 5: Allocate output to momentum buckets via virtual slicing
-        if (activatedCount > 0) {
-            _allocateVirtualSlicing(
-                poolId, zeroForOne, startTick, finalTick,
-                momentumSumEnc, totalAmmOutputEnc
+        int24 current = startTick;
+        for (uint8 i = 0; i < MAX_MOMENTUM_BUCKETS; i++) {
+            (int24 nextTick, bool found) = TickBitmapLib.findNextInitializedTick(
+                bitmap, current, TICK_SPACING, evalZeroForOne, 2
             );
-            emit MomentumActivated(poolId, startTick, finalTick, activatedCount);
+            if (!found) break;
+
+            BucketLib.Bucket storage bucket = buckets[poolId][nextTick][makerSide];
+            if (!bucket.initialized || !Common.isInitialized(bucket.liquidity)) {
+                current = evalZeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
+                continue;
+            }
+
+            // Calculate fill amounts
+            euint128 encTickPrice = FHE.asEuint128(uint128(FheatherMath.calculateTickPrice(nextTick)));
+            FHE.allowThis(encTickPrice);
+
+            // Capacity in user's input units
+            euint128 capacity = evalZeroForOne
+                ? FHE.div(FHE.mul(bucket.liquidity, ENC_PRECISION), encTickPrice)
+                : FHE.div(FHE.mul(bucket.liquidity, encTickPrice), ENC_PRECISION);
+            FHE.allowThis(capacity);
+
+            euint128 fill = FHE.select(FHE.gt(remainder, capacity), capacity, remainder);
+            FHE.allowThis(fill);
+
+            euint128 outputFromBucket = evalZeroForOne
+                ? FHE.div(FHE.mul(fill, encTickPrice), ENC_PRECISION)
+                : FHE.div(FHE.mul(fill, ENC_PRECISION), encTickPrice);
+            FHE.allowThis(outputFromBucket);
+
+            // Conditionally apply: only if this evaluation direction matches actual direction
+            euint128 actualFill = FHE.select(shouldApply, fill, ENC_ZERO);
+            euint128 actualOutput = FHE.select(shouldApply, outputFromBucket, ENC_ZERO);
+            FHE.allowThis(actualFill);
+            FHE.allowThis(actualOutput);
+
+            // Update bucket state (conditional - subtracts 0 if wrong direction)
+            euint128 liquidityReduction = FHE.select(shouldApply, outputFromBucket, ENC_ZERO);
+            FHE.allowThis(liquidityReduction);
+            bucket.liquidity = FHE.sub(bucket.liquidity, liquidityReduction);
+            FHE.allowThis(bucket.liquidity);
+
+            // Update proceeds accumulator (conditional)
+            BucketLib.updateOnFillConditional(bucket, liquidityReduction, actualFill, ENC_ZERO, ENC_ONE, ENC_PRECISION, shouldApply);
+
+            // Update running totals
+            remainder = FHE.sub(remainder, actualFill);
+            userOutput = FHE.add(userOutput, actualOutput);
+            FHE.allowThis(remainder);
+            FHE.allowThis(userOutput);
+
+            current = evalZeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
         }
+    }
 
-        // Step 6: Calculate user's output (encrypted)
-        // User gets: output from opposing limit matches + their share of AMM output
-        // Their share = (user input / total input) * total AMM output
-        euint128 userAmmOutput;
-        if (activatedCount > 0) {
-            // Calculate user's proportional share when momentum buckets activated
-            euint128 totalInput = FHE.add(remainderEnc, momentumSumEnc);
-            FHE.allowThis(totalInput);
-            // userAmmOutput = (remainderEnc / totalInput) * totalAmmOutputEnc
-            // = (remainderEnc * totalAmmOutputEnc) / totalInput
-            ebool hasTotal = FHE.gt(totalInput, ENC_ZERO);
-            euint128 safeTotalInput = FHE.select(hasTotal, totalInput, ENC_ONE);
-            FHE.allowThis(safeTotalInput);
-            userAmmOutput = FHE.div(FHE.mul(remainderEnc, totalAmmOutputEnc), safeTotalInput);
-        } else {
-            // No momentum activated - user gets all AMM output
-            userAmmOutput = totalAmmOutputEnc;
+    /// @notice Sum taker bucket liquidity with encrypted direction
+    function _sumTakerBucketsEncrypted(
+        PoolId poolId,
+        bool evalZeroForOne,
+        int24 fromTick,
+        int24 toTick,
+        ebool actualDirection
+    ) internal returns (euint128 totalLiquidity) {
+        // Takers for zeroForOne are SELL orders (selling token0 as price drops)
+        // Takers for oneForZero are BUY orders (buying token0 as price rises)
+        BucketSide takerSide = evalZeroForOne ? BucketSide.SELL : BucketSide.BUY;
+        mapping(int16 => uint256) storage bitmap = takerSide == BucketSide.SELL
+            ? sellBitmaps[poolId] : buyBitmaps[poolId];
+
+        PoolReserves storage reserves = poolReserves[poolId];
+        euint128 encReserveLimit = evalZeroForOne ? reserves.encReserve1 : reserves.encReserve0;
+
+        // Only sum if this evaluation matches actual direction
+        ebool shouldSum = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
+        FHE.allowThis(shouldSum);
+
+        totalLiquidity = ENC_ZERO;
+        int24 current = fromTick;
+        uint8 count = 0;
+
+        while (count < MAX_MOMENTUM_BUCKETS) {
+            (int24 nextTick, bool found) = TickBitmapLib.findNextInitializedTick(
+                bitmap, current, TICK_SPACING, evalZeroForOne, 2
+            );
+            if (!found) break;
+            if (evalZeroForOne && nextTick < toTick) break;
+            if (!evalZeroForOne && nextTick > toTick) break;
+
+            BucketLib.Bucket storage bucket = buckets[poolId][nextTick][takerSide];
+            if (bucket.initialized && Common.isInitialized(bucket.liquidity)) {
+                // Cap oversized buckets
+                ebool isOversized = FHE.gt(bucket.liquidity, encReserveLimit);
+                euint128 cappedLiquidity = FHE.select(isOversized, ENC_ZERO, bucket.liquidity);
+                FHE.allowThis(cappedLiquidity);
+
+                // Only add if direction matches
+                euint128 conditionalLiquidity = FHE.select(shouldSum, cappedLiquidity, ENC_ZERO);
+                FHE.allowThis(conditionalLiquidity);
+
+                totalLiquidity = FHE.add(totalLiquidity, conditionalLiquidity);
+                FHE.allowThis(totalLiquidity);
+                count++;
+            }
+            current = evalZeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
         }
-        FHE.allowThis(userAmmOutput);
+    }
 
-        euint128 userOutput = FHE.add(outputFromLimits, userAmmOutput);
-        FHE.allowThis(userOutput);
+    /// @notice Allocate AMM output to taker buckets with encrypted direction
+    /// @dev MUST use same capping logic as _sumTakerBucketsEncrypted to ensure correct proportions
+    function _allocateTakerOutputEncrypted(
+        PoolId poolId,
+        bool evalZeroForOne,
+        int24 fromTick,
+        int24 toTick,
+        euint128 totalTakerInput,
+        euint128 totalOutput,
+        ebool actualDirection
+    ) internal {
+        BucketSide takerSide = evalZeroForOne ? BucketSide.SELL : BucketSide.BUY;
+        mapping(int16 => uint256) storage bitmap = takerSide == BucketSide.SELL
+            ? sellBitmaps[poolId] : buyBitmaps[poolId];
 
-        // Check slippage
-        ebool slippageOk = FHE.gte(userOutput, minOutput);
-        euint128 finalOutput = FHE.select(slippageOk, userOutput, ENC_ZERO);
-        FHE.allowThis(finalOutput);
+        // Get reserve limit for capping (same as in _sumTakerBucketsEncrypted)
+        PoolReserves storage reserves = poolReserves[poolId];
+        euint128 encReserveLimit = evalZeroForOne ? reserves.encReserve1 : reserves.encReserve0;
 
-        // Transfer output to sender (encrypted)
-        FHE.allow(finalOutput, outputToken);
-        IFHERC20(outputToken)._transferEncrypted(sender, finalOutput);
+        // Only allocate if this evaluation matches actual direction
+        ebool shouldAllocate = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
+        FHE.allowThis(shouldAllocate);
 
-        // Update plaintext cache with estimates
-        // Note: Actual amounts are encrypted, so we use conservative estimates
-        uint256 estimatedOutput = FheatherMath.estimateOutput(
-            zeroForOne ? reserves.reserve0 : reserves.reserve1,
-            zeroForOne ? reserves.reserve1 : reserves.reserve0,
-            estimatedAmountIn,
-            swapFeeBps
-        );
+        ebool hasInput = FHE.gt(totalTakerInput, ENC_ZERO);
+        euint128 safeDenom = FHE.select(hasInput, totalTakerInput, ENC_ONE);
+        FHE.allowThis(safeDenom);
 
-        if (zeroForOne) {
-            reserves.reserve0 += estimatedAmountIn;
-            reserves.reserve1 = reserves.reserve1 > estimatedOutput ? reserves.reserve1 - estimatedOutput : 0;
-        } else {
-            reserves.reserve1 += estimatedAmountIn;
-            reserves.reserve0 = reserves.reserve0 > estimatedOutput ? reserves.reserve0 - estimatedOutput : 0;
+        int24 current = fromTick;
+        uint8 count = 0;
+
+        while (count < MAX_MOMENTUM_BUCKETS) {
+            (int24 nextTick, bool found) = TickBitmapLib.findNextInitializedTick(
+                bitmap, current, TICK_SPACING, evalZeroForOne, 2
+            );
+            if (!found) break;
+            if (evalZeroForOne && nextTick < toTick) break;
+            if (!evalZeroForOne && nextTick > toTick) break;
+
+            BucketLib.Bucket storage bucket = buckets[poolId][nextTick][takerSide];
+            if (bucket.initialized && Common.isInitialized(bucket.liquidity)) {
+                // Apply same capping as _sumTakerBucketsEncrypted
+                ebool isOversized = FHE.gt(bucket.liquidity, encReserveLimit);
+                euint128 cappedLiquidity = FHE.select(isOversized, ENC_ZERO, bucket.liquidity);
+                FHE.allowThis(cappedLiquidity);
+
+                // Calculate this bucket's share of output using CAPPED liquidity
+                euint128 bucketOutput = FHE.div(
+                    FHE.mul(cappedLiquidity, totalOutput),
+                    safeDenom
+                );
+                FHE.allowThis(bucketOutput);
+
+                // Conditional allocation
+                euint128 actualBucketOutput = FHE.select(shouldAllocate, bucketOutput, ENC_ZERO);
+                euint128 actualLiquidityUsed = FHE.select(shouldAllocate, cappedLiquidity, ENC_ZERO);
+                FHE.allowThis(actualBucketOutput);
+                FHE.allowThis(actualLiquidityUsed);
+
+                // Update proceeds accumulator (conditional)
+                BucketLib.updateOnFillConditional(bucket, actualLiquidityUsed, actualBucketOutput, ENC_ZERO, ENC_ONE, ENC_PRECISION, shouldAllocate);
+
+                // Zero out liquidity only for CAPPED amount (conditional)
+                // If oversized, bucket keeps its liquidity (it wasn't used)
+                euint128 liquidityAfterUse = FHE.sub(bucket.liquidity, actualLiquidityUsed);
+                FHE.allowThis(liquidityAfterUse);
+                euint128 newLiquidity = FHE.select(shouldAllocate, liquidityAfterUse, bucket.liquidity);
+                bucket.liquidity = newLiquidity;
+                FHE.allowThis(bucket.liquidity);
+
+                count++;
+            }
+            current = evalZeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
         }
-
-        lastProcessedTick[poolId] = finalTick;
-        _requestReserveSync(poolId);
-
-        emit SwapExecuted(poolId, sender, zeroForOne);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

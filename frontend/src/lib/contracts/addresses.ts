@@ -31,24 +31,24 @@ export const FHEATHERX_ADDRESSES: Record<number, `0x${string}`> = {
 // FheatherXv8FHE Hook addresses (Full privacy - FHE:FHE pools only)
 export const FHEATHERX_V8_FHE_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_V8_FHE_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0x487840Bba82EcE99413CCace426AaB80f6CEd088', // v8FHE Eth Sepolia (2024-12-16)
-  421614: '0x4c450F5b069dFf4c1606A953dF575e200Bc29088',   // v8FHE Arb Sepolia (2024-12-16)
+  11155111: '0x0b56ad0057B88252eACE75f7C066e5778e255088', // v8FHE Eth Sepolia (2024-12-17) - fixed TickBitmapLib overflow
+  421614: '0xeF13A37401E1bb43aBED8F0108510eBb91401088',   // v8FHE Arb Sepolia (2024-12-17) - fixed TickBitmapLib overflow
   8008135: '0x0000000000000000000000000000000000000000',
 };
 
 // FheatherXv8Mixed Hook addresses (Mixed pools - one FHERC20, one ERC20)
 export const FHEATHERX_V8_MIXED_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_FHEATHERX_V8_MIXED_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0x7c184daA24E11E70bBf4294df67Cb436B38b1088', // v8Mixed Eth Sepolia (2024-12-16)
-  421614: '0x833b21ce0E3c931560801e1e5114138776935088',   // v8Mixed Arb Sepolia (2024-12-16)
+  11155111: '0x03f6FcfF4dFA939F039BD75a4F4A29F33774D088', // v8Mixed Eth Sepolia (2024-12-17) - fixed TickBitmapLib overflow
+  421614: '0x5bCD9bB723C7474F2FD276031a65044c23D55088',   // v8Mixed Arb Sepolia (2024-12-17) - fixed TickBitmapLib overflow
   8008135: '0x0000000000000000000000000000000000000000',
 };
 
 // PrivateSwapRouter addresses (for encrypted swap path - partial/full privacy)
 export const PRIVATE_SWAP_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_PRIVATE_SWAP_ROUTER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0xeaf02c062A245c71f1D8ab9CeF1e9783433529Fe', // PrivateSwapRouter Eth Sepolia (2025-12-17)
-  421614: '0x5e27FF3e6deD04eF293936F051b8BE46c053eDfe', // PrivateSwapRouter Arb Sepolia (2025-12-17)
+  11155111: '0x0432F5f6F73440b0DbbFED4047afA5A1F95c642B', // PrivateSwapRouter Eth Sepolia (2024-12-17)
+  421614: '0xCd2E1C80d439b33C7b593Db1D2a8D54023E1CAF1', // PrivateSwapRouter Arb Sepolia (2024-12-17)
   8008135: '0x0000000000000000000000000000000000000000',
 };
 

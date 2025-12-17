@@ -346,9 +346,17 @@ export function useSwap(): UseSwapResult {
       }
     }
 
-    // v8 FHE pools use router-based swaps (hook intercepts via beforeSwap)
-    if (contractType === 'v8fhe' || contractType === 'v8mixed') {
-      debugLog('swap: using router for v8 contract');
+    // v8FHE pools REQUIRE encrypted swaps (both tokens are FHERC20)
+    // Route through swapPrivate() which uses PrivateSwapRouter with encrypted transfers
+    if (contractType === 'v8fhe') {
+      debugLog('swap: v8FHE requires encrypted swap, redirecting to swapPrivate');
+      return swapPrivate(zeroForOne, amountIn, minAmountOut);
+    }
+
+    // v8Mixed pools can use router-based plaintext swaps
+    // (hook intercepts via beforeSwap and handles appropriately)
+    if (contractType === 'v8mixed') {
+      debugLog('swap: using router for v8mixed contract');
 
       if (!routerAddress) {
         throw new Error('Router not configured for this chain');
@@ -393,7 +401,7 @@ export function useSwap(): UseSwapResult {
           chainId,
         });
 
-        debugLog('swap (v8 via router): tx submitted', { hash });
+        debugLog('swap (v8mixed via router): tx submitted', { hash });
         setSwapHash(hash);
 
         addTransaction({
@@ -409,7 +417,7 @@ export function useSwap(): UseSwapResult {
         successToast('Swap confirmed');
         return hash;
       } catch (err: unknown) {
-        debugLog('swap (v8 via router): ERROR', err);
+        debugLog('swap (v8mixed via router): ERROR', err);
         const message = err instanceof Error ? err.message : 'Swap failed';
         setError(message);
         setStep('error');
@@ -420,6 +428,8 @@ export function useSwap(): UseSwapResult {
 
     // Fallback (shouldn't reach here)
     throw new Error(`Unsupported contract type: ${contractType}`);
+  // Note: swapPrivate is called for v8fhe but not in deps to avoid circular dependency
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, addTransaction, updateTransaction, successToast, errorToast, contractType, routerAddress]);
 
   /**
