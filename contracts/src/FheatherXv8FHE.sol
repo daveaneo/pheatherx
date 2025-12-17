@@ -106,6 +106,10 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     /// @dev Iterations for binary search in reserve sync harvesting
     uint8 internal constant BINARY_SEARCH_ITERATIONS = 12;
 
+    /// @dev Magic byte prefix for encrypted swap hookData
+    /// @notice When hookData starts with this byte, the swap params are encrypted
+    bytes1 internal constant ENCRYPTED_SWAP_MAGIC = 0x01;
+
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
     // ═══════════════════════════════════════════════════════════════════════
@@ -251,6 +255,11 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     /// @param user The address that initiated the swap
     /// @param zeroForOne True if swapping token0 for token1
     event SwapExecuted(PoolId indexed poolId, address indexed user, bool zeroForOne);
+
+    /// @notice Emitted when an encrypted swap is executed (direction hidden)
+    /// @param poolId The pool where the swap occurred
+    /// @param user The address that initiated the swap
+    event EncryptedSwapExecuted(PoolId indexed poolId, address indexed user);
 
     /// @notice Emitted when momentum orders are activated during a swap
     /// @param poolId The pool where momentum was activated
@@ -402,7 +411,7 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         address sender,
         PoolKey calldata key,
         SwapParams calldata params,
-        bytes calldata
+        bytes calldata hookData
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         PoolId poolId = key.toId();
         if (!poolStates[poolId].initialized) {
@@ -411,6 +420,15 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
         SwapLockTransient.enforceOnce(poolId);
 
+        // Check for encrypted swap via hookData
+        if (hookData.length > 0 && hookData[0] == ENCRYPTED_SWAP_MAGIC) {
+            // Encrypted swap path - params are in hookData, not in SwapParams
+            _executeEncryptedSwap(poolId, hookData);
+            // Return NoOp delta - we handled everything via direct FHERC20 transfers
+            return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
+        }
+
+        // Normal plaintext swap path
         if (params.amountSpecified >= 0) {
             return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
         }
@@ -836,6 +854,80 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         r.encReserve1 = FHE.select(direction, newReserveOut, newReserveIn);
         FHE.allowThis(r.encReserve0);
         FHE.allowThis(r.encReserve1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //                    ENCRYPTED SWAP (Full Privacy)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Execute a fully encrypted swap where direction, amount, and minOutput are all hidden
+    /// @dev Called from _beforeSwap when hookData contains encrypted swap parameters.
+    ///      hookData format: [0x01 (magic)] [sender address] [InEbool direction] [InEuint128 amountIn] [InEuint128 minOut]
+    ///      All token transfers use FHERC20._transferEncrypted for full privacy.
+    /// @param poolId The pool to swap in
+    /// @param hookData Encoded encrypted swap parameters
+    function _executeEncryptedSwap(PoolId poolId, bytes calldata hookData) internal {
+        PoolState storage state = poolStates[poolId];
+
+        // Decode hookData: skip magic byte (1), then decode params
+        // Format: magic (1 byte) + abi.encode(sender, direction, amountIn, minOutput)
+        (
+            address sender,
+            InEbool memory encDirection,
+            InEuint128 memory encAmountIn,
+            InEuint128 memory encMinOutput
+        ) = abi.decode(hookData[1:], (address, InEbool, InEuint128, InEuint128));
+
+        // Convert to FHE types
+        ebool direction = FHE.asEbool(encDirection);
+        euint128 amountIn = FHE.asEuint128(encAmountIn);
+        euint128 minOutput = FHE.asEuint128(encMinOutput);
+        FHE.allowThis(direction);
+        FHE.allowThis(amountIn);
+        FHE.allowThis(minOutput);
+
+        // Transfer input tokens from sender to this contract
+        // Use FHE.select to pick the correct token based on encrypted direction
+        // direction = true means zeroForOne (sell token0), direction = false means oneForZero (sell token1)
+        address token0 = state.token0;
+        address token1 = state.token1;
+
+        // Transfer input: if direction, transfer token0; else transfer token1
+        // We need to do both transfers but with conditional amounts
+        euint128 token0InputAmount = FHE.select(direction, amountIn, ENC_ZERO);
+        euint128 token1InputAmount = FHE.select(direction, ENC_ZERO, amountIn);
+        FHE.allowThis(token0InputAmount);
+        FHE.allowThis(token1InputAmount);
+        FHE.allow(token0InputAmount, token0);
+        FHE.allow(token1InputAmount, token1);
+
+        // Transfer inputs from sender
+        IFHERC20(token0)._transferFromEncrypted(sender, address(this), token0InputAmount);
+        IFHERC20(token1)._transferFromEncrypted(sender, address(this), token1InputAmount);
+
+        // Execute AMM math with encrypted values
+        euint128 amountOut = _executeSwapMath(poolId, direction, amountIn);
+
+        // Check slippage: amountOut >= minOutput
+        ebool slippageOk = FHE.gte(amountOut, minOutput);
+        // If slippage check fails, output becomes 0 (user gets nothing but also sent nothing meaningful)
+        // This is a soft revert via FHE - actual revert would leak information
+        euint128 finalOutput = FHE.select(slippageOk, amountOut, ENC_ZERO);
+        FHE.allowThis(finalOutput);
+
+        // Transfer output: if direction (zeroForOne), output is token1; else output is token0
+        euint128 token0OutputAmount = FHE.select(direction, ENC_ZERO, finalOutput);
+        euint128 token1OutputAmount = FHE.select(direction, finalOutput, ENC_ZERO);
+        FHE.allowThis(token0OutputAmount);
+        FHE.allowThis(token1OutputAmount);
+        FHE.allow(token0OutputAmount, token0);
+        FHE.allow(token1OutputAmount, token1);
+
+        // Transfer outputs to sender
+        IFHERC20(token0)._transferEncrypted(sender, token0OutputAmount);
+        IFHERC20(token1)._transferEncrypted(sender, token1OutputAmount);
+
+        emit EncryptedSwapExecuted(poolId, sender);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

@@ -11,7 +11,7 @@ import {BeforeSwapDelta, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/Bef
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {FHE, euint128, ebool, InEuint128, Common} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {FHE, euint128, ebool, InEuint128, InEbool, Common} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {IFHERC20} from "./interface/IFHERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -118,6 +118,10 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
 
     /// @dev Iterations for binary search in reserve sync harvesting
     uint8 internal constant BINARY_SEARCH_ITERATIONS = 12;
+
+    /// @dev Magic byte prefix for encrypted swap hookData
+    /// @notice When hookData starts with this byte, the swap params are encrypted
+    bytes1 internal constant ENCRYPTED_SWAP_MAGIC = 0x01;
 
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
@@ -229,6 +233,19 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         bool pending;
     }
 
+    /// @notice Pending swap output awaiting decrypt for ERC20 transfer
+    /// @dev Used when encrypted swap outputs ERC20 (requires plaintext for transfer)
+    /// @param recipient The address to receive the output
+    /// @param token The ERC20 token to transfer
+    /// @param amount The encrypted amount (for verification)
+    /// @param fulfilled Whether the decrypt has been fulfilled
+    struct PendingSwapOutput {
+        address recipient;
+        address token;
+        euint128 amount;
+        bool fulfilled;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //                               STATE
     // ═══════════════════════════════════════════════════════════════════════
@@ -274,6 +291,9 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     /// @notice Pending ERC20 claims awaiting decrypt resolution
     mapping(PoolId => mapping(address => mapping(int24 => mapping(BucketSide => PendingErc20Claim)))) public pendingErc20Claims;
 
+    /// @notice Pending swap outputs awaiting decrypt for ERC20 transfer
+    mapping(uint256 => PendingSwapOutput) public pendingSwapOutputs;
+
     /// @notice Address that receives protocol fees
     address public feeCollector;
 
@@ -299,6 +319,23 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     /// @param amountIn Amount of input tokens
     /// @param amountOut Amount of output tokens
     event SwapExecuted(PoolId indexed poolId, address indexed user, bool zeroForOne, uint256 amountIn, uint256 amountOut);
+
+    /// @notice Emitted when an encrypted swap is executed (partial privacy - ERC20 amounts visible)
+    /// @param poolId The pool where the swap occurred
+    /// @param user The address that initiated the swap
+    event EncryptedSwapExecuted(PoolId indexed poolId, address indexed user);
+
+    /// @notice Emitted when an encrypted swap output needs async decrypt for ERC20 transfer
+    /// @param poolId The pool where the swap occurred
+    /// @param recipient The address that will receive the output
+    /// @param requestId The CoFHE decrypt request ID
+    event SwapOutputDecryptRequested(PoolId indexed poolId, address indexed recipient, uint256 requestId);
+
+    /// @notice Emitted when swap output decrypt is fulfilled and ERC20 transferred
+    /// @param requestId The fulfilled request ID
+    /// @param recipient The address that received tokens
+    /// @param amount The plaintext amount transferred
+    event SwapOutputFulfilled(uint256 indexed requestId, address indexed recipient, uint256 amount);
 
     /// @notice Emitted when momentum orders are activated during a swap
     /// @param poolId The pool where momentum was activated
@@ -475,7 +512,7 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         address sender,
         PoolKey calldata key,
         SwapParams calldata params,
-        bytes calldata
+        bytes calldata hookData
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         PoolId poolId = key.toId();
         if (!poolStates[poolId].initialized) {
@@ -484,6 +521,16 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
 
         SwapLockTransient.enforceOnce(poolId);
 
+        // Check for encrypted swap via hookData
+        if (hookData.length > 0 && hookData[0] == ENCRYPTED_SWAP_MAGIC) {
+            // Encrypted swap path - params are in hookData, not in SwapParams
+            // Note: Mixed pools have partial privacy (ERC20 amounts visible)
+            _executeEncryptedSwap(poolId, hookData);
+            // Return NoOp delta - we handled everything via direct transfers
+            return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
+        }
+
+        // Normal plaintext swap path
         if (params.amountSpecified >= 0) {
             return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
         }
@@ -875,6 +922,130 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
         r.encReserve1 = FHE.select(direction, newReserveOut, newReserveIn);
         FHE.allowThis(r.encReserve0);
         FHE.allowThis(r.encReserve1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //                    ENCRYPTED SWAP (Partial Privacy)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Execute an encrypted swap via hookData (partial privacy for mixed pools)
+    /// @dev For mixed pools, direction is plaintext (partial privacy tradeoff).
+    ///      Amounts remain encrypted for FHERC20 tokens.
+    ///      hookData format: magic byte (0x01) + abi.encode(sender, zeroForOne, amountIn, minOutput)
+    ///      - FHERC20 input: transfer encrypted amount from sender
+    ///      - ERC20 input: reverts (use standard swap with plaintext amount)
+    ///      - FHERC20 output: transfer encrypted amount to sender
+    ///      - ERC20 output: request async decrypt, then fulfill via fulfillSwapOutput()
+    /// @param poolId The pool to swap in
+    /// @param hookData Encoded encrypted swap parameters
+    function _executeEncryptedSwap(PoolId poolId, bytes calldata hookData) internal {
+        PoolState storage state = poolStates[poolId];
+
+        // Decode hookData: skip magic byte (1), then decode params
+        // For mixed pools, direction is plaintext (partial privacy)
+        (
+            address sender,
+            bool zeroForOne,
+            InEuint128 memory encAmountIn,
+            InEuint128 memory encMinOutput
+        ) = abi.decode(hookData[1:], (address, bool, InEuint128, InEuint128));
+
+        // Convert to FHE types
+        euint128 amountIn = FHE.asEuint128(encAmountIn);
+        euint128 minOutput = FHE.asEuint128(encMinOutput);
+        FHE.allowThis(amountIn);
+        FHE.allowThis(minOutput);
+
+        address token0 = state.token0;
+        address token1 = state.token1;
+        bool token0IsFherc20 = state.token0IsFherc20;
+        bool token1IsFherc20 = state.token1IsFherc20;
+
+        // zeroForOne = true: sell token0 for token1
+        // zeroForOne = false: sell token1 for token0
+        address inputToken = zeroForOne ? token0 : token1;
+        address outputToken = zeroForOne ? token1 : token0;
+        bool inputIsFherc20 = zeroForOne ? token0IsFherc20 : token1IsFherc20;
+        bool outputIsFherc20 = zeroForOne ? token1IsFherc20 : token0IsFherc20;
+
+        // Transfer input from sender
+        if (inputIsFherc20) {
+            FHE.allow(amountIn, inputToken);
+            IFHERC20(inputToken)._transferFromEncrypted(sender, address(this), amountIn);
+        } else {
+            // ERC20 input - requires async decrypt to get plaintext amount
+            // For now, this path requires a separate flow with plaintext input
+            revert("ERC20 input requires plaintext amount - use standard swap");
+        }
+
+        // Execute AMM math with encrypted values
+        ebool direction = FHE.asEbool(zeroForOne);
+        FHE.allowThis(direction);
+        euint128 amountOut = _executeSwapMath(poolId, direction, amountIn);
+        FHE.allowThis(amountOut);
+
+        // Check slippage
+        ebool slippageOk = FHE.gte(amountOut, minOutput);
+        euint128 finalOutput = FHE.select(slippageOk, amountOut, ENC_ZERO);
+        FHE.allowThis(finalOutput);
+
+        // Transfer output to sender
+        if (outputIsFherc20) {
+            FHE.allow(finalOutput, outputToken);
+            IFHERC20(outputToken)._transferEncrypted(sender, finalOutput);
+        } else {
+            // ERC20 output - requires async decrypt
+            // Request decrypt of finalOutput, then transfer in callback
+            _requestOutputDecrypt(poolId, sender, outputToken, finalOutput);
+        }
+
+        emit EncryptedSwapExecuted(poolId, sender);
+    }
+
+    /// @notice Request async decrypt for ERC20 output transfer
+    /// @dev Uses the euint128 handle as the request ID for storage lookup
+    function _requestOutputDecrypt(
+        PoolId poolId,
+        address recipient,
+        address token,
+        euint128 amount
+    ) internal {
+        FHE.allowThis(amount);
+        FHE.decrypt(amount);
+
+        // Use the handle as requestId for lookup
+        uint256 requestId = euint128.unwrap(amount);
+
+        pendingSwapOutputs[requestId] = PendingSwapOutput({
+            recipient: recipient,
+            token: token,
+            amount: amount,
+            fulfilled: false
+        });
+
+        emit SwapOutputDecryptRequested(poolId, recipient, requestId);
+    }
+
+    /// @notice Fulfill a pending swap output after decrypt resolves
+    /// @dev Anyone can call this to trigger the ERC20 transfer
+    /// @param requestId The request ID (euint128 handle) to fulfill
+    function fulfillSwapOutput(uint256 requestId) external {
+        PendingSwapOutput storage pending = pendingSwapOutputs[requestId];
+        require(pending.recipient != address(0), "Unknown request");
+        require(!pending.fulfilled, "Already fulfilled");
+
+        // Check if decrypt is ready
+        (uint256 plainAmount, bool ready) = FHE.getDecryptResultSafe(pending.amount);
+        require(ready, "Decrypt not ready");
+
+        pending.fulfilled = true;
+
+        // Transfer ERC20 to recipient
+        if (plainAmount > 0) {
+            IERC20(pending.token).transfer(pending.recipient, plainAmount);
+        }
+
+        emit SwapOutputFulfilled(requestId, pending.recipient, plainAmount);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

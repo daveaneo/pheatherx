@@ -23,8 +23,8 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
   const [sellAmount, setSellAmount] = useState('');
   const [slippage, setSlippage] = useState('0.5');
 
-  const { swapForPool, swapEncrypted, step, isSwapping, error, reset } = useSwap();
-  const { hookAddress, token0, token1 } = useSelectedPool();
+  const { swap, swapForPool, step, isSwapping, error, reset } = useSwap();
+  const { hookAddress, token0, token1, contractType } = useSelectedPool();
   const txModal = useTransactionModal();
   const { address } = useAccount();
 
@@ -133,7 +133,7 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
     if (!token0 || !token1 || !hookAddress) return;
 
     // Open modal and show pending state
-    const swapType = isFheFhePool ? 'Encrypted Swap' : 'Market Swap';
+    const swapType = isFheFhePool ? 'Private Swap' : 'Market Swap';
     txModal.setPending(swapType, `Swapping ${sellAmount} ${sellToken} for ${buyToken}...`);
     txModal.openModal();
 
@@ -148,11 +148,13 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
 
       let hash: `0x${string}`;
 
-      if (isFheFhePool) {
-        // FHE:FHE pools use swapEncrypted (uses encrypted balance)
-        hash = await swapEncrypted(poolId, zeroForOne, amountIn, minAmountOut);
+      // v8 contracts use router-based swap (hook intercepts via _beforeSwap)
+      // v6 and older use direct swapForPool
+      if (contractType === 'v8fhe' || contractType === 'v8mixed') {
+        // v8 pools: use router-based swap (works for both FHE:FHE and mixed pools)
+        hash = await swap(zeroForOne, amountIn, minAmountOut);
       } else {
-        // ERC:ERC and mixed pools use swapForPool (uses plaintext balance)
+        // Legacy pools: use direct swapForPool
         hash = await swapForPool(poolId, zeroForOne, amountIn, minAmountOut);
       }
 
@@ -354,8 +356,8 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
       {/* Note */}
       <p className="text-xs text-center text-feather-white/40">
         {isFheFhePool
-          ? 'Encrypted swap - uses your encrypted token balance'
-          : 'Market swaps use plaintext amounts (not encrypted)'}
+          ? 'Private swap - uses encrypted token balances'
+          : 'Market swap - plaintext amounts'}
       </p>
 
       {/* Transaction Modal */}
