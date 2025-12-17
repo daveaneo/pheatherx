@@ -78,6 +78,16 @@ library FheatherMath {
 
     /// @notice Calculate current tick from reserve ratio
     /// @dev Converts price to sqrtPriceX96, then uses getTickAtSqrtPrice
+    ///
+    ///      Math derivation:
+    ///      - price = reserve1 / reserve0
+    ///      - sqrtPriceX96 = sqrt(price) * 2^96
+    ///
+    ///      To compute without overflow:
+    ///      - ratio = (reserve1 << 96) / reserve0 = price * 2^96
+    ///      - sqrt(ratio) = sqrt(price) * 2^48
+    ///      - sqrtPriceX96 = sqrt(ratio) << 48 = sqrt(price) * 2^96
+    ///
     /// @param reserve0 Reserve of token0
     /// @param reserve1 Reserve of token1
     /// @param tickSpacing Tick spacing for rounding
@@ -92,21 +102,23 @@ library FheatherMath {
         // price = reserve1 / reserve0
         // sqrtPriceX96 = sqrt(price) * 2^96
 
-        uint256 ratio;
-        if (reserve1 >= reserve0) {
-            ratio = (reserve1 << 96) / reserve0;
-        } else {
-            ratio = (reserve0 << 96) / reserve1;
-        }
+        // Compute ratio = price * 2^96 = (reserve1 << 96) / reserve0
+        uint256 ratio = (reserve1 << 96) / reserve0;
 
-        // Compute sqrt using Newton's method
-        uint160 sqrtPriceX96 = uint160(sqrt256(ratio));
+        // Compute sqrt(ratio) = sqrt(price) * 2^48
+        uint256 sqrtRatio = sqrt256(ratio);
+
+        // sqrtPriceX96 = sqrt(ratio) * 2^48 = sqrt(price) * 2^96
+        uint256 sqrtPriceX96Raw = sqrtRatio << 48;
 
         // Clamp to valid range
-        if (sqrtPriceX96 < TickMath.MIN_SQRT_PRICE) {
+        uint160 sqrtPriceX96;
+        if (sqrtPriceX96Raw < TickMath.MIN_SQRT_PRICE) {
             sqrtPriceX96 = TickMath.MIN_SQRT_PRICE;
-        } else if (sqrtPriceX96 > TickMath.MAX_SQRT_PRICE) {
+        } else if (sqrtPriceX96Raw > TickMath.MAX_SQRT_PRICE) {
             sqrtPriceX96 = TickMath.MAX_SQRT_PRICE;
+        } else {
+            sqrtPriceX96 = uint160(sqrtPriceX96Raw);
         }
 
         // Get tick from sqrt price

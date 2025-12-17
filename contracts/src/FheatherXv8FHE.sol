@@ -110,6 +110,11 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     /// @notice When hookData starts with this byte, the swap params are encrypted
     bytes1 internal constant ENCRYPTED_SWAP_MAGIC = 0x01;
 
+    /// @dev Magic byte prefix for encrypted swap with momentum order processing
+    /// @notice When hookData starts with this byte, use plaintext direction + encrypted amounts
+    ///         This enables momentum order triggering during the swap
+    bytes1 internal constant ENCRYPTED_MOMENTUM_MAGIC = 0x02;
+
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
     // ═══════════════════════════════════════════════════════════════════════
@@ -423,7 +428,17 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         // Check for encrypted swap via hookData
         if (hookData.length > 0 && hookData[0] == ENCRYPTED_SWAP_MAGIC) {
             // Encrypted swap path - params are in hookData, not in SwapParams
+            // NOTE: This path does NOT process momentum orders (for simple AMM swaps)
             _executeEncryptedSwap(poolId, hookData);
+            // Return NoOp delta - we handled everything via direct FHERC20 transfers
+            return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
+        }
+
+        // Check for encrypted swap with momentum order processing
+        if (hookData.length > 0 && hookData[0] == ENCRYPTED_MOMENTUM_MAGIC) {
+            // Momentum-enabled encrypted swap path
+            // Uses plaintext direction (for momentum processing) + encrypted amounts
+            _executeEncryptedSwapWithMomentum(poolId, hookData);
             // Return NoOp delta - we handled everything via direct FHERC20 transfers
             return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), 0);
         }
@@ -930,6 +945,145 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    //                ENCRYPTED SWAP WITH MOMENTUM (Hybrid Privacy)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Execute an encrypted swap with momentum order processing
+    /// @dev Called from _beforeSwap when hookData contains ENCRYPTED_MOMENTUM_MAGIC (0x02).
+    ///      hookData format: [0x02 (magic)] [sender] [zeroForOne (bool)] [amountInHandle] [minOutputHandle]
+    ///      Direction is plaintext (required for momentum order processing), amounts are encrypted.
+    ///      This enables limit orders to be triggered while keeping amounts private.
+    /// @param poolId The pool to swap in
+    /// @param hookData Encoded swap parameters
+    function _executeEncryptedSwapWithMomentum(PoolId poolId, bytes calldata hookData) internal {
+        // CRITICAL: Harvest resolved decrypts FIRST to get fresh reserves
+        _harvestResolvedDecrypts(poolId);
+
+        PoolState storage state = poolStates[poolId];
+        PoolReserves storage reserves = poolReserves[poolId];
+
+        // Decode hookData: skip magic byte (1), then decode params
+        // Format: magic (1 byte) + abi.encode(sender, zeroForOne, amountInHandle, minOutputHandle)
+        (
+            address sender,
+            bool zeroForOne,
+            uint256 amountInHandle,
+            uint256 minOutputHandle
+        ) = abi.decode(hookData[1:], (address, bool, uint256, uint256));
+
+        // Wrap handles back to FHE types
+        euint128 amountIn = euint128.wrap(amountInHandle);
+        euint128 minOutput = euint128.wrap(minOutputHandle);
+        FHE.allowThis(amountIn);
+        FHE.allowThis(minOutput);
+
+        // Transfer input tokens from sender to hook (encrypted)
+        address token0 = state.token0;
+        address token1 = state.token1;
+        address inputToken = zeroForOne ? token0 : token1;
+        address outputToken = zeroForOne ? token1 : token0;
+
+        FHE.allow(amountIn, inputToken);
+        IFHERC20(inputToken)._transferFromEncrypted(sender, address(this), amountIn);
+
+        int24 startTick = lastProcessedTick[poolId];
+
+        // Step 1: Match opposing limits (encrypted)
+        (euint128 remainderEnc, euint128 outputFromLimits) = _matchOpposingLimits(
+            poolId, zeroForOne, amountIn, startTick
+        );
+        FHE.allowThis(remainderEnc);
+        FHE.allowThis(outputFromLimits);
+
+        // Step 2: Find momentum closure using plaintext estimates
+        // Note: We estimate plaintext amountIn from reserves for momentum finding
+        // Using 20% of input reserve as estimate - large enough to trigger nearby momentum orders
+        // This is an approximation but maintains privacy of actual amount
+        uint256 estimatedAmountIn = (zeroForOne ? reserves.reserve0 : reserves.reserve1) / 5;
+        (int24 finalTick, uint8 activatedCount) = _findMomentumClosure(
+            poolId, zeroForOne, estimatedAmountIn, startTick
+        );
+
+        // Step 3: Sum activated momentum buckets (encrypted)
+        euint128 momentumSumEnc = ENC_ZERO;
+        if (activatedCount > 0) {
+            momentumSumEnc = _sumMomentumBucketsEnc(poolId, zeroForOne, startTick, finalTick);
+            FHE.allowThis(momentumSumEnc);
+        }
+
+        // Step 4: Execute AMM ONCE with total input (encrypted)
+        euint128 totalInputEnc = FHE.add(remainderEnc, momentumSumEnc);
+        FHE.allowThis(totalInputEnc);
+
+        ebool direction = FHE.asEbool(zeroForOne);
+        euint128 totalAmmOutputEnc = _executeSwapMath(poolId, direction, totalInputEnc);
+        FHE.allowThis(totalAmmOutputEnc);
+
+        // Step 5: Allocate output to momentum buckets via virtual slicing
+        if (activatedCount > 0) {
+            _allocateVirtualSlicing(
+                poolId, zeroForOne, startTick, finalTick,
+                momentumSumEnc, totalAmmOutputEnc
+            );
+            emit MomentumActivated(poolId, startTick, finalTick, activatedCount);
+        }
+
+        // Step 6: Calculate user's output (encrypted)
+        // User gets: output from opposing limit matches + their share of AMM output
+        // Their share = (user input / total input) * total AMM output
+        euint128 userAmmOutput;
+        if (activatedCount > 0) {
+            // Calculate user's proportional share when momentum buckets activated
+            euint128 totalInput = FHE.add(remainderEnc, momentumSumEnc);
+            FHE.allowThis(totalInput);
+            // userAmmOutput = (remainderEnc / totalInput) * totalAmmOutputEnc
+            // = (remainderEnc * totalAmmOutputEnc) / totalInput
+            ebool hasTotal = FHE.gt(totalInput, ENC_ZERO);
+            euint128 safeTotalInput = FHE.select(hasTotal, totalInput, ENC_ONE);
+            FHE.allowThis(safeTotalInput);
+            userAmmOutput = FHE.div(FHE.mul(remainderEnc, totalAmmOutputEnc), safeTotalInput);
+        } else {
+            // No momentum activated - user gets all AMM output
+            userAmmOutput = totalAmmOutputEnc;
+        }
+        FHE.allowThis(userAmmOutput);
+
+        euint128 userOutput = FHE.add(outputFromLimits, userAmmOutput);
+        FHE.allowThis(userOutput);
+
+        // Check slippage
+        ebool slippageOk = FHE.gte(userOutput, minOutput);
+        euint128 finalOutput = FHE.select(slippageOk, userOutput, ENC_ZERO);
+        FHE.allowThis(finalOutput);
+
+        // Transfer output to sender (encrypted)
+        FHE.allow(finalOutput, outputToken);
+        IFHERC20(outputToken)._transferEncrypted(sender, finalOutput);
+
+        // Update plaintext cache with estimates
+        // Note: Actual amounts are encrypted, so we use conservative estimates
+        uint256 estimatedOutput = FheatherMath.estimateOutput(
+            zeroForOne ? reserves.reserve0 : reserves.reserve1,
+            zeroForOne ? reserves.reserve1 : reserves.reserve0,
+            estimatedAmountIn,
+            swapFeeBps
+        );
+
+        if (zeroForOne) {
+            reserves.reserve0 += estimatedAmountIn;
+            reserves.reserve1 = reserves.reserve1 > estimatedOutput ? reserves.reserve1 - estimatedOutput : 0;
+        } else {
+            reserves.reserve1 += estimatedAmountIn;
+            reserves.reserve0 = reserves.reserve0 > estimatedOutput ? reserves.reserve0 - estimatedOutput : 0;
+        }
+
+        lastProcessedTick[poolId] = finalTick;
+        _requestReserveSync(poolId);
+
+        emit SwapExecuted(poolId, sender, zeroForOne);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     //                    LIMIT ORDER FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -1354,6 +1508,47 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     function setProtocolFee(PoolId poolId, uint256 _feeBps) external onlyOwner {
         if (_feeBps > 100) revert FeeTooHigh();
         poolStates[poolId].protocolFeeBps = _feeBps;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //                     TEST/MOCK HELPERS (Owner Only)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Manually set plaintext reserves for testing purposes
+    /// @dev In production, plaintext reserves are synced via async decrypts.
+    ///      This function allows tests to bypass the async mechanism.
+    ///      ONLY callable by owner - DO NOT use in production.
+    /// @param poolId The pool to update
+    /// @param reserve0 Plaintext reserve for token0
+    /// @param reserve1 Plaintext reserve for token1
+    function MOCK_setPlaintextReserves(
+        PoolId poolId,
+        uint256 reserve0,
+        uint256 reserve1
+    ) external onlyOwner {
+        PoolReserves storage r = poolReserves[poolId];
+        r.reserve0 = reserve0;
+        r.reserve1 = reserve1;
+        r.reserveBlockNumber = block.number;
+    }
+
+    /// @notice Get raw plaintext reserves from storage (for debugging)
+    /// @dev Returns the direct storage values without checking for pending decrypts
+    /// @param poolId The pool to query
+    /// @return reserve0 Direct storage value for reserve0
+    /// @return reserve1 Direct storage value for reserve1
+    function getReservesRaw(PoolId poolId) external view returns (uint256, uint256) {
+        PoolReserves storage r = poolReserves[poolId];
+        return (r.reserve0, r.reserve1);
+    }
+
+    /// @notice Get current tick calculated from raw storage reserves (for debugging)
+    /// @dev Uses the same calculation as deposit() for debugging PriceMoved errors
+    /// @param poolId The pool to query
+    /// @return Current tick calculated from raw reserves
+    function MOCK_getCurrentTick(PoolId poolId) external view returns (int24) {
+        PoolReserves storage r = poolReserves[poolId];
+        return FheatherMath.getCurrentTick(r.reserve0, r.reserve1, TICK_SPACING);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

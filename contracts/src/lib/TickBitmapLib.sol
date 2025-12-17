@@ -65,7 +65,10 @@ library TickBitmapLib {
     ) internal pure returns (uint8 nextBitPos, bool initialized) {
         if (lte) {
             // Search left (towards lower bits, which are lower ticks)
-            uint256 mask = (1 << (uint256(bitPos) + 1)) - 1; // bits <= bitPos
+            // Handle bitPos = 255 specially to avoid overflow: 1 << 256 = 0
+            uint256 mask = bitPos == 255
+                ? type(uint256).max
+                : (1 << (uint256(bitPos) + 1)) - 1; // bits <= bitPos
             uint256 masked = bitmap & mask;
             initialized = masked != 0;
             if (initialized) {

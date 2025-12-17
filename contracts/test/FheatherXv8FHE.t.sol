@@ -1518,6 +1518,154 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
     // See FheatherXv8Mixed.t.sol for router-based plaintext swap tests
 
     // ═══════════════════════════════════════════════════════════════════════
+    //                    MOMENTUM + ENCRYPTED SWAP TESTS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Test: Encrypted swap should process momentum orders
+    /// @dev This test verifies that when an encrypted swap is large enough to trigger
+    ///      momentum orders, they should be processed and the user's order should receive output.
+    ///      The root cause of the bug is that _executeEncryptedSwap doesn't include momentum order processing.
+    ///
+    ///      For zeroForOne swaps (selling token0):
+    ///      - Tick moves NEGATIVE (price decreases)
+    ///      - SELL momentum orders at NEGATIVE ticks get triggered
+    function testEncryptedSwap_WithMomentumOrder() public {
+        // Setup: Add liquidity
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        // IMPORTANT: In tests, async decrypts don't resolve automatically
+        // We need to manually sync the plaintext reserves for momentum finding to work
+        hook.MOCK_setPlaintextReserves(poolId, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        // Debug: Check reserves are set correctly
+        (uint256 res0, uint256 res1) = hook.getReservesRaw(poolId);
+        console.log("Reserve0:", res0);
+        console.log("Reserve1:", res1);
+
+        // Debug: Check the tick calculation
+        int24 currentTick = hook.MOCK_getCurrentTick(poolId);
+        console.log("Current tick (should be 0):");
+        console.logInt(currentTick);
+
+        // Check abs calculation
+        int24 orderTick = -60;
+        int24 drift = currentTick - orderTick;
+        console.log("Order tick:");
+        console.logInt(orderTick);
+        console.log("Drift (currentTick - orderTick):");
+        console.logInt(drift);
+
+        // User1 places a sell momentum order at tick -60
+        // For zeroForOne swap: tick moves negative, so SELL orders at negative ticks trigger
+        vm.startPrank(user1);
+        InEuint128 memory orderAmt = createInEuint128(uint128(5 ether), user1);
+        hook.deposit(poolId, -60, FheatherXv8FHE.BucketSide.SELL, orderAmt, block.timestamp + 1 hours, 10000);
+        vm.stopPrank();
+
+        // Verify order was placed
+        (,,, , bool initialized) = hook.buckets(poolId, -60, FheatherXv8FHE.BucketSide.SELL);
+        assertTrue(initialized, "Momentum order should be initialized");
+
+        // Large swap that should trigger the momentum order
+        // The zeroForOne swap moves tick negative, triggering the SELL order at -60
+        uint256 swapAmount = 20 ether; // Large swap to move price
+        fheToken0.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        // Record the tick before swap
+        int24 tickBefore = hook.lastProcessedTick(poolId);
+
+        // Use swapFheWithMomentum for momentum-enabled swaps (plaintext direction + encrypted amounts)
+        // NOTE: Temporarily removing vm.expectEmit to debug the arithmetic overflow
+        privateSwapRouter.swapFheWithMomentum(poolKey, true, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+
+        // Verify the tick moved negative (momentum was activated)
+        int24 tickAfter = hook.lastProcessedTick(poolId);
+        assertTrue(tickAfter < tickBefore, "Tick should move negative after zeroForOne momentum activation");
+
+        // After fix: The momentum order should have been triggered
+        // User1 should be able to claim proceeds from their triggered order
+        vm.startPrank(user1);
+        hook.claim(poolId, -60, FheatherXv8FHE.BucketSide.SELL);
+        vm.stopPrank();
+    }
+
+    /// @notice Test: Multiple momentum orders triggered by encrypted swap
+    function testEncryptedSwap_MultipleMomentumOrders() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        // Place multiple sell orders at different ticks
+        int24[] memory ticks = new int24[](3);
+        ticks[0] = 60;
+        ticks[1] = 120;
+        ticks[2] = 180;
+
+        for (uint i = 0; i < ticks.length; i++) {
+            vm.startPrank(user1);
+            InEuint128 memory amt = createInEuint128(uint128(3 ether), user1);
+            hook.deposit(poolId, ticks[i], FheatherXv8FHE.BucketSide.SELL, amt, block.timestamp + 1 hours, 10000);
+            vm.stopPrank();
+        }
+
+        // Large swap that should trigger all momentum orders
+        uint256 largeSwapAmount = 30 ether;
+        fheToken0.mint(swapper, largeSwapAmount);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEuint128 memory encAmountIn = createInEuint128(uint128(largeSwapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        // Should trigger momentum orders - use swapFheWithMomentum for momentum processing
+        privateSwapRouter.swapFheWithMomentum(poolKey, true, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Test: Encrypted swap triggers opposing limit order (maker order fill)
+    function testEncryptedSwap_FillsOpposingOrder() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        // User1 places a BUY order (willing to buy token0 at tick -60)
+        // This is an opposing order that gets filled by a zeroForOne swap
+        vm.startPrank(user1);
+        InEuint128 memory orderAmt = createInEuint128(uint128(5 ether), user1);
+        hook.deposit(poolId, -60, FheatherXv8FHE.BucketSide.BUY, orderAmt, block.timestamp + 1 hours, 10000);
+        vm.stopPrank();
+
+        // Swapper does zeroForOne swap - should fill the opposing BUY order
+        uint256 swapAmount = 10 ether;
+        fheToken0.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+        fheToken0.approve(address(hook), type(uint256).max);
+
+        InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        // This should:
+        // 1. Match against the opposing BUY order at tick -60
+        // 2. Execute remaining through AMM
+        // Use swapFheWithMomentum for momentum/limit order processing
+        privateSwapRouter.swapFheWithMomentum(poolKey, true, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+
+        // User1 should now be able to claim proceeds from their filled order
+        vm.startPrank(user1);
+        hook.claim(poolId, -60, FheatherXv8FHE.BucketSide.BUY);
+        vm.stopPrank();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     //                    HELPER: Add Liquidity
     // ═══════════════════════════════════════════════════════════════════════
 

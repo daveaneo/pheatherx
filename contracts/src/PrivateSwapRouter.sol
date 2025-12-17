@@ -111,6 +111,61 @@ contract PrivateSwapRouter {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    //                   ENCRYPTED SWAP WITH MOMENTUM (v8FHE)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Execute an encrypted swap with momentum order processing (for v8FHE pools)
+    /// @dev Direction is plaintext (required for momentum order processing), amounts are encrypted.
+    ///      This variant enables limit/momentum orders to be triggered during swaps.
+    ///      Use this when you have placed limit orders that should be triggered.
+    /// @param key The pool key identifying the pool
+    /// @param zeroForOne True if swapping token0 for token1 (plaintext for momentum processing)
+    /// @param encAmountIn Encrypted input amount
+    /// @param encMinOutput Encrypted minimum output (slippage protection)
+    function swapFheWithMomentum(
+        PoolKey calldata key,
+        bool zeroForOne,
+        InEuint128 calldata encAmountIn,
+        InEuint128 calldata encMinOutput
+    ) external {
+        // Convert to FHE types here (validates signatures with msg.sender = user)
+        euint128 amountIn = FHE.asEuint128(encAmountIn);
+        euint128 minOutput = FHE.asEuint128(encMinOutput);
+
+        // Allow the hook to use these encrypted values
+        FHE.allow(amountIn, address(key.hooks));
+        FHE.allow(minOutput, address(key.hooks));
+
+        // Extract handles (uint256) for encoding
+        uint256 amountInHandle = euint128.unwrap(amountIn);
+        uint256 minOutputHandle = euint128.unwrap(minOutput);
+
+        // Encode hookData: magic 0x02 + (sender, zeroForOne, amountInHandle, minOutputHandle)
+        // Magic 0x02 tells v8FHE to use momentum-enabled encrypted swap
+        bytes memory hookData = abi.encodePacked(
+            bytes1(0x02),  // ENCRYPTED_MOMENTUM_MAGIC
+            abi.encode(msg.sender, zeroForOne, amountInHandle, minOutputHandle)
+        );
+
+        // Prepare dummy SwapParams - the hook ignores these for encrypted swaps
+        SwapParams memory params = SwapParams({
+            zeroForOne: zeroForOne,
+            amountSpecified: -1,
+            sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+        });
+
+        emit EncryptedSwapInitiated(msg.sender, address(key.hooks));
+
+        // Execute via PoolManager unlock pattern
+        poolManager.unlock(abi.encode(CallbackData({
+            sender: msg.sender,
+            key: key,
+            params: params,
+            hookData: hookData
+        })));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     //                        ENCRYPTED SWAP (v8Mixed)
     // ═══════════════════════════════════════════════════════════════════════
 
