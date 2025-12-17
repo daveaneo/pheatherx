@@ -25,10 +25,11 @@ import { erc20Abi } from 'viem';
 import { FHEATHERX_V6_ABI, type InEuint128, type InEbool } from '@/lib/contracts/fheatherXv6Abi';
 import { FHEATHERX_V8_FHE_ABI } from '@/lib/contracts/fheatherXv8FHE-abi';
 import { FHEATHERX_V8_MIXED_ABI } from '@/lib/contracts/fheatherXv8Mixed-abi';
+import { PRIVATE_SWAP_ROUTER_ABI } from '@/lib/contracts/privateSwapRouter-abi';
 import { UNISWAP_V4_UNIVERSAL_ROUTER_ABI } from '@/lib/contracts/uniswapV4-abi';
 import { SWAP_ROUTER_ABI, type PoolKey, type SwapParams } from '@/lib/contracts/router';
 import { encodeSwapHookData } from '@/lib/contracts/encoding';
-import { SWAP_ROUTER_ADDRESSES, UNIVERSAL_ROUTER_ADDRESSES, POOL_FEE, TICK_SPACING } from '@/lib/contracts/addresses';
+import { SWAP_ROUTER_ADDRESSES, UNIVERSAL_ROUTER_ADDRESSES, PRIVATE_SWAP_ROUTER_ADDRESSES, POOL_FEE, TICK_SPACING } from '@/lib/contracts/addresses';
 import { MIN_SQRT_RATIO, MAX_SQRT_RATIO } from '@/lib/constants';
 import { useToast } from '@/stores/uiStore';
 import { useTransactionStore } from '@/stores/transactionStore';
@@ -72,7 +73,7 @@ interface UseSwapResult {
     minAmountOut: bigint
   ) => Promise<`0x${string}`>;
   /**
-   * Encrypted swap - hides direction, amount, and minOutput
+   * Encrypted swap - hides direction, amount, and minOutput (legacy v6)
    */
   swapEncrypted: (
     poolId: `0x${string}`,
@@ -80,6 +81,12 @@ interface UseSwapResult {
     amountIn: bigint,
     minAmountOut: bigint
   ) => Promise<`0x${string}`>;
+  /**
+   * Private swap via PrivateSwapRouter - for v8 pools
+   * - v8fhe: Full privacy (encrypted direction + amounts)
+   * - v8mixed: Partial privacy (plaintext direction, encrypted amounts)
+   */
+  swapPrivate: (zeroForOne: boolean, amountIn: bigint, minAmountOut: bigint) => Promise<`0x${string}`>;
   /**
    * Router-based swap (legacy, uses V4 PoolSwapTest router)
    */
@@ -110,6 +117,7 @@ export function useSwap(): UseSwapResult {
   const getSelectedPool = usePoolStore(state => state.getSelectedPool);
 
   const routerAddress = SWAP_ROUTER_ADDRESSES[chainId];
+  const privateSwapRouterAddress = PRIVATE_SWAP_ROUTER_ADDRESSES[chainId];
 
   const [step, setStep] = useState<SwapStep>('idle');
   const [swapHash, setSwapHash] = useState<`0x${string}` | null>(null);
@@ -564,6 +572,144 @@ export function useSwap(): UseSwapResult {
   }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, encrypt, encryptBool, fheReady, fheMock, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
+   * Private swap via PrivateSwapRouter - for v8 pools
+   * - v8fhe: Full privacy (encrypted direction + amounts)
+   * - v8mixed: Partial privacy (plaintext direction, encrypted amounts)
+   */
+  const swapPrivate = useCallback(async (
+    zeroForOne: boolean,
+    amountIn: bigint,
+    minAmountOut: bigint
+  ): Promise<`0x${string}`> => {
+    debugLog('swapPrivate called', { zeroForOne, amountIn: amountIn.toString(), contractType });
+
+    if (!address || !hookAddress || !publicClient || !token0 || !token1) {
+      throw new Error('Wallet not connected or no pool selected');
+    }
+
+    if (!privateSwapRouterAddress || privateSwapRouterAddress === '0x0000000000000000000000000000000000000000') {
+      throw new Error('PrivateSwapRouter not configured for this chain');
+    }
+
+    if (contractType !== 'v8fhe' && contractType !== 'v8mixed') {
+      throw new Error('Private swaps only supported for v8fhe and v8mixed pools');
+    }
+
+    if (!fheMock && (!encrypt || !fheReady)) {
+      throw new Error('FHE session not ready. Please initialize FHE first.');
+    }
+
+    setError(null);
+
+    try {
+      // Approve tokens to the HOOK (not router) - hook handles transfers
+      const tokenIn = zeroForOne ? token0.address : token1.address;
+      await checkAndApproveToken(tokenIn, hookAddress, amountIn);
+
+      setStep('encrypting');
+      debugLog('Encrypting swap parameters for private swap');
+
+      let encAmountIn: InEuint128;
+      let encMinOutput: InEuint128;
+
+      if (fheMock) {
+        // Mock encryption for testing
+        encAmountIn = {
+          ctHash: amountIn,
+          securityZone: 0,
+          utype: FHE_TYPES.EUINT128,
+          signature: '0x' as `0x${string}`,
+        };
+        encMinOutput = {
+          ctHash: minAmountOut,
+          securityZone: 0,
+          utype: FHE_TYPES.EUINT128,
+          signature: '0x' as `0x${string}`,
+        };
+      } else {
+        // Real FHE encryption
+        encAmountIn = await encrypt!(amountIn);
+        encMinOutput = await encrypt!(minAmountOut);
+      }
+
+      setStep('swapping');
+
+      // Build the pool key
+      const poolKey: PoolKey = {
+        currency0: token0.address,
+        currency1: token1.address,
+        fee: POOL_FEE,
+        tickSpacing: TICK_SPACING,
+        hooks: hookAddress,
+      };
+
+      let hash: `0x${string}`;
+
+      if (contractType === 'v8fhe') {
+        // Full privacy: encrypt direction as well
+        let encDirection: InEbool;
+
+        if (fheMock) {
+          encDirection = {
+            ctHash: zeroForOne ? 1n : 0n,
+            securityZone: 0,
+            utype: FHE_TYPES.EBOOL,
+            signature: '0x' as `0x${string}`,
+          };
+        } else {
+          encDirection = await encryptBool!(zeroForOne);
+        }
+
+        debugLog('swapPrivate (v8fhe): calling swapEncrypted on router');
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        hash = await writeContractAsync({
+          address: privateSwapRouterAddress,
+          abi: PRIVATE_SWAP_ROUTER_ABI,
+          functionName: 'swapEncrypted',
+          args: [poolKey, encDirection, encAmountIn, encMinOutput] as any,
+          chainId,
+        });
+      } else {
+        // v8mixed: Partial privacy (plaintext direction)
+        debugLog('swapPrivate (v8mixed): calling swapMixed on router');
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        hash = await writeContractAsync({
+          address: privateSwapRouterAddress,
+          abi: PRIVATE_SWAP_ROUTER_ABI,
+          functionName: 'swapMixed',
+          args: [poolKey, zeroForOne, encAmountIn, encMinOutput] as any,
+          chainId,
+        });
+      }
+
+      debugLog('swapPrivate: tx submitted', { hash });
+      setSwapHash(hash);
+
+      addTransaction({
+        hash,
+        type: 'swap',
+        description: `Private swap ${token0.symbol}/${token1.symbol}`,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      updateTransaction(hash, { status: 'confirmed' });
+      setStep('complete');
+      successToast('Private swap confirmed');
+      return hash;
+    } catch (err: unknown) {
+      debugLog('swapPrivate: ERROR', err);
+      const message = err instanceof Error ? err.message : 'Private swap failed';
+      setError(message);
+      setStep('error');
+      errorToast('Private swap failed', message);
+      throw err;
+    }
+  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, encrypt, encryptBool, fheReady, fheMock, contractType, privateSwapRouterAddress, addTransaction, updateTransaction, successToast, errorToast]);
+
+  /**
    * Router-based swap (legacy, uses V4 PoolSwapTest router)
    */
   const swapViaRouter = useCallback(async (
@@ -647,6 +793,7 @@ export function useSwap(): UseSwapResult {
     swap,
     swapForPool,
     swapEncrypted,
+    swapPrivate,
     swapViaRouter,
     step,
     isSwapping: step === 'simulating' || step === 'approving' || step === 'encrypting' || step === 'swapping',

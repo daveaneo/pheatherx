@@ -11,6 +11,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
 import {FheatherXv8FHE} from "../src/FheatherXv8FHE.sol";
 import {FheatherXv8Mixed} from "../src/FheatherXv8Mixed.sol";
+import {PrivateSwapRouter} from "../src/PrivateSwapRouter.sol";
 
 /// @title DeployV8Only
 /// @notice Deploy v8 hooks only (no pool initialization)
@@ -25,6 +26,7 @@ contract DeployV8Only is Script {
 
     address public v8FheHook;
     address public v8MixedHook;
+    address public privateSwapRouter;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
@@ -51,6 +53,11 @@ contract DeployV8Only is Script {
         v8MixedHook = _deployV8MixedHook(deployer, poolManager);
         console.log("v8Mixed Hook:", v8MixedHook);
 
+        // Deploy PrivateSwapRouter (for encrypted swap path)
+        console.log("--- Deploying PrivateSwapRouter ---");
+        privateSwapRouter = address(new PrivateSwapRouter(IPoolManager(poolManager)));
+        console.log("PrivateSwapRouter:", privateSwapRouter);
+
         vm.stopBroadcast();
 
         console.log("");
@@ -59,6 +66,7 @@ contract DeployV8Only is Script {
         console.log("===========================================");
         console.log("v8FHE Hook:", v8FheHook);
         console.log("v8Mixed Hook:", v8MixedHook);
+        console.log("PrivateSwapRouter:", privateSwapRouter);
     }
 
     function _deployV8FHEHook(address deployer, address poolManager) internal returns (address) {

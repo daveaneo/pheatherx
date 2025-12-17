@@ -862,26 +862,28 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
     /// @notice Execute a fully encrypted swap where direction, amount, and minOutput are all hidden
     /// @dev Called from _beforeSwap when hookData contains encrypted swap parameters.
-    ///      hookData format: [0x01 (magic)] [sender address] [InEbool direction] [InEuint128 amountIn] [InEuint128 minOut]
+    ///      hookData format: [0x01 (magic)] [sender] [directionHandle] [amountInHandle] [minOutputHandle]
+    ///      The PrivateSwapRouter has already converted InEuint128 → euint128 handles and granted ACL.
     ///      All token transfers use FHERC20._transferEncrypted for full privacy.
     /// @param poolId The pool to swap in
-    /// @param hookData Encoded encrypted swap parameters
+    /// @param hookData Encoded encrypted swap parameters (handles, not InEuint128)
     function _executeEncryptedSwap(PoolId poolId, bytes calldata hookData) internal {
         PoolState storage state = poolStates[poolId];
 
         // Decode hookData: skip magic byte (1), then decode params
-        // Format: magic (1 byte) + abi.encode(sender, direction, amountIn, minOutput)
+        // Format: magic (1 byte) + abi.encode(sender, directionHandle, amountInHandle, minOutputHandle)
+        // Router has already converted InEuint128 → euint128 handles and granted ACL permission
         (
             address sender,
-            InEbool memory encDirection,
-            InEuint128 memory encAmountIn,
-            InEuint128 memory encMinOutput
-        ) = abi.decode(hookData[1:], (address, InEbool, InEuint128, InEuint128));
+            uint256 directionHandle,
+            uint256 amountInHandle,
+            uint256 minOutputHandle
+        ) = abi.decode(hookData[1:], (address, uint256, uint256, uint256));
 
-        // Convert to FHE types
-        ebool direction = FHE.asEbool(encDirection);
-        euint128 amountIn = FHE.asEuint128(encAmountIn);
-        euint128 minOutput = FHE.asEuint128(encMinOutput);
+        // Wrap handles back to FHE types (no signature verification needed - router already did it)
+        ebool direction = ebool.wrap(directionHandle);
+        euint128 amountIn = euint128.wrap(amountInHandle);
+        euint128 minOutput = euint128.wrap(minOutputHandle);
         FHE.allowThis(direction);
         FHE.allowThis(amountIn);
         FHE.allowThis(minOutput);

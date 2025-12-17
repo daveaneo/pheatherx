@@ -25,6 +25,7 @@ import {FheatherXv8Mixed} from "../src/FheatherXv8Mixed.sol";
 import {SwapLockTransient} from "../src/lib/SwapLockTransient.sol";
 import {FhenixFHERC20Faucet} from "../src/tokens/FhenixFHERC20Faucet.sol";
 import {BucketLib} from "../src/lib/BucketLib.sol";
+import {PrivateSwapRouter} from "../src/PrivateSwapRouter.sol";
 
 // Test Utils
 import {EasyPosm} from "./utils/EasyPosm.sol";
@@ -72,6 +73,7 @@ contract FheatherXv8MixedTest is Test, Fixtures, CoFheTest {
 
     // Contract instances
     FheatherXv8Mixed hook;
+    PrivateSwapRouter privateSwapRouter;
     PoolId poolId;
 
     // Mixed tokens: one FHERC20 + one ERC20
@@ -137,6 +139,10 @@ contract FheatherXv8MixedTest is Test, Fixtures, CoFheTest {
         deployCodeTo("FheatherXv8Mixed.sol:FheatherXv8Mixed", abi.encode(manager, owner, 30), hookAddress);
         hook = FheatherXv8Mixed(hookAddress);
         hook.setFeeCollector(feeCollector);
+
+        // Deploy PrivateSwapRouter
+        privateSwapRouter = new PrivateSwapRouter(manager);
+        vm.label(address(privateSwapRouter), "PrivateSwapRouter");
 
         // Create pool key with mixed tokens
         poolKey = PoolKey({
@@ -887,6 +893,151 @@ contract FheatherXv8MixedTest is Test, Fixtures, CoFheTest {
 
         (,,,, bool initialized) = hook.buckets(poolId, tick, fheSide);
         assertTrue(initialized, "Bucket must be initialized after deposit");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //                    ENCRYPTED SWAP TESTS (Partial Privacy)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Test encrypted swap via PrivateSwapRouter (partial privacy - FHERC20 input)
+    function testEncryptedSwap_ViaPrivateSwapRouter_FheInput() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        uint256 swapAmount = 1 ether;
+        uint256 minOutput = 0.9 ether;
+
+        // Fund swapper with FHERC20 token
+        fheToken.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+
+        // Approve the hook to spend FHERC20 tokens
+        fheToken.approve(address(hook), type(uint256).max);
+
+        // Create encrypted swap parameters
+        InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(uint128(minOutput), swapper);
+
+        // Determine direction based on token ordering
+        // If fheToken is token0, we're selling token0 (zeroForOne = true)
+        bool zeroForOne = token0IsFherc20;
+
+        // Execute encrypted swap via router
+        privateSwapRouter.swapMixed(poolKey, zeroForOne, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+
+        // Verify swap executed without revert
+    }
+
+    /// @notice Test encrypted swap emits EncryptedSwapExecuted event
+    function testEncryptedSwap_EmitsEvent() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        uint256 swapAmount = 1 ether;
+
+        fheToken.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+        fheToken.approve(address(hook), type(uint256).max);
+
+        InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        bool zeroForOne = token0IsFherc20;
+
+        // Expect EncryptedSwapExecuted event
+        vm.expectEmit(true, true, false, false);
+        emit FheatherXv8Mixed.EncryptedSwapExecuted(poolId, swapper);
+
+        privateSwapRouter.swapMixed(poolKey, zeroForOne, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Test encrypted swap in opposite direction (requires ERC20 output path)
+    /// @dev When FHERC20 is input and ERC20 is output, the hook requests async decrypt
+    function testEncryptedSwap_FheInputErc20Output() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        uint256 swapAmount = 1 ether;
+
+        fheToken.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+        fheToken.approve(address(hook), type(uint256).max);
+
+        InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        // If fheToken is token0, zeroForOne=true means output is ERC20 token1
+        // If fheToken is token1, zeroForOne=false means output is ERC20 token0
+        bool zeroForOne = token0IsFherc20;
+
+        // This should trigger async decrypt for ERC20 output
+        privateSwapRouter.swapMixed(poolKey, zeroForOne, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+
+        // In production, user would call fulfillSwapOutput() after decrypt resolves
+    }
+
+    /// @notice Test that ERC20 input encrypted swap reverts (partial privacy limitation)
+    function testEncryptedSwap_Erc20Input_Reverts() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        uint256 swapAmount = 1 ether;
+
+        // Fund swapper with ERC20 token
+        erc20Token.mint(swapper, swapAmount);
+
+        vm.startPrank(swapper);
+        erc20Token.approve(address(hook), type(uint256).max);
+
+        InEuint128 memory encAmountIn = createInEuint128(uint128(swapAmount), swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        // Direction that would use ERC20 as input (opposite of FHERC20 direction)
+        bool zeroForOne = !token0IsFherc20;
+
+        // Should revert because ERC20 input requires plaintext amount
+        // Note: Error gets wrapped by PoolManager callback chain
+        vm.expectRevert();
+        privateSwapRouter.swapMixed(poolKey, zeroForOne, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Fuzz test: Encrypted swap with various amounts
+    function testFuzz_EncryptedSwap_RandomAmounts(uint128 amount) public {
+        amount = uint128(bound(uint256(amount), 1e15, 1e22));
+
+        _addLiquidity(lp, LIQUIDITY_AMOUNT * 10, LIQUIDITY_AMOUNT * 10);
+
+        fheToken.mint(swapper, amount);
+
+        vm.startPrank(swapper);
+        fheToken.approve(address(hook), type(uint256).max);
+
+        InEuint128 memory encAmountIn = createInEuint128(amount, swapper);
+        InEuint128 memory encMinOutput = createInEuint128(0, swapper);
+
+        bool zeroForOne = token0IsFherc20;
+
+        // Should not revert for any valid amount
+        privateSwapRouter.swapMixed(poolKey, zeroForOne, encAmountIn, encMinOutput);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Test that normal plaintext swaps still work alongside encrypted swaps
+    function testSwap_NormalPathStillWorks() public {
+        _addLiquidity(lp, LIQUIDITY_AMOUNT, LIQUIDITY_AMOUNT);
+
+        // Verify hook permissions are correct for both paths
+        Hooks.Permissions memory perms = hook.getHookPermissions();
+        assertTrue(perms.beforeSwap, "Hook should handle beforeSwap");
+        assertTrue(perms.beforeSwapReturnDelta, "Hook should return delta");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

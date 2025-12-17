@@ -931,28 +931,30 @@ contract FheatherXv8Mixed is BaseHook, Pausable, Ownable {
     /// @notice Execute an encrypted swap via hookData (partial privacy for mixed pools)
     /// @dev For mixed pools, direction is plaintext (partial privacy tradeoff).
     ///      Amounts remain encrypted for FHERC20 tokens.
-    ///      hookData format: magic byte (0x01) + abi.encode(sender, zeroForOne, amountIn, minOutput)
+    ///      hookData format: magic byte (0x01) + abi.encode(sender, zeroForOne, amountInHandle, minOutputHandle)
+    ///      The PrivateSwapRouter has already converted InEuint128 → euint128 handles and granted ACL.
     ///      - FHERC20 input: transfer encrypted amount from sender
     ///      - ERC20 input: reverts (use standard swap with plaintext amount)
     ///      - FHERC20 output: transfer encrypted amount to sender
     ///      - ERC20 output: request async decrypt, then fulfill via fulfillSwapOutput()
     /// @param poolId The pool to swap in
-    /// @param hookData Encoded encrypted swap parameters
+    /// @param hookData Encoded encrypted swap parameters (handles, not InEuint128)
     function _executeEncryptedSwap(PoolId poolId, bytes calldata hookData) internal {
         PoolState storage state = poolStates[poolId];
 
         // Decode hookData: skip magic byte (1), then decode params
         // For mixed pools, direction is plaintext (partial privacy)
+        // Router has already converted InEuint128 → euint128 handles and granted ACL permission
         (
             address sender,
             bool zeroForOne,
-            InEuint128 memory encAmountIn,
-            InEuint128 memory encMinOutput
-        ) = abi.decode(hookData[1:], (address, bool, InEuint128, InEuint128));
+            uint256 amountInHandle,
+            uint256 minOutputHandle
+        ) = abi.decode(hookData[1:], (address, bool, uint256, uint256));
 
-        // Convert to FHE types
-        euint128 amountIn = FHE.asEuint128(encAmountIn);
-        euint128 minOutput = FHE.asEuint128(encMinOutput);
+        // Wrap handles back to FHE types (no signature verification needed - router already did it)
+        euint128 amountIn = euint128.wrap(amountInHandle);
+        euint128 minOutput = euint128.wrap(minOutputHandle);
         FHE.allowThis(amountIn);
         FHE.allowThis(minOutput);
 

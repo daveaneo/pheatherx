@@ -50,6 +50,7 @@ const NETWORKS = {
     currentHooks: {
       v8FHE: '0x74A83BA9AbD7aE1f579319DC62BEE0D628Ac1088',
       v8Mixed: '0x3eA1877d8C7D8d9577C4152195B55a1cC5249088',
+      privateSwapRouter: '0x0000000000000000000000000000000000000000', // Update after deployment
     },
   },
   'eth-sepolia': {
@@ -66,6 +67,7 @@ const NETWORKS = {
     currentHooks: {
       v8FHE: '0x297987BD9647d06Ac83bCc662ae89Fc6a4019088',
       v8Mixed: '0x26c3413D190Da7B7dB6f17C477050b4F2828D088',
+      privateSwapRouter: '0x0000000000000000000000000000000000000000', // Update after deployment
     },
   },
 };
@@ -154,6 +156,7 @@ async function step1_deployHooks() {
     console.log('\nCurrent Hooks:');
     console.log(`  v8FHE:   ${hooks.v8FHE}`);
     console.log(`  v8Mixed: ${hooks.v8Mixed}`);
+    console.log(`  PrivateSwapRouter: ${hooks.privateSwapRouter}`);
     return hooks;
   }
 
@@ -167,19 +170,22 @@ async function step1_deployHooks() {
   // Parse deployed addresses from output
   const v8FheMatch = output.match(/v8FHE Hook: (0x[a-fA-F0-9]{40})/);
   const v8MixedMatch = output.match(/v8Mixed Hook: (0x[a-fA-F0-9]{40})/);
+  const routerMatch = output.match(/PrivateSwapRouter: (0x[a-fA-F0-9]{40})/);
 
-  if (!v8FheMatch || !v8MixedMatch) {
-    throw new Error('Failed to parse deployed hook addresses from Foundry output');
+  if (!v8FheMatch || !v8MixedMatch || !routerMatch) {
+    throw new Error('Failed to parse deployed addresses from Foundry output');
   }
 
   const hooks = {
     v8FHE: v8FheMatch[1],
     v8Mixed: v8MixedMatch[1],
+    privateSwapRouter: routerMatch[1],
   };
 
-  console.log('\nDeployed Hooks:');
+  console.log('\nDeployed Contracts:');
   console.log(`  v8FHE:   ${hooks.v8FHE}`);
   console.log(`  v8Mixed: ${hooks.v8Mixed}`);
+  console.log(`  PrivateSwapRouter: ${hooks.privateSwapRouter}`);
 
   return hooks;
 }
@@ -336,6 +342,7 @@ async function step4_updateFrontend(hooks) {
     console.log('Please update manually:');
     console.log(`  v8FHE (${config.chainId}): ${hooks.v8FHE}`);
     console.log(`  v8Mixed (${config.chainId}): ${hooks.v8Mixed}`);
+    console.log(`  PrivateSwapRouter (${config.chainId}): ${hooks.privateSwapRouter}`);
     return;
   }
 
@@ -355,6 +362,24 @@ async function step4_updateFrontend(hooks) {
   );
   content = content.replace(v8MixedRegex, `$1'${hooks.v8Mixed}'$2`);
 
+  // Update PrivateSwapRouter address for this chain
+  // Handle both "// TODO: Deploy" format and any other comment
+  const routerRegex = new RegExp(
+    `(${config.chainId}: )'0x[a-fA-F0-9]{40}'(,\\s*//.*?)$`,
+    'gm'
+  );
+  // Find the PRIVATE_SWAP_ROUTER_ADDRESSES section and update only there
+  const routerSectionRegex = /PRIVATE_SWAP_ROUTER_ADDRESSES[\s\S]*?\};/;
+  const routerSection = content.match(routerSectionRegex);
+  if (routerSection) {
+    const networkName = config.chainId === 11155111 ? 'Eth Sepolia' : config.chainId === 421614 ? 'Arb Sepolia' : 'Deployed';
+    const updatedSection = routerSection[0].replace(
+      new RegExp(`(${config.chainId}: )'0x[a-fA-F0-9]{40}'(,\\s*//.*?)$`, 'm'),
+      `$1'${hooks.privateSwapRouter}', // PrivateSwapRouter ${networkName} (${new Date().toISOString().split('T')[0]})`
+    );
+    content = content.replace(routerSectionRegex, updatedSection);
+  }
+
   if (DRY_RUN) {
     console.log('[DRY RUN] Would update addresses.ts');
     return;
@@ -364,6 +389,7 @@ async function step4_updateFrontend(hooks) {
   console.log('Updated:', addressesPath);
   console.log(`  v8FHE (${config.chainId}): ${hooks.v8FHE}`);
   console.log(`  v8Mixed (${config.chainId}): ${hooks.v8Mixed}`);
+  console.log(`  PrivateSwapRouter (${config.chainId}): ${hooks.privateSwapRouter}`);
 }
 
 async function step5_verify(hooks, poolIds) {

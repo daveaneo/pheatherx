@@ -44,6 +44,14 @@ export const FHEATHERX_V8_MIXED_ADDRESSES: Record<number, `0x${string}`> = {
   8008135: '0x0000000000000000000000000000000000000000',
 };
 
+// PrivateSwapRouter addresses (for encrypted swap path - partial/full privacy)
+export const PRIVATE_SWAP_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: (process.env.NEXT_PUBLIC_PRIVATE_SWAP_ROUTER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  11155111: '0x0000000000000000000000000000000000000000', // TODO: Deploy to Eth Sepolia
+  421614: '0x0000000000000000000000000000000000000000',   // TODO: Deploy to Arb Sepolia
+  8008135: '0x0000000000000000000000000000000000000000',
+};
+
 // Uniswap v4 Universal Router addresses (for native ERC:ERC swaps)
 export const UNIVERSAL_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_UNIVERSAL_ROUTER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',

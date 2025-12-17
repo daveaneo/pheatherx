@@ -6,11 +6,14 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {InEuint128, InEbool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {FHE, euint128, ebool, InEuint128, InEbool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 /// @title PrivateSwapRouter
 /// @notice Router for executing encrypted swaps through FheatherX v8 hooks
 /// @dev Encodes encrypted parameters into hookData format expected by v8FHE and v8Mixed hooks.
+///      The router converts InEuint128 → euint128 handles to validate signatures,
+///      then passes handles to the hook which wraps them back.
 ///      - v8FHE pools: Full privacy (encrypted direction and amounts)
 ///      - v8Mixed pools: Partial privacy (plaintext direction, encrypted amounts)
 contract PrivateSwapRouter {
@@ -55,7 +58,8 @@ contract PrivateSwapRouter {
 
     /// @notice Execute a fully private encrypted swap (for v8FHE pools)
     /// @dev Direction and amounts are all encrypted for maximum privacy.
-    ///      Requires user to have approved FHERC20 tokens to this router.
+    ///      Converts InEuint128 → euint128 handles (validates signatures here).
+    ///      Requires user to have approved FHERC20 tokens to the HOOK (not router).
     /// @param key The pool key identifying the pool
     /// @param encDirection Encrypted direction (true = zeroForOne)
     /// @param encAmountIn Encrypted input amount
@@ -66,17 +70,33 @@ contract PrivateSwapRouter {
         InEuint128 calldata encAmountIn,
         InEuint128 calldata encMinOutput
     ) external {
-        // Encode hookData: magic + (sender, direction, amountIn, minOutput)
+        // Convert to FHE types here (validates signatures with msg.sender = user)
+        ebool direction = FHE.asEbool(encDirection);
+        euint128 amountIn = FHE.asEuint128(encAmountIn);
+        euint128 minOutput = FHE.asEuint128(encMinOutput);
+
+        // Allow the hook to use these encrypted values
+        FHE.allow(direction, address(key.hooks));
+        FHE.allow(amountIn, address(key.hooks));
+        FHE.allow(minOutput, address(key.hooks));
+
+        // Extract handles (uint256) for encoding
+        uint256 directionHandle = ebool.unwrap(direction);
+        uint256 amountInHandle = euint128.unwrap(amountIn);
+        uint256 minOutputHandle = euint128.unwrap(minOutput);
+
+        // Encode hookData: magic + (sender, directionHandle, amountInHandle, minOutputHandle)
         bytes memory hookData = abi.encodePacked(
             ENCRYPTED_SWAP_MAGIC,
-            abi.encode(msg.sender, encDirection, encAmountIn, encMinOutput)
+            abi.encode(msg.sender, directionHandle, amountInHandle, minOutputHandle)
         );
 
         // Prepare dummy SwapParams - the hook ignores these for encrypted swaps
+        // Use valid price limit to pass PoolManager validation (hook handles actual swap)
         SwapParams memory params = SwapParams({
             zeroForOne: true,  // Dummy - hook uses encrypted direction
             amountSpecified: -1, // Dummy - hook uses encrypted amount
-            sqrtPriceLimitX96: 0
+            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
         });
 
         emit EncryptedSwapInitiated(msg.sender, address(key.hooks));
@@ -107,17 +127,30 @@ contract PrivateSwapRouter {
         InEuint128 calldata encAmountIn,
         InEuint128 calldata encMinOutput
     ) external {
-        // Encode hookData: magic + (sender, zeroForOne, amountIn, minOutput)
+        // Convert to FHE types here (validates signatures with msg.sender = user)
+        euint128 amountIn = FHE.asEuint128(encAmountIn);
+        euint128 minOutput = FHE.asEuint128(encMinOutput);
+
+        // Allow the hook to use these encrypted values
+        FHE.allow(amountIn, address(key.hooks));
+        FHE.allow(minOutput, address(key.hooks));
+
+        // Extract handles (uint256) for encoding
+        uint256 amountInHandle = euint128.unwrap(amountIn);
+        uint256 minOutputHandle = euint128.unwrap(minOutput);
+
+        // Encode hookData: magic + (sender, zeroForOne, amountInHandle, minOutputHandle)
         bytes memory hookData = abi.encodePacked(
             ENCRYPTED_SWAP_MAGIC,
-            abi.encode(msg.sender, zeroForOne, encAmountIn, encMinOutput)
+            abi.encode(msg.sender, zeroForOne, amountInHandle, minOutputHandle)
         );
 
         // Prepare dummy SwapParams - the hook ignores these for encrypted swaps
+        // Use valid price limit to pass PoolManager validation (hook handles actual swap)
         SwapParams memory params = SwapParams({
             zeroForOne: zeroForOne,  // Match for consistency
             amountSpecified: -1,     // Dummy - hook uses encrypted amount
-            sqrtPriceLimitX96: 0
+            sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
         });
 
         emit EncryptedSwapInitiated(msg.sender, address(key.hooks));
