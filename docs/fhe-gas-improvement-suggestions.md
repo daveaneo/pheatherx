@@ -1,216 +1,343 @@
-# FHE Swap Gas Optimization – Consolidated, Iterated Plan
+# FHE Swap Gas Optimization – Verified Implementation Plan
 
-This document provides a single, unified set of optimization recommendations to reduce gas usage in the fully encrypted swap pipeline while preserving full privacy guarantees. The focus is on eliminating structural inefficiencies specific to FHE execution, not cosmetic Solidity tweaks.
+This document provides verified optimization recommendations for reducing gas in the fully encrypted swap pipeline. Each suggestion includes code references, risk assessment, and expected savings.
 
-================================================================
-CORE RULE (MOST IMPORTANT)
-================================================================
+**Current gas**: ~3.06M (testnet) | **Target**: <2.5M (18% reduction)
 
-Call FHE.allowThis(x) ONLY when x:
-- is written to contract storage
-- is passed to an external contract
-- is decrypted, emitted, or otherwise leaves the contract
+---
 
-Intermediates that are only consumed by subsequent FHE operations do NOT require ACL permissions in most Fhenix deployments.
+## Priority 1: Verified Quick Wins (Low Risk, High Impact)
 
-This rule alone removes hundreds of thousands of gas.
+### 1.1 Fix Duplicate FHE.select in `_matchMakerOrdersEncrypted`
 
-================================================================
-1. _executeSwapMath (AMM CORE)
-================================================================
+**Location**: `FheatherXv8FHE.sol` lines 809 and 814
 
-1.1 Remove ACLs on intermediates (SAFE)
+**Bug Found**: These two lines compute the **exact same value**:
+```solidity
+// Line 809
+euint128 actualOutput = FHE.select(shouldApply, outputFromBucket, ENC_ZERO);
+// Line 814
+euint128 liquidityReduction = FHE.select(shouldApply, outputFromBucket, ENC_ZERO);
+```
 
-Remove FHE.allowThis for:
-- amountInAfterFee
-- numerator
-- denominator
-- safeDenominator
-- amountOut (internal-only return)
+**Fix**: Reuse `actualOutput` instead of computing again:
+```solidity
+euint128 actualOutput = FHE.select(shouldApply, outputFromBucket, ENC_ZERO);
+FHE.allowThis(actualOutput);
 
-Keep FHE.allowThis ONLY for:
-- r.encReserve0
-- r.encReserve1 (stored state)
+// Use actualOutput for both purposes
+bucket.liquidity = FHE.sub(bucket.liquidity, actualOutput);  // was liquidityReduction
+```
 
-1.2 Update reserves using amountInAfterFee
+**Savings**: ~133k gas per bucket × up to 5 buckets × 2 directions = **up to 1.33M gas**
+**Risk**: LOW - pure redundancy removal
 
-Current logic credits reserves with amountIn. Instead, credit only amountInAfterFee so the fee remains inside the pool without over-accounting liquidity.
+---
 
-This improves correctness and does not add FHE operations.
+### 1.2 Cache Encrypted Protocol Fee BPS
 
-1.3 Remove safeDenominator guard if invariants hold (BIG WIN)
+**Location**: `FheatherXv8FHE.sol` lines 701-703
 
-The pattern:
-- FHE.gt(denominator, 0)
-- FHE.select(denominator, 1)
+**Current code** (every swap):
+```solidity
+uint256 feeBps = poolStates[poolId].protocolFeeBps;
+euint128 encFeeBps = FHE.asEuint128(uint128(feeBps));  // 93k gas!
+FHE.allowThis(encFeeBps);  // 26k gas
+```
 
-Costs ~250k gas per swap.
+**Fix**: Store encrypted fee in pool state, update only when fee changes:
+```solidity
+// In PoolState struct, add:
+euint128 encProtocolFeeBps;
 
-If you can enforce BOTH:
-- pool reserves are never zero after initialization
-- zero-input swaps are rejected in plaintext before entering FHE
+// In setProtocolFee():
+state.encProtocolFeeBps = FHE.asEuint128(uint128(feeBps));
+FHE.allowThis(state.encProtocolFeeBps);
 
-Then divide directly by denominator and delete the guard entirely.
+// In swap, just use:
+euint128 encFeeBps = state.encProtocolFeeBps;
+```
 
-================================================================
-2. Maker Matching (_matchMakerOrdersEncrypted)
-================================================================
+**Savings**: ~119k gas per swap (93k + 26k ACL)
+**Risk**: LOW - fee changes are rare
 
-2.1 Cache encrypted tick prices (HUGE)
+---
 
-Calling FHE.asEuint128(calculateTickPrice(tick)) inside loops is extremely expensive (~92k gas each time).
+### 1.3 Skip Maker Matching When Bitmaps Are Empty
 
-Tick price depends ONLY on plaintext tick, so cache it once:
+**Location**: `FheatherXv8FHE.sol` lines 622-630
 
-- mapping(PoolId => mapping(int24 => euint128)) encTickPriceCache
-- mapping(PoolId => mapping(int24 => bool)) encTickPriceCached
+**Current code** (always runs):
+```solidity
+(euint128 remainderIfZeroForOne, euint128 makerOutputIfZeroForOne) =
+    _matchMakerOrdersEncrypted(poolId, true, amountIn, startTick, direction);
+(euint128 remainderIfOneForZero, euint128 makerOutputIfOneForZero) =
+    _matchMakerOrdersEncrypted(poolId, false, amountIn, startTick, direction);
+```
 
-On first use:
-- encrypt tick price
-- allowThis once
-- store
+**Fix**: Check plaintext bitmaps first:
+```solidity
+bool hasBuyOrders = _hasAnyBits(buyBitmaps[poolId]);
+bool hasSellOrders = _hasAnyBits(sellBitmaps[poolId]);
 
-On subsequent swaps:
-- reuse cached encrypted value
+euint128 userRemainder;
+euint128 outputFromMakers;
 
-This is one of the largest remaining wins once ACL spam is removed.
+if (!hasBuyOrders && !hasSellOrders) {
+    // Fast path: no orders exist
+    userRemainder = amountIn;
+    outputFromMakers = ENC_ZERO;
+} else {
+    // Existing logic
+    ...
+}
+```
 
-2.2 Eliminate redundant selects
+**Savings**: ~500-600k gas when no orders exist (common case)
+**Risk**: LOW - bitmaps are already plaintext, no privacy leak
+**Privacy note**: Order book emptiness is already observable from bitmap state
 
-You currently compute multiple conditional values derived from the same condition (shouldApply). Example:
-- actualOutput
-- liquidityReduction
+---
 
-If two values are identical under the same condition, compute once and reuse.
+### 1.4 Compute `not(direction)` Once
 
-Every removed FHE.select saves ~133k gas.
+**Location**: Multiple places compute `FHE.not(direction)`
 
-2.3 Purge ACLs inside loops
+**Current code**: Computed in `_matchMakerOrdersEncrypted` line 773:
+```solidity
+ebool shouldApply = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
+```
 
-Inside maker loops, remove allowThis from:
-- fill
-- outputFromBucket
-- remainder
-- userOutput
-- capacity
-- encTickPrice (if cached and stored)
+**Fix**: Compute once at swap entry, pass both:
+```solidity
+// At start of _executeEncryptedSwap:
+ebool notDirection = FHE.not(direction);
+FHE.allowThis(notDirection);
 
-Keep allowThis ONLY on:
-- bucket.liquidity (stored)
-- values passed to external bucket accounting helpers
+// Pass both to subroutines
+_matchMakerOrdersEncrypted(poolId, true, amountIn, startTick, direction, notDirection);
+```
 
-================================================================
-3. Plaintext Short-Circuiting (CRITICAL)
-================================================================
+**Savings**: ~77k gas (one less FHE.not per swap)
+**Risk**: LOW - simple refactor
 
-3.1 Skip maker matching when plaintext bitmaps are empty
+---
 
-If both BUY and SELL maker bitmaps are zero:
-- skip both calls to _matchMakerOrdersEncrypted
-- set userRemainder = amountIn
-- set outputFromMakers = ENC_ZERO
+## Priority 2: ACL Optimization (Medium Risk)
 
-This leaks no new information (bitmaps are already plaintext) and saves ~500–600k gas per swap in the common case.
+### 2.1 Core ACL Rule
 
-3.2 Apply the same idea to taker momentum
+**When `FHE.allowThis()` is required**:
+- Value is written to storage
+- Value is passed to external contract (FHERC20 transfers)
+- Value is decrypted or emitted
 
-If plaintext momentum discovery finds no taker buckets:
-- skip _sumTakerBucketsEncrypted
-- skip _allocateTakerOutputEncrypted
+**When `FHE.allowThis()` is NOT required**:
+- Intermediate values consumed by subsequent FHE operations
+- Values that stay within the same contract function
 
-This saves ~200k+ gas in common empty-book scenarios.
+### 2.2 Safe ACL Removals in `_executeSwapMath`
 
-================================================================
-4. Direction Handling
-================================================================
+**Location**: `FheatherXv8FHE.sol` lines 522-556
 
-4.1 Compute not(direction) once
+**Current code**:
+```solidity
+euint128 feeAmount = FHE.div(FHE.mul(amountIn, ENC_SWAP_FEE_BPS), ENC_TEN_THOUSAND);
+euint128 amountInAfterFee = FHE.sub(amountIn, feeAmount);
+FHE.allowThis(amountInAfterFee);  // REMOVE - intermediate only
+...
+FHE.allowThis(safeDenominator);  // REMOVE - intermediate only
+...
+FHE.allowThis(amountOut);  // KEEP if returned, REMOVE if only used internally
+```
 
-FHE.not costs ~77k gas. You currently recompute it in multiple functions.
+**Safe to remove**:
+- `amountInAfterFee` - only used in next FHE ops
+- `safeDenominator` - only used in division
+- `numerator`, `denominator` - never stored
 
-Compute once at the top level:
-- notDirection = FHE.not(direction)
-- allowThis(notDirection)
+**Must keep**:
+- `r.encReserve0`, `r.encReserve1` - stored to state
 
-Pass both direction and notDirection into subroutines.
+**Savings**: ~78k gas (3 × 26k)
+**Risk**: MEDIUM - requires testing on real Fhenix to confirm ACL semantics
 
-4.2 Reduce paired selects where algebra allows
+---
 
-Example pattern:
-- token0 = select(dir, x, 0)
-- token1 = select(dir, 0, x)
+### 2.3 Safe ACL Removals in Maker Loop
 
-Replace with:
-- token0 = select(dir, x, 0)
-- token1 = x - token0
+**Location**: `FheatherXv8FHE.sol` lines 790-826
 
-This removes one select at the cost of one sub, saving ~15–20k gas per occurrence.
+**Current code** (per bucket):
+```solidity
+FHE.allowThis(encTickPrice);   // MAYBE REMOVE if using cache
+FHE.allowThis(capacity);       // REMOVE - intermediate
+FHE.allowThis(fill);           // REMOVE - intermediate
+FHE.allowThis(outputFromBucket);  // REMOVE - intermediate
+FHE.allowThis(actualFill);     // REMOVE - intermediate
+FHE.allowThis(actualOutput);   // REMOVE - used for liquidityReduction
+FHE.allowThis(liquidityReduction);  // REMOVE after fix 1.1
+FHE.allowThis(bucket.liquidity);   // KEEP - stored
+FHE.allowThis(remainder);      // KEEP if returned
+FHE.allowThis(userOutput);     // KEEP if returned
+```
 
-Not a huge win alone, but stacks across transfers and fees.
+**Savings**: Up to ~156k gas per bucket (6 × 26k)
+**Risk**: MEDIUM - test on real Fhenix
 
-================================================================
-5. Protocol Fee Path
-================================================================
+---
 
-5.1 Cache encrypted protocol fee BPS
+## Priority 3: Algorithmic Improvements (Higher Risk)
 
-Instead of encrypting feeBps on every swap:
-- store encProtocolFeeBps in PoolState
-- update it only when the fee changes
-- allowThis once at update time
+### 3.1 Cache Encrypted Tick Prices
 
-This removes ~90k gas per swap.
+**Location**: `FheatherXv8FHE.sol` line 790
 
-5.2 Remove ACLs on fee intermediates
+**Current code** (in loop):
+```solidity
+euint128 encTickPrice = FHE.asEuint128(uint128(FheatherMath.calculateTickPrice(nextTick)));
+FHE.allowThis(encTickPrice);
+```
 
-Remove allowThis from:
-- feeNumerator
-- fee
-- outputAfterFee
+**Issue**: Tick price is deterministic - same tick always = same price. No need to re-encrypt.
 
-Keep allowThis ONLY for:
-- finalOutput
-- finalFee (passed to external token transfers)
+**Fix**: Add price cache:
+```solidity
+// New storage
+mapping(int24 => euint128) internal encTickPriceCache;
+mapping(int24 => bool) internal tickPriceCached;
 
-================================================================
-6. Transfers
-================================================================
+// Helper function
+function _getEncTickPrice(int24 tick) internal returns (euint128) {
+    if (!tickPriceCached[tick]) {
+        encTickPriceCache[tick] = FHE.asEuint128(uint128(FheatherMath.calculateTickPrice(tick)));
+        FHE.allowThis(encTickPriceCache[tick]);
+        tickPriceCached[tick] = true;
+    }
+    return encTickPriceCache[tick];
+}
+```
 
-6.1 Keep ACLs only where required
+**Savings**: ~119k gas per cache hit (93k encrypt + 26k ACL)
+**Risk**: MEDIUM - adds storage, but prices never change
+**Note**: First swap at each tick pays encryption cost, subsequent swaps are free
 
-For transfers:
-- allowThis only for amounts passed to IFHERC20 calls
-- do not allow intermediates that never leave the contract
+---
 
-6.2 (Optional, Large) Batch token transfers if FHERC20 supports it
+### 3.2 Remove Safe Denominator Guard
 
-If the token interface can accept both token0 and token1 amounts in one call:
-- replace two encrypted transfers with one
-- large gas reduction
+**Location**: `FheatherXv8FHE.sol` lines 539-544
 
-If not supported, ignore.
+**Current code**:
+```solidity
+euint128 safeDenominator = FHE.select(
+    FHE.gt(denominator, ENC_ZERO),
+    denominator,
+    ENC_ONE
+);
+```
 
-================================================================
-EXPECTED RESULTS (CONSERVATIVE)
-================================================================
+**This costs**: ~246k gas (gt: 113k + select: 133k)
 
-- ACL purge:            ~400k–700k gas
-- Tick price caching:   massive with deep books
-- Skip empty maker:     ~500k–600k gas
-- Skip empty takers:    ~200k+ gas
-- Remove safety guard:  ~250k gas
-- Fee caching:          ~90k gas
-- Select reductions:    incremental
+**Condition for removal**:
+1. Pool reserves are NEVER zero after initialization
+2. Zero-input swaps are rejected before FHE
 
-Common-case swaps (no orders, shallow books) should land near or below ~1.7–2.0M gas, with worst-case still materially lower than current.
+**If both hold**, remove the guard entirely:
+```solidity
+amountOut = FHE.div(numerator, denominator);  // Direct divide
+```
 
-================================================================
-FINAL NOTE
-================================================================
+**Savings**: ~246k gas
+**Risk**: HIGH - division by zero if invariants violated
+**Recommendation**: Add require check for zero input BEFORE FHE operations
 
-If Fhenix ACL semantics REQUIRE permission even for ciphertext-to-ciphertext ops, narrow the ACL purge to:
-- loop intermediates
-- duplicated values
-- cached constants
+---
 
-If ACL is only required for storage/external boundaries, the above plan is close to optimal without protocol-level changes.
+### 3.3 Reduce Paired Selects with Algebra
+
+**Location**: Various (transfers, reserve updates)
+
+**Current pattern**:
+```solidity
+euint128 token0Amount = FHE.select(direction, amountIn, ENC_ZERO);
+euint128 token1Amount = FHE.select(direction, ENC_ZERO, amountIn);
+```
+
+**Alternative pattern**:
+```solidity
+euint128 token0Amount = FHE.select(direction, amountIn, ENC_ZERO);
+euint128 token1Amount = FHE.sub(amountIn, token0Amount);
+```
+
+**Savings**: ~18k gas per occurrence (133k select - 115k sub)
+**Risk**: LOW - mathematically equivalent
+**Occurrences**: ~4 places in swap = ~72k gas
+
+---
+
+## Priority 4: Structural Changes (High Effort)
+
+### 4.1 Use `amountInAfterFee` for Reserve Updates
+
+**Location**: `FheatherXv8FHE.sol` lines 549-550
+
+**Current code**:
+```solidity
+euint128 newReserveIn = FHE.add(reserveIn, amountIn);  // Uses full amount
+```
+
+**Issue**: This credits reserves with the full input including fee. The fee should stay in the pool but this over-accounts liquidity.
+
+**Fix**:
+```solidity
+euint128 newReserveIn = FHE.add(reserveIn, amountInAfterFee);  // Correct accounting
+```
+
+**Savings**: None (same ops)
+**Risk**: LOW - improves correctness
+**Benefit**: More accurate reserve tracking
+
+---
+
+## Expected Savings Summary
+
+| Optimization | Savings | Risk | Effort |
+|-------------|---------|------|--------|
+| 1.1 Fix duplicate select | 133k-1.33M | LOW | 5 min |
+| 1.2 Cache protocol fee | 119k | LOW | 15 min |
+| 1.3 Skip empty makers | 500-600k | LOW | 30 min |
+| 1.4 Compute not(dir) once | 77k | LOW | 10 min |
+| 2.2 ACL in swapMath | 78k | MEDIUM | 20 min |
+| 2.3 ACL in maker loop | 156k/bucket | MEDIUM | 30 min |
+| 3.1 Cache tick prices | 119k/hit | MEDIUM | 1 hr |
+| 3.2 Remove safe guard | 246k | HIGH | 15 min |
+| 3.3 Select algebra | 72k | LOW | 30 min |
+
+**Conservative estimate (low-risk only)**: ~800k-1.9M gas saved
+**Optimistic estimate (all changes)**: ~1.5M-2.5M gas saved
+
+**Target**: Reduce from 3.06M to <2.5M is achievable with Priority 1 changes alone.
+
+---
+
+## Implementation Order
+
+1. **Fix 1.1** (duplicate select bug) - Immediate, obvious win
+2. **Fix 1.2** (cache fee BPS) - Quick, safe
+3. **Fix 1.3** (skip empty makers) - Biggest single win
+4. **Fix 1.4** (not(direction) once) - Simple refactor
+5. **Test on local mock** to verify savings
+6. **Fix 3.3** (select algebra) - Low risk, moderate win
+7. **Fix 2.2-2.3** (ACL removals) - After confirming Fhenix ACL requirements
+8. **Fix 3.1** (tick price cache) - If deep order books are common
+9. **Fix 3.2** (remove guard) - Only if invariants are provably safe
+
+---
+
+## Testing Strategy
+
+1. Run `LocalFHEIntegration.t.sol` to measure mock gas before/after
+2. Deploy to Arb Sepolia fork and verify real gas savings
+3. Run E2E tests to ensure correctness
+4. Monitor for any ACL-related errors on real Fhenix
