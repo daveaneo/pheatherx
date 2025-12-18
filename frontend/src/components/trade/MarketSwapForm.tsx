@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Input, TransactionModal } from '@/components/ui';
-import { ArrowDownUp, Loader2, Plus, Minus, Lock } from 'lucide-react';
+import { ArrowDownUp, Loader2, Lock } from 'lucide-react';
 import { useSwap } from '@/hooks/useSwap';
 import { useSelectedPool } from '@/stores/poolStore';
 import { useTransactionModal } from '@/hooks/useTransactionModal';
@@ -109,25 +109,6 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
     setSellAmount(trimmed);
   };
 
-  // Smart increment based on current value
-  const getIncrement = () => {
-    const current = parseFloat(sellAmount) || 0;
-    if (current < 0.1) return 0.01;
-    if (current < 1) return 0.1;
-    if (current < 10) return 1;
-    if (current < 100) return 10;
-    return 100;
-  };
-
-  // Adjust amount by delta
-  const adjustAmount = (delta: number) => {
-    const current = parseFloat(sellAmount) || 0;
-    const newAmount = Math.max(0, current + delta);
-    // Format to avoid floating point issues
-    const formatted = newAmount.toFixed(6).replace(/\.?0+$/, '');
-    setSellAmount(formatted);
-  };
-
   const handleSwap = async () => {
     if (!sellAmount || parseFloat(sellAmount) === 0) return;
     if (!token0 || !token1 || !hookAddress) return;
@@ -209,39 +190,19 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
             } {sellToken}
           </span>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => adjustAmount(-getIncrement())}
-            className="p-2.5 bg-ash-gray/50 hover:bg-ash-gray rounded-l transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={isSwapping || parseFloat(sellAmount || '0') <= 0}
-            title={`Decrease by ${getIncrement()}`}
-          >
-            <Minus className="w-4 h-4" />
-          </button>
-          <div className="relative flex-1">
-            <Input
-              type="number"
-              placeholder="0.0"
-              value={sellAmount}
-              onChange={(e) => setSellAmount(e.target.value)}
-              className="pr-24 text-lg text-left pl-4 rounded-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              disabled={isSwapping}
-              data-testid="sell-amount-input"
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-feather-white/60 font-medium">
-              {sellToken}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => adjustAmount(getIncrement())}
-            className="p-2.5 bg-ash-gray/50 hover:bg-ash-gray rounded-r transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        <div className="relative">
+          <Input
+            type="number"
+            placeholder="0.0"
+            value={sellAmount}
+            onChange={(e) => setSellAmount(e.target.value)}
+            className="pr-24 text-lg text-left pl-4 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             disabled={isSwapping}
-            title={`Increase by ${getIncrement()}`}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
+            data-testid="sell-amount-input"
+          />
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-feather-white/60 font-medium">
+            {sellToken}
+          </span>
         </div>
         <div className="flex gap-1 mt-1">
           {[25, 50, 75, 100].map((pct) => (

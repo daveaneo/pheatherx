@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAccount, useChainId, usePublicClient } from 'wagmi';
 import { useFheSession } from './useFheSession';
 import { useFheStore } from '@/stores/fheStore';
@@ -15,6 +15,11 @@ interface PoolBalance {
   hookAddress: `0x${string}`;
   isToken0: boolean;
   decryptedValue: bigint | null;
+}
+
+interface UseAggregatedBalanceRevealOptions {
+  /** If true, automatically reveal when FHE session becomes ready */
+  autoReveal?: boolean;
 }
 
 interface UseAggregatedBalanceRevealResult {
@@ -34,10 +39,16 @@ interface UseAggregatedBalanceRevealResult {
  *
  * For each pool where the token appears as token0 or token1, queries the
  * corresponding getUserBalanceToken0/1 function, decrypts, and sums.
+ *
+ * @param tokenAddress - The token address to reveal balance for
+ * @param options - Optional configuration
+ * @param options.autoReveal - If true, automatically reveal when FHE session is ready (default: false)
  */
 export function useAggregatedBalanceReveal(
-  tokenAddress: `0x${string}`
+  tokenAddress: `0x${string}`,
+  options?: UseAggregatedBalanceRevealOptions
 ): UseAggregatedBalanceRevealResult {
+  const { autoReveal = false } = options ?? {};
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
@@ -51,6 +62,9 @@ export function useAggregatedBalanceReveal(
   const [poolBalances, setPoolBalances] = useState<PoolBalance[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+
+  // Track if auto-reveal has been attempted to prevent loops
+  const hasAttemptedAutoReveal = useRef(false);
 
   // Find all pools where this token appears
   const relevantPools = useMemo(() => {
@@ -76,6 +90,18 @@ export function useAggregatedBalanceReveal(
       setStatus('revealed');
     }
   }, [cacheKey, getCachedBalance]);
+
+  // Auto-reveal when FHE session becomes ready (if enabled)
+  useEffect(() => {
+    if (!autoReveal) return;
+    if (status !== 'idle') return; // Already revealing or revealed
+    if (hasAttemptedAutoReveal.current) return; // Already attempted
+    if (!isReady && !isMock) return; // Session not ready
+
+    // Trigger auto-reveal
+    hasAttemptedAutoReveal.current = true;
+    reveal();
+  }, [autoReveal, status, isReady, isMock]); // reveal intentionally not in deps to avoid loops
 
   const reveal = useCallback(async () => {
     if (!address || !publicClient) {

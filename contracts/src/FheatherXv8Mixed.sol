@@ -1,6 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+// ═══════════════════════════════════════════════════════════════════════════
+//
+//  ██████╗ ███████╗██████╗ ██████╗ ███████╗ ██████╗ █████╗ ████████╗███████╗██████╗
+//  ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔════╝██╔══██╗╚══██╔══╝██╔════╝██╔══██╗
+//  ██║  ██║█████╗  ██████╔╝██████╔╝█████╗  ██║     ███████║   ██║   █████╗  ██║  ██║
+//  ██║  ██║██╔══╝  ██╔═══╝ ██╔══██╗██╔══╝  ██║     ██╔══██║   ██║   ██╔══╝  ██║  ██║
+//  ██████╔╝███████╗██║     ██║  ██║███████╗╚██████╗██║  ██║   ██║   ███████╗██████╔╝
+//  ╚═════╝ ╚══════╝╚═╝     ╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═════╝
+//
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// WARNING: This contract is DEPRECATED and should NOT be used for new deployments.
+//
+// DEPRECATION NOTICE:
+// - Date: December 2024
+// - Replacement: Use FheVault + FheatherXv8FHE (pure FHERC20:FHERC20 pools)
+// - Reason: Complex ERC20/FHERC20 mixing causes architectural issues with async decryption
+//
+// MIGRATION GUIDE:
+// 1. For ERC20 tokens, wrap them to FHERC20 using FheVault.wrap()
+// 2. Use FheatherXv8FHE for all pools (now pure FHERC20:FHERC20)
+// 3. When withdrawing to ERC20, use FheVault.unwrap() with async claims
+//
+// Existing v8Mixed positions can still be used but new integrations should use
+// the FheVault architecture for better maintainability and simpler code paths.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+
 import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -24,6 +52,7 @@ import {BucketLib} from "./lib/BucketLib.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 /// @title FheatherX v8 Mixed - FHERC20:ERC20 and ERC20:FHERC20 Pools
+/// @custom:deprecated Use FheVault + FheatherXv8FHE instead
 /// @author FheatherX Team
 /// @notice Uniswap v4 Hook implementing encrypted AMM with momentum-triggered limit orders for mixed token pairs
 /// @dev This contract handles pools where exactly ONE token is FHERC20 (mixed pairs).

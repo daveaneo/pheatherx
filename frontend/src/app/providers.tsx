@@ -8,6 +8,7 @@ import { config, testConfig, isTestMode } from '@/lib/wagmiConfig';
 import { PoolProvider } from '@/components/providers/PoolProvider';
 import { FheAutoInitProvider } from '@/components/providers/FheAutoInitProvider';
 import { WalletAutoConnect } from '@/components/common/WalletAutoConnect';
+import { ChainPersistence } from '@/components/common/ChainPersistence';
 import { DevWalletPanel } from '@/components/common/DevWalletPanel';
 
 import '@rainbow-me/rainbowkit/styles.css';
@@ -77,6 +78,8 @@ export function Providers({ children }: ProvidersProps) {
           {testModeEnabled && <TestWalletAutoConnect />}
           {/* Auto-open wallet modal on dApp pages if not connected */}
           {!testModeEnabled && <WalletAutoConnect />}
+          {/* Persist chain selection across navigations */}
+          {!testModeEnabled && <ChainPersistence />}
           <FheAutoInitProvider>
             <PoolProvider>
               {children}

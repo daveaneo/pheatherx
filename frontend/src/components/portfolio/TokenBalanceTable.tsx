@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAccount, useBalance, useChainId, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
 import { Wallet, Lock, Loader2, Droplets, Copy, Check } from 'lucide-react';
@@ -122,6 +122,9 @@ function WalletFherc20Token({ token }: WalletFherc20TokenProps) {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  // Track if auto-reveal has been attempted to prevent loops
+  const hasAttemptedAutoReveal = useRef(false);
+
   const { unseal, isReady, isMock } = useFheSession();
   const { cacheBalance, getCachedBalance } = useFheStore();
 
@@ -233,6 +236,17 @@ function WalletFherc20Token({ token }: WalletFherc20TokenProps) {
     setError(null);
   }, []);
 
+  // Auto-reveal when FHE session becomes ready
+  useEffect(() => {
+    if (status !== 'idle') return; // Already revealing or revealed
+    if (hasAttemptedAutoReveal.current) return; // Already attempted
+    if (!isReady && !isMock) return; // Session not ready
+
+    // Trigger auto-reveal
+    hasAttemptedAutoReveal.current = true;
+    reveal();
+  }, [status, isReady, isMock]); // reveal intentionally not in deps to avoid loops
+
   const formattedBalance = revealedBalance !== null
     ? Number(formatUnits(revealedBalance, token.decimals)).toLocaleString(undefined, {
         maximumFractionDigits: token.symbol.includes('USDC') ? 2 : 4,
@@ -320,7 +334,7 @@ function FheatherXToken({ token }: FheatherXTokenProps) {
     hide,
     isRevealing,
     isRevealed,
-  } = useAggregatedBalanceReveal(token.address);
+  } = useAggregatedBalanceReveal(token.address, { autoReveal: true });
 
   const formattedBalance = totalBalance !== null
     ? Number(formatUnits(totalBalance, token.decimals)).toLocaleString(undefined, {
