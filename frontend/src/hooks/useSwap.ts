@@ -132,7 +132,7 @@ export function useSwap(): UseSwapResult {
   }, []);
 
   /**
-   * Check and approve token spending for the hook
+   * Check and approve token spending for the hook (ERC20 approve)
    */
   const checkAndApproveToken = useCallback(async (
     tokenAddress: `0x${string}`,
@@ -171,6 +171,78 @@ export function useSwap(): UseSwapResult {
       updateTransaction(approveHash, { status: 'confirmed' });
     }
   }, [address, publicClient, writeContractAsync, chainId, addTransaction, updateTransaction]);
+
+  /**
+   * Check and approve encrypted token spending for FHERC20 tokens
+   * Required for v8fhe pools where hook calls _transferFromEncrypted()
+   */
+  const checkAndApproveEncrypted = useCallback(async (
+    tokenAddress: `0x${string}`,
+    spender: `0x${string}`,
+    _amount: bigint
+  ): Promise<void> => {
+    if (!address || !publicClient) return;
+
+    // For encrypted approvals, we approve max uint128 to avoid repeated approvals
+    // The encrypted allowance is checked on-chain during _transferFromEncrypted()
+    setStep('approving');
+    debugLog('Approving encrypted token', { tokenAddress, spender });
+
+    // Encrypt max uint128 for approval
+    const maxU128 = BigInt('340282366920938463463374607431768211455'); // type(uint128).max
+
+    let encApproval: InEuint128;
+    if (fheMock) {
+      encApproval = {
+        ctHash: maxU128,
+        securityZone: 0,
+        utype: FHE_TYPES.EUINT128,
+        signature: '0x' as `0x${string}`,
+      };
+    } else {
+      if (!encrypt || !fheReady) {
+        throw new Error('FHE session not ready for encrypted approval');
+      }
+      encApproval = await encrypt(maxU128);
+    }
+
+    // FHERC20 ABI for approveEncrypted
+    const FHERC20_APPROVE_ABI = [
+      {
+        name: 'approveEncrypted',
+        type: 'function',
+        stateMutability: 'nonpayable',
+        inputs: [
+          { name: 'spender', type: 'address' },
+          { name: 'amount', type: 'tuple', components: [
+            { name: 'ctHash', type: 'uint256' },
+            { name: 'securityZone', type: 'uint8' },
+            { name: 'utype', type: 'uint8' },
+            { name: 'signature', type: 'bytes' },
+          ]},
+        ],
+        outputs: [{ type: 'bool' }],
+      },
+    ] as const;
+
+    const approveHash = await writeContractAsync({
+      address: tokenAddress,
+      abi: FHERC20_APPROVE_ABI,
+      functionName: 'approveEncrypted',
+      args: [spender, encApproval],
+      chainId,
+      gas: 1000000n, // Encrypted approvals need more gas
+    });
+
+    addTransaction({
+      hash: approveHash,
+      type: 'approve',
+      description: 'Approve encrypted token for swap',
+    });
+
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+    updateTransaction(approveHash, { status: 'confirmed' });
+  }, [address, publicClient, writeContractAsync, chainId, addTransaction, updateTransaction, encrypt, fheReady, fheMock]);
 
   /**
    * Get ABI based on contract type
@@ -615,7 +687,15 @@ export function useSwap(): UseSwapResult {
     try {
       // Approve tokens to the HOOK (not router) - hook handles transfers
       const tokenIn = zeroForOne ? token0.address : token1.address;
-      await checkAndApproveToken(tokenIn, hookAddress, amountIn);
+
+      // v8fhe pools REQUIRE encrypted approvals for _transferFromEncrypted()
+      // v8mixed may use regular approvals depending on token type
+      if (contractType === 'v8fhe') {
+        debugLog('swapPrivate (v8fhe): using encrypted approval');
+        await checkAndApproveEncrypted(tokenIn, hookAddress, amountIn);
+      } else {
+        await checkAndApproveToken(tokenIn, hookAddress, amountIn);
+      }
 
       setStep('encrypting');
       debugLog('Encrypting swap parameters for private swap');
@@ -718,7 +798,7 @@ export function useSwap(): UseSwapResult {
       errorToast('Private swap failed', message);
       throw err;
     }
-  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, encrypt, encryptBool, fheReady, fheMock, contractType, privateSwapRouterAddress, addTransaction, updateTransaction, successToast, errorToast]);
+  }, [address, hookAddress, publicClient, token0, token1, writeContractAsync, chainId, checkAndApproveToken, checkAndApproveEncrypted, encrypt, encryptBool, fheReady, fheMock, contractType, privateSwapRouterAddress, addTransaction, updateTransaction, successToast, errorToast]);
 
   /**
    * Router-based swap (legacy, uses V4 PoolSwapTest router)

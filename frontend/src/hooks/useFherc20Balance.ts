@@ -151,10 +151,29 @@ export function useFherc20Balance(
 
       // Unseal (decrypt) the balance
       const handleHex = `0x${handleBigInt.toString(16)}`;
-      const decrypted = await unseal(handleHex, FHE_RETRY_ATTEMPTS);
+      console.log(`[useFherc20Balance] Unsealing ${token.symbol} balance for ${userAddress?.slice(0, 8)}...`, {
+        handle: handleHex,
+        token: token.address,
+      });
 
-      setBalance(decrypted);
-      if (cacheKey) cacheBalance(cacheKey, decrypted);
+      try {
+        const decrypted = await unseal(handleHex, FHE_RETRY_ATTEMPTS);
+        setBalance(decrypted);
+        if (cacheKey) cacheBalance(cacheKey, decrypted);
+      } catch (unsealError) {
+        // If CoFHE can't find the ciphertext, it may be stale or from wrong network
+        const errorMsg = unsealError instanceof Error ? unsealError.message : String(unsealError);
+        if (errorMsg.includes('not yet available') || errorMsg.includes('sealed data not found')) {
+          console.warn(`[useFherc20Balance] CoFHE cannot unseal ${token.symbol} - ciphertext not found on CoFHE network`);
+          console.warn(`[useFherc20Balance] Handle: ${handleHex} - this may be an orphaned ciphertext`);
+          // Cache this as "unknown" to prevent repeated failed requests
+          // Show balance as "?" in UI rather than 0 (which would be misleading)
+          setBalance(null);
+          setError(`${token.symbol} balance cannot be revealed - encrypted data not found on CoFHE. You may need to re-wrap tokens.`);
+          return; // Don't throw - we've handled it
+        }
+        throw unsealError;
+      }
     } catch (err) {
       console.error('[useFherc20Balance] Reveal failed:', err);
       setError(err instanceof Error ? err.message : 'Failed to reveal balance');
@@ -191,6 +210,7 @@ export function useFherc20Balance(
     if (!isFherc20 || !token || !userAddress) return;
     if (balance !== null) return; // Already revealed
     if (hasAttemptedRef.current) return; // Already attempted
+    if (error) return; // Already failed - don't retry automatically
     if (!isReady && !isMock) return; // Session not ready
     if (!encryptedQuerySuccess && !isMock) return; // Wait for initial query to complete
 
@@ -206,7 +226,7 @@ export function useFherc20Balance(
     // Auto-reveal
     hasAttemptedRef.current = true;
     reveal();
-  }, [isFherc20, token, userAddress, isReady, isMock, balance, cacheKey, getCachedBalance, reveal, encryptedQuerySuccess]);
+  }, [isFherc20, token, userAddress, isReady, isMock, balance, error, cacheKey, getCachedBalance, reveal, encryptedQuerySuccess]);
 
   return {
     balance: isFherc20 ? balance : null,

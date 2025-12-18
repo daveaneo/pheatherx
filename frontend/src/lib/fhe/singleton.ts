@@ -297,11 +297,25 @@ export async function unseal(ciphertext: string, maxRetries: number = 3): Promis
       return BigInt(unsealed.toString());
     } catch (error) {
       lastError = error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isSealedDataNotFound = errorMessage.includes('sealed data not found');
+
       console.warn(`FHE unseal attempt ${attempt}/${maxRetries} failed:`, error);
+
       if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+        // Use longer delays for "sealed data not found" - CoFHE may still be processing
+        const baseDelay = isSealedDataNotFound ? 2000 : 1000;
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.log(`[FHE] Retrying in ${delay}ms...${isSealedDataNotFound ? ' (waiting for CoFHE to process ciphertext)' : ''}`);
+        await new Promise(r => setTimeout(r, delay));
       }
     }
+  }
+
+  // Provide more helpful error message for common issues
+  const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+  if (errorMessage.includes('sealed data not found')) {
+    throw new Error('Ciphertext not yet available on CoFHE - try refreshing in a few seconds');
   }
   throw new Error(`Failed to decrypt after ${maxRetries} attempts`);
 }

@@ -153,6 +153,11 @@ export function MarketSwapForm({ currentPrice, zeroForOne, onFlipDirection, onSw
         // For FHE tokens, use encrypted balance refresh; for ERC20, use standard refetch
         if (isFheFhePool) {
           // Both tokens are FHERC20
+          // Wait for CoFHE to process the new ciphertext before unsealing
+          // The on-chain tx is confirmed, but CoFHE needs time to index the new encrypted values
+          console.log('[MarketSwapForm] Waiting 3s for CoFHE to process new ciphertext...');
+          await new Promise(r => setTimeout(r, 3000));
+          console.log('[MarketSwapForm] Refreshing encrypted balances...');
           refreshSellEncrypted?.();
           refreshBuyEncrypted?.();
         } else {
