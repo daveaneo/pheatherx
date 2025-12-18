@@ -25,7 +25,12 @@ const RPC_URL = 'https://sepolia-rollup.arbitrum.io/rpc';
 const CHAIN_ID = 421614;
 
 // Dev wallet private key from .env
-const PRIVATE_KEY = '0xc8b6da05290c267f6917e4da157083ff3773a2414eec3b8920596fed00e9ce7b';
+const PRIVATE_KEY = process.env.TEST_PRIVATE_KEY;
+if (!PRIVATE_KEY) {
+  console.error('ERROR: TEST_PRIVATE_KEY environment variable not set');
+  console.error('Usage: TEST_PRIVATE_KEY=0x... node scripts/e2e-limit-order-trigger-test.mjs');
+  process.exit(1);
+}
 
 // FHE API on dev server
 const FHE_API_URL = 'http://localhost:3000/api/fhe';
