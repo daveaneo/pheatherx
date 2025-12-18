@@ -3,11 +3,13 @@ pragma solidity ^0.8.26;
 
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {FHE, euint128, ebool, InEuint128, InEbool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 /// @title PrivateSwapRouter
 /// @notice Router for executing encrypted swaps through FheatherX v8 hooks
@@ -17,6 +19,9 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 ///      - v8FHE pools: Full privacy (encrypted direction and amounts)
 ///      - v8Mixed pools: Partial privacy (plaintext direction, encrypted amounts)
 contract PrivateSwapRouter {
+    using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
+
     // ═══════════════════════════════════════════════════════════════════════
     //                              CONSTANTS
     // ═══════════════════════════════════════════════════════════════════════
@@ -91,12 +96,29 @@ contract PrivateSwapRouter {
             abi.encode(msg.sender, directionHandle, amountInHandle, minOutputHandle)
         );
 
-        // Prepare dummy SwapParams - the hook ignores these for encrypted swaps
-        // Use valid price limit to pass PoolManager validation (hook handles actual swap)
+        // Query current pool price to determine valid swap direction
+        // The hook handles the actual encrypted swap, but PoolManager validates price limits
+        // before calling the hook. We must use valid limits to pass validation.
+        PoolId poolId = key.toId();
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+
+        // Choose dummy direction and limit that won't trigger PriceLimitAlreadyExceeded:
+        // - For zeroForOne=true: limit must be < current price (selling token0 pushes price down)
+        // - For zeroForOne=false: limit must be > current price (selling token1 pushes price up)
+        //
+        // To maximize validity regardless of current price:
+        // - If current price is in the upper half (closer to MAX), use zeroForOne=true with MIN limit
+        // - If current price is in the lower half (closer to MIN), use zeroForOne=false with MAX limit
+        uint160 midPrice = (TickMath.MAX_SQRT_PRICE / 2) + (TickMath.MIN_SQRT_PRICE / 2);
+        bool dummyZeroForOne = sqrtPriceX96 > midPrice;
+        uint160 dummyLimit = dummyZeroForOne
+            ? TickMath.MIN_SQRT_PRICE + 1
+            : TickMath.MAX_SQRT_PRICE - 1;
+
         SwapParams memory params = SwapParams({
-            zeroForOne: true,  // Dummy - hook uses encrypted direction
-            amountSpecified: -1, // Dummy - hook uses encrypted amount
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            zeroForOne: dummyZeroForOne,  // Dummy - hook uses encrypted direction
+            amountSpecified: -1,           // Dummy - hook uses encrypted amount
+            sqrtPriceLimitX96: dummyLimit  // Valid limit based on current price
         });
 
         emit EncryptedSwapInitiated(msg.sender, address(key.hooks));
@@ -145,12 +167,45 @@ contract PrivateSwapRouter {
             abi.encode(msg.sender, zeroForOne, amountInHandle, minOutputHandle)
         );
 
-        // Prepare dummy SwapParams - the hook ignores these for encrypted swaps
-        // Use valid price limit to pass PoolManager validation (hook handles actual swap)
+        // Query current pool price to validate the swap direction is valid
+        // The hook handles the actual swap, but PoolManager validates price limits first
+        PoolId poolId = key.toId();
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+
+        // For v8Mixed, we use the actual direction but still need to ensure the price limit is valid
+        // - For zeroForOne=true: limit must be < current price
+        // - For zeroForOne=false: limit must be > current price
+        //
+        // Edge case: if current price is at the extreme, the swap may fail.
+        // In that case, use a direction that's always valid.
+        uint160 priceLimit;
+        bool effectiveDirection = zeroForOne;
+
+        if (zeroForOne) {
+            // Check if MIN limit is valid (current price must be > MIN + 1)
+            if (sqrtPriceX96 > TickMath.MIN_SQRT_PRICE + 1) {
+                priceLimit = TickMath.MIN_SQRT_PRICE + 1;
+            } else {
+                // Current price is too low for zeroForOne, swap direction for PoolManager
+                // Hook still uses the hookData direction
+                effectiveDirection = false;
+                priceLimit = TickMath.MAX_SQRT_PRICE - 1;
+            }
+        } else {
+            // Check if MAX limit is valid (current price must be < MAX - 1)
+            if (sqrtPriceX96 < TickMath.MAX_SQRT_PRICE - 1) {
+                priceLimit = TickMath.MAX_SQRT_PRICE - 1;
+            } else {
+                // Current price is too high for oneForZero, swap direction for PoolManager
+                effectiveDirection = true;
+                priceLimit = TickMath.MIN_SQRT_PRICE + 1;
+            }
+        }
+
         SwapParams memory params = SwapParams({
-            zeroForOne: zeroForOne,  // Match for consistency
-            amountSpecified: -1,     // Dummy - hook uses encrypted amount
-            sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            zeroForOne: effectiveDirection,
+            amountSpecified: -1,  // Dummy - hook uses encrypted amount
+            sqrtPriceLimitX96: priceLimit
         });
 
         emit EncryptedSwapInitiated(msg.sender, address(key.hooks));

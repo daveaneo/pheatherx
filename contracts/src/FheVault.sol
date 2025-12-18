@@ -16,6 +16,19 @@ import {IERC6909Claims} from "@uniswap/v4-core/src/interfaces/external/IERC6909C
 ///
 ///      Token IDs are derived from ERC20 addresses: tokenId = uint256(uint160(erc20Address))
 ///      Claim IDs are unique per unwrap request for tracking async decrypts.
+///
+/// ## Accounting Model
+/// This vault uses 1:1 accounting (deposit X tokens → get X encrypted balance).
+/// This is simpler and more gas efficient than share-based accounting.
+///
+/// ## IMPORTANT: Supported Token Types
+/// ONLY standard ERC20 tokens are supported:
+/// ✓ WETH, USDC, USDT, DAI, etc.
+///
+/// NOT SUPPORTED (will cause accounting errors):
+/// ✗ Rebasing tokens (stETH, aTokens) - balance changes over time
+/// ✗ Reflection tokens (SafeMoon-style) - fees redistributed to holders
+/// ✗ Fee-on-transfer tokens - detected and rejected during wrap
 contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
@@ -32,6 +45,9 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
 
     /// @notice Contract owner
     address public owner;
+
+    /// @notice Pending owner for two-step transfer
+    address public pendingOwner;
 
     /// @notice Counter for generating unique claim IDs
     uint256 public nextClaimId;
@@ -83,6 +99,12 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
     /// @notice Emitted when ownership is transferred
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
+    /// @notice Emitted when wrapEncrypted has excess tokens (user paid more than encrypted amount)
+    event WrapExcess(address indexed user, address indexed token, uint256 maxProvided, uint256 actualWrapped);
+
+    /// @notice Emitted when pending ownership transfer is initiated
+    event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
+
     // ERC-6909 events inherited from IERC6909Claims
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -99,6 +121,8 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
     error InvalidClaimId();
     error ZeroAddress();
     error AmountTooLarge();
+    error FeeOnTransferToken();
+    error InsufficientVaultBalance();
 
     // ═══════════════════════════════════════════════════════════════════════
     //                            CONSTRUCTOR
@@ -126,13 +150,28 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
     //                         ADMIN FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Transfer ownership to a new address
+    /// @notice Initiate ownership transfer (two-step pattern)
+    /// @dev New owner must call acceptOwnership() to complete transfer
     /// @param newOwner The new owner address
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Accept pending ownership transfer
+    /// @dev Only the pending owner can call this
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert Unauthorized();
         address oldOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(oldOwner, newOwner);
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(oldOwner, msg.sender);
+    }
+
+    /// @notice Cancel pending ownership transfer
+    function cancelOwnershipTransfer() external onlyOwner {
+        pendingOwner = address(0);
     }
 
     /// @notice Add or remove a token from the supported list
@@ -162,12 +201,24 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
         _unpause();
     }
 
+    /// @notice Rescue stuck ERC20 tokens (admin only)
+    /// @dev For recovering tokens sent to contract by accident, NOT user balances.
+    ///      This should only be used to recover unsupported tokens or excess from rebasing.
+    /// @param token The ERC20 token to rescue
+    /// @param to The recipient address
+    /// @param amount The amount to transfer
+    function rescueTokens(address token, address to, uint256 amount) external onlyOwner {
+        if (to == address(0)) revert ZeroAddress();
+        IERC20(token).safeTransfer(to, amount);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //                         WRAP FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @notice Wrap ERC20 tokens to encrypted balance
-    /// @dev Transfers ERC20 from caller to vault, credits encrypted balance
+    /// @dev Transfers ERC20 from caller to vault, credits encrypted balance.
+    ///      Rejects fee-on-transfer tokens by checking received amount.
     /// @param token The ERC20 token to wrap
     /// @param amount The plaintext amount to wrap
     function wrap(address token, uint256 amount) external nonReentrant whenNotPaused {
@@ -175,8 +226,16 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
         if (amount == 0) revert ZeroAmount();
         if (amount > type(uint128).max) revert AmountTooLarge();
 
+        // Get balance before transfer to detect fee-on-transfer tokens
+        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+
         // Transfer ERC20 to vault
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+
+        // Check actual amount received (fee-on-transfer protection)
+        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
+        uint256 actualReceived = balanceAfter - balanceBefore;
+        if (actualReceived != amount) revert FeeOnTransferToken();
 
         // Credit encrypted balance
         uint256 tokenId = _tokenIdFromAddress(token);
@@ -200,6 +259,7 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
     ///      IMPORTANT: User must set maxPlaintext equal to the actual encrypted amount.
     ///      Any excess (maxPlaintext - encryptedAmount) will remain in the vault as protocol surplus.
     ///      Use wrap() with plaintext amount for simpler UX.
+    ///      Emits WrapExcess event to indicate encrypted wrap occurred (actual amount is private).
     /// @param token The ERC20 token to wrap
     /// @param encryptedAmount The encrypted amount to wrap
     /// @param maxPlaintext Maximum plaintext amount (should equal encrypted amount for no loss)
@@ -212,8 +272,16 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
         if (maxPlaintext == 0) revert ZeroAmount();
         if (maxPlaintext > type(uint128).max) revert AmountTooLarge();
 
+        // Get balance before transfer to detect fee-on-transfer tokens
+        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+
         // Transfer max ERC20 to vault (user sets upper bound)
         IERC20(token).safeTransferFrom(msg.sender, address(this), maxPlaintext);
+
+        // Check actual amount received (fee-on-transfer protection)
+        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
+        uint256 actualReceived = balanceAfter - balanceBefore;
+        if (actualReceived != maxPlaintext) revert FeeOnTransferToken();
 
         // Convert encrypted amount
         euint128 encAmount = FHE.asEuint128(encryptedAmount);
@@ -236,6 +304,9 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
         FHE.allowThis(encryptedBalances[tokenId][msg.sender]);
         FHE.allow(encryptedBalances[tokenId][msg.sender], msg.sender);
 
+        // Emit WrapExcess to indicate encrypted wrap (actual amount is private, 0 is placeholder)
+        // Note: We cannot reveal actual wrapped amount without breaking privacy
+        emit WrapExcess(msg.sender, token, maxPlaintext, 0);
         emit Wrapped(msg.sender, token, maxPlaintext);
     }
 
@@ -314,7 +385,8 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
     }
 
     /// @notice Fulfill a pending claim after decrypt resolves
-    /// @dev Anyone can call this to trigger the transfer (gas subsidy pattern)
+    /// @dev Anyone can call this to trigger the transfer (gas subsidy pattern).
+    ///      Reverts if vault has insufficient balance to fulfill the claim.
     /// @param claimId The claim ID to fulfill
     function fulfillClaim(uint256 claimId) external nonReentrant {
         if (claimId < CLAIM_ID_OFFSET) revert InvalidClaimId();
@@ -326,6 +398,12 @@ contract FheVault is IERC6909Claims, ReentrancyGuard, Pausable {
         // Check decrypt result
         (uint256 plainAmount, bool ready) = FHE.getDecryptResultSafe(claim.encAmount);
         if (!ready) revert DecryptNotReady();
+
+        // Check vault has sufficient balance before marking fulfilled
+        if (plainAmount > 0) {
+            uint256 vaultBalance = IERC20(claim.erc20Token).balanceOf(address(this));
+            if (vaultBalance < plainAmount) revert InsufficientVaultBalance();
+        }
 
         // Mark fulfilled
         claim.fulfilled = true;

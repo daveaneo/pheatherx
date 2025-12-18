@@ -74,12 +74,33 @@ contract FheVaultTest is Test, CoFheTest {
     //                         ADMIN FUNCTION TESTS
     // ═══════════════════════════════════════════════════════════════════════
 
-    function test_transferOwnership_Success() public {
+    function test_transferOwnership_TwoStep_Success() public {
+        address newOwner = makeAddr("newOwner");
+
+        // Step 1: Initiate transfer
+        vault.transferOwnership(newOwner);
+
+        // Owner should still be the original
+        assertEq(vault.owner(), address(this), "Owner should not change yet");
+        assertEq(vault.pendingOwner(), newOwner, "Pending owner should be set");
+
+        // Step 2: Accept ownership as new owner
+        vm.prank(newOwner);
+        vault.acceptOwnership();
+
+        assertEq(vault.owner(), newOwner, "Ownership should be transferred");
+        assertEq(vault.pendingOwner(), address(0), "Pending owner should be cleared");
+    }
+
+    function test_acceptOwnership_Unauthorized_Reverts() public {
         address newOwner = makeAddr("newOwner");
 
         vault.transferOwnership(newOwner);
 
-        assertEq(vault.owner(), newOwner, "Ownership should be transferred");
+        // Try to accept as wrong user
+        vm.prank(user1);
+        vm.expectRevert(FheVault.Unauthorized.selector);
+        vault.acceptOwnership();
     }
 
     function test_transferOwnership_Unauthorized_Reverts() public {
@@ -91,6 +112,16 @@ contract FheVaultTest is Test, CoFheTest {
     function test_transferOwnership_ZeroAddress_Reverts() public {
         vm.expectRevert(FheVault.ZeroAddress.selector);
         vault.transferOwnership(address(0));
+    }
+
+    function test_cancelOwnershipTransfer() public {
+        address newOwner = makeAddr("newOwner");
+
+        vault.transferOwnership(newOwner);
+        assertEq(vault.pendingOwner(), newOwner);
+
+        vault.cancelOwnershipTransfer();
+        assertEq(vault.pendingOwner(), address(0));
     }
 
     function test_setTokenSupport_AddRemove() public {

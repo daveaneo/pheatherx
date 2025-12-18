@@ -5,6 +5,7 @@ import { ConnectPrompt } from '@/components/common/ConnectPrompt';
 import { FheSessionGuard } from '@/components/common/FheSessionGuard';
 import { TokenBalanceTable } from '@/components/portfolio/TokenBalanceTable';
 import { LimitOrderPositionsPanel } from '@/components/portfolio/LimitOrderPositionsPanel';
+import { PendingClaimsPanel } from '@/components/portfolio/PendingClaimsPanel';
 import { WrapUnwrapCard } from '@/components/tokens/WrapUnwrapCard';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui';
 
@@ -31,6 +32,9 @@ export default function PortfolioPage() {
 
         {/* Wrap/Unwrap Section */}
         <WrapUnwrapCard />
+
+        {/* Pending Claims (auto-hides if none) */}
+        <PendingClaimsPanel />
 
         {/* Tabs for Positions and History */}
         <Tabs defaultValue="positions">

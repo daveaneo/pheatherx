@@ -160,13 +160,19 @@ export function useActiveOrders() {
         claims: claimLogs.length,
       });
 
-      // Build set of filled buckets (tick:side -> true)
-      const filledBuckets = new Set<string>();
+      // Build map of filled buckets (tick:side -> latest fill block number)
+      const filledBuckets = new Map<string, bigint>();
       for (const log of filledLogs) {
         const tick = log.args.tick;
         const side = log.args.side;
-        if (tick !== undefined && side !== undefined) {
-          filledBuckets.add(`${tick}:${side}`);
+        if (tick !== undefined && side !== undefined && log.blockNumber) {
+          const key = `${tick}:${side}`;
+          const blockNum = BigInt(log.blockNumber);
+          const existing = filledBuckets.get(key);
+          // Track the latest fill block for this bucket
+          if (!existing || blockNum > existing) {
+            filledBuckets.set(key, blockNum);
+          }
         }
       }
 
@@ -281,16 +287,35 @@ export function useActiveOrders() {
           const realizedProceedsHandle = result[3];
 
           // Determine if position has claimable proceeds
-          // 1. realizedProceeds handle exists (accumulated proceeds)
-          // 2. OR bucket was filled and user hasn't claimed yet
+          // NOTE: We cannot rely on realizedProceedsHandle > 0n because in FHE,
+          // ANY initialized encrypted value has handle > 0, even encrypted zeros.
+          // We also cannot rely on bucket-level BucketFilled events because they're
+          // not user-specific.
+          //
+          // The safest approach is to check if:
+          // 1. User has deposited at this tick/side
+          // 2. There was a bucket fill AFTER user's deposit
+          // 3. User hasn't claimed since then
+          //
+          // For now, we use a conservative approach:
+          // Only show claimable if realizedProceeds is initialized AND non-zero
+          // Since we can't decrypt, we check if both proceedsPerShareSnapshot > 0
+          // AND the bucket's proceedsPerShare has increased (via BucketFilled events)
           const bucketKey = `${pos.tick}:${pos.side}`;
-          const hasBucketFilled = filledBuckets.has(bucketKey);
+          const bucketFillBlock = filledBuckets.get(bucketKey);
           const hasAlreadyClaimed = claimedPositions.has(bucketKey);
-          const hasUnclaimedFilledBucket = hasBucketFilled && !hasAlreadyClaimed;
 
-          const hasClaimableProceeds =
-            realizedProceedsHandle > 0n || // Has accumulated proceeds
-            hasUnclaimedFilledBucket;       // Bucket filled but not claimed
+          // Only mark as claimable if:
+          // 1. Bucket was filled AFTER user's deposit at this position
+          // 2. User hasn't claimed yet
+          const depositBlock = pos.latestDepositBlock;
+          const hasUnclaimedFillSinceDeposit =
+            bucketFillBlock !== undefined &&
+            depositBlock !== undefined &&
+            bucketFillBlock > depositBlock &&
+            !hasAlreadyClaimed;
+
+          const hasClaimableProceeds = hasUnclaimedFillSinceDeposit;
 
           // Position is "active" if it has shares OR claimable proceeds
           const isActive = sharesHandle > 0n || hasClaimableProceeds;

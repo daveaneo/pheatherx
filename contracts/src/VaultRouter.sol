@@ -10,6 +10,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {FHE, euint128, ebool, InEuint128, InEbool, Common} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {IFHERC20} from "./interface/IFHERC20.sol";
 
@@ -30,7 +31,7 @@ import {IFHERC20} from "./interface/IFHERC20.sol";
 /// ## Token Flow
 /// ERC20 → FHERC20: ERC20.transferFrom → FHERC20.mint/wrap → swap on v8FHE
 /// FHERC20 → ERC20: swap on v8FHE → initiate async decrypt → claim ERC20
-contract VaultRouter is ReentrancyGuard {
+contract VaultRouter is ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -49,6 +50,9 @@ contract VaultRouter is ReentrancyGuard {
 
     /// @notice Contract owner
     address public owner;
+
+    /// @notice Pending owner for two-step transfer
+    address public pendingOwner;
 
     /// @notice The Uniswap v4 PoolManager
     IPoolManager public immutable poolManager;
@@ -106,6 +110,9 @@ contract VaultRouter is ReentrancyGuard {
     /// @notice Emitted when ownership is transferred
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
+    /// @notice Emitted when pending ownership transfer is initiated
+    event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
+
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
     // ═══════════════════════════════════════════════════════════════════════
@@ -144,12 +151,48 @@ contract VaultRouter is ReentrancyGuard {
     //                         ADMIN FUNCTIONS
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Transfer ownership
+    /// @notice Initiate ownership transfer (two-step pattern)
+    /// @dev New owner must call acceptOwnership() to complete transfer
+    /// @param newOwner The new owner address
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Accept pending ownership transfer
+    /// @dev Only the pending owner can call this
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert Unauthorized();
         address oldOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(oldOwner, newOwner);
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(oldOwner, msg.sender);
+    }
+
+    /// @notice Cancel pending ownership transfer
+    function cancelOwnershipTransfer() external onlyOwner {
+        pendingOwner = address(0);
+    }
+
+    /// @notice Pause the contract
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /// @notice Unpause the contract
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /// @notice Rescue stuck ERC20 tokens (admin only)
+    /// @dev For recovering tokens sent to contract by accident
+    /// @param token The ERC20 token to rescue
+    /// @param to The recipient address
+    /// @param amount The amount to transfer
+    function rescueTokens(address token, address to, uint256 amount) external onlyOwner {
+        if (to == address(0)) revert ZeroAddress();
+        IERC20(token).safeTransfer(to, amount);
     }
 
     /// @notice Register an ERC20 ↔ FHERC20 token pair
@@ -197,7 +240,7 @@ contract VaultRouter is ReentrancyGuard {
         uint256 amountIn,
         InEbool calldata encDirection,
         InEuint128 calldata encMinOutput
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         if (amountIn == 0) revert ZeroAmount();
 
         address fherc20In = erc20ToFherc20[erc20In];
@@ -245,7 +288,7 @@ contract VaultRouter is ReentrancyGuard {
         InEbool calldata encDirection,
         InEuint128 calldata encAmountIn,
         InEuint128 calldata encMinOutput
-    ) external nonReentrant returns (uint256 claimId) {
+    ) external nonReentrant whenNotPaused returns (uint256 claimId) {
         // Determine output token based on pool
         address token0 = Currency.unwrap(key.currency0);
         address token1 = Currency.unwrap(key.currency1);
@@ -327,7 +370,7 @@ contract VaultRouter is ReentrancyGuard {
         uint256 amountIn,
         InEbool calldata encDirection,
         InEuint128 calldata encMinOutput
-    ) external nonReentrant returns (uint256 claimId) {
+    ) external nonReentrant whenNotPaused returns (uint256 claimId) {
         if (amountIn == 0) revert ZeroAmount();
 
         address fherc20In = erc20ToFherc20[erc20In];

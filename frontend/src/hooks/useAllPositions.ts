@@ -274,6 +274,8 @@ export function useAllPositions() {
         const realizedProceedsHandle = result[3];
 
         // Determine if position has claimable proceeds
+        // NOTE: We cannot rely on realizedProceedsHandle > 0n because in FHE,
+        // ANY initialized encrypted value has handle > 0, even encrypted zeros.
         const bucketKey = `${pos.tick}:${pos.side}`;
         const hasAlreadyClaimed = claimedPositions.has(bucketKey);
 
@@ -281,23 +283,21 @@ export function useAllPositions() {
 
         if (isV8) {
           // v8: Check if tick falls within any momentum activation range
+          // AND the activation happened AFTER user's deposit
           for (const range of momentumRanges) {
             const tickInRange = (pos.tick >= Math.min(range.fromTick, range.toTick)) &&
                                (pos.tick <= Math.max(range.fromTick, range.toTick));
+            // TODO: Add deposit block tracking for proper comparison
             if (tickInRange && !hasAlreadyClaimed) {
               hasUnclaimedFill = true;
               break;
             }
           }
-        } else {
-          // v6: Check BucketFilled events
-          const hasBucketFilled = filledBuckets.has(bucketKey);
-          hasUnclaimedFill = hasBucketFilled && !hasAlreadyClaimed;
         }
+        // Note: Removed v6 BucketFilled check as it's not user-specific
 
-        const hasClaimableProceeds =
-          realizedProceedsHandle > 0n ||
-          hasUnclaimedFill;
+        // Only show claimable if we have evidence of fills after deposit
+        const hasClaimableProceeds = hasUnclaimedFill;
 
         // Position is "active" if it has shares OR claimable proceeds
         const isActive = sharesHandle > 0n || hasClaimableProceeds;

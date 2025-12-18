@@ -114,9 +114,29 @@ contract VaultRouterTest is Test, CoFheTest {
         assertEq(router.nextClaimId(), CLAIM_ID_OFFSET);
     }
 
-    function test_transferOwnership_Success() public {
+    function test_transferOwnership_TwoStep_Success() public {
+        // Step 1: Initiate transfer
         router.transferOwnership(user1);
+
+        // Owner should still be the original
+        assertEq(router.owner(), address(this));
+        assertEq(router.pendingOwner(), user1);
+
+        // Step 2: Accept ownership as new owner
+        vm.prank(user1);
+        router.acceptOwnership();
+
         assertEq(router.owner(), user1);
+        assertEq(router.pendingOwner(), address(0));
+    }
+
+    function test_acceptOwnership_Unauthorized_Reverts() public {
+        router.transferOwnership(user1);
+
+        // Try to accept as wrong user
+        vm.prank(user2);
+        vm.expectRevert(VaultRouter.Unauthorized.selector);
+        router.acceptOwnership();
     }
 
     function test_transferOwnership_ZeroAddress_Reverts() public {
@@ -128,6 +148,14 @@ contract VaultRouterTest is Test, CoFheTest {
         vm.prank(user1);
         vm.expectRevert(VaultRouter.Unauthorized.selector);
         router.transferOwnership(user2);
+    }
+
+    function test_cancelOwnershipTransfer() public {
+        router.transferOwnership(user1);
+        assertEq(router.pendingOwner(), user1);
+
+        router.cancelOwnershipTransfer();
+        assertEq(router.pendingOwner(), address(0));
     }
 
     function test_registerTokenPair_Success() public {

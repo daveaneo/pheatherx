@@ -47,8 +47,24 @@ export const FHEATHERX_V8_MIXED_ADDRESSES: Record<number, `0x${string}`> = {
 // PrivateSwapRouter addresses (for encrypted swap path - partial/full privacy)
 export const PRIVATE_SWAP_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
   31337: (process.env.NEXT_PUBLIC_PRIVATE_SWAP_ROUTER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  11155111: '0x0432F5f6F73440b0DbbFED4047afA5A1F95c642B', // PrivateSwapRouter Eth Sepolia (2024-12-17)
-  421614: '0xCd2E1C80d439b33C7b593Db1D2a8D54023E1CAF1', // PrivateSwapRouter Arb Sepolia (2024-12-17)
+  11155111: '0xeF02144bC52bFc7952e27b377B80bB9c1BE32e35', // PrivateSwapRouter Eth Sepolia (2024-12-18) - fixed PriceLimitAlreadyExceeded
+  421614: '0x19a9BAbF6e1bc6C7Af2634fB4061160dAb744B64', // PrivateSwapRouter Arb Sepolia (2024-12-18) - fixed PriceLimitAlreadyExceeded
+  8008135: '0x0000000000000000000000000000000000000000',
+};
+
+// FheVault addresses (ERC20 wrapping with async claims)
+export const FHE_VAULT_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: (process.env.NEXT_PUBLIC_FHE_VAULT_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  11155111: '0xfb962C2a9840a5038e57B9A01d6b7B0587D4640d', // FheVault Eth Sepolia (2024-12-17)
+  421614: '0x0000000000000000000000000000000000000000',   // TODO: Deploy to Arb Sepolia
+  8008135: '0x0000000000000000000000000000000000000000',
+};
+
+// VaultRouter addresses (ERC20 <-> FHERC20 swap coordination)
+export const VAULT_ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
+  31337: (process.env.NEXT_PUBLIC_VAULT_ROUTER_ADDRESS_LOCAL as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  11155111: '0x69Fa2574D507b5f3415E98A013f750BB40069BbE', // VaultRouter Eth Sepolia (2024-12-17)
+  421614: '0x0000000000000000000000000000000000000000',   // TODO: Deploy to Arb Sepolia
   8008135: '0x0000000000000000000000000000000000000000',
 };
 
