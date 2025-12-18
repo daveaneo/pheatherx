@@ -641,7 +641,8 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 1: Match MAKER orders (opposing limit orders)
-        // Short-circuit: check plaintext bitmaps first to skip expensive FHE ops
+        // Aggressive short-circuit: only run paths where orders actually exist
+        // This doesn't leak direction - bitmap state is already public
         // ═══════════════════════════════════════════════════════════════════
         bool hasZfoMakers = _hasAnyMakerOrders(poolId, true, startTick);
         bool hasOfzMakers = _hasAnyMakerOrders(poolId, false, startTick);
@@ -650,11 +651,25 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         euint128 outputFromMakers;
 
         if (!hasZfoMakers && !hasOfzMakers) {
-            // Fast path: no orders on either side - skip all FHE maker matching
+            // Fast path: no orders on either side
             userRemainder = amountIn;
             outputFromMakers = ENC_ZERO;
+        } else if (hasZfoMakers && !hasOfzMakers) {
+            // Only ZFO makers (BUY orders) exist - skip OFZ path entirely
+            (euint128 remainderZfo, euint128 outputZfo) =
+                _matchMakerOrdersEncrypted(poolId, true, amountIn, startTick, direction);
+            // If direction is ZFO, use results; if OFZ, use defaults (no makers to match)
+            userRemainder = FHE.select(direction, remainderZfo, amountIn);
+            outputFromMakers = FHE.select(direction, outputZfo, ENC_ZERO);
+        } else if (!hasZfoMakers && hasOfzMakers) {
+            // Only OFZ makers (SELL orders) exist - skip ZFO path entirely
+            (euint128 remainderOfz, euint128 outputOfz) =
+                _matchMakerOrdersEncrypted(poolId, false, amountIn, startTick, direction);
+            // If direction is OFZ, use results; if ZFO, use defaults (no makers to match)
+            userRemainder = FHE.select(direction, amountIn, remainderOfz);
+            outputFromMakers = FHE.select(direction, ENC_ZERO, outputOfz);
         } else {
-            // Orders exist - run full FHE matching on both sides
+            // Both sides have orders - must run both paths
             (euint128 remainderIfZeroForOne, euint128 makerOutputIfZeroForOne) =
                 _matchMakerOrdersEncrypted(poolId, true, amountIn, startTick, direction);
             (euint128 remainderIfOneForZero, euint128 makerOutputIfOneForZero) =
@@ -670,30 +685,57 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         // STEP 2: Find TAKER orders (momentum orders on same side)
         // Use plaintext reserves for closure finding, encrypted for actual sums
         // ═══════════════════════════════════════════════════════════════════
-        // Find momentum closure for both directions using reserve estimates
         uint256 estimateForZeroForOne = reserves.reserve0 / 5;
         uint256 estimateForOneForZero = reserves.reserve1 / 5;
 
         (int24 finalTickZFO, uint8 countZFO) = _findMomentumClosure(poolId, true, estimateForZeroForOne, startTick);
         (int24 finalTickOFZ, uint8 countOFZ) = _findMomentumClosure(poolId, false, estimateForOneForZero, startTick);
 
-        // Sum taker liquidity for both directions
-        euint128 takerSumZFO = (countZFO > 0) ? _sumTakerBucketsEncrypted(poolId, true, startTick, finalTickZFO, direction) : ENC_ZERO;
-        euint128 takerSumOFZ = (countOFZ > 0) ? _sumTakerBucketsEncrypted(poolId, false, startTick, finalTickOFZ, direction) : ENC_ZERO;
-        FHE.allowTransient(takerSumZFO, address(this));  // Intermediate - tx only
-        FHE.allowTransient(takerSumOFZ, address(this));  // Intermediate - tx only
+        // Aggressive short-circuit for taker summing
+        euint128 takerSum;
+        euint128 takerSumZFO = ENC_ZERO;
+        euint128 takerSumOFZ = ENC_ZERO;
+        bool hasTakers = (countZFO > 0) || (countOFZ > 0);
 
-        euint128 takerSum = FHE.select(direction, takerSumZFO, takerSumOFZ);
-        FHE.allowTransient(takerSum, address(this));     // Intermediate - tx only
+        if (!hasTakers) {
+            // Fast path: no takers on either side - skip all FHE taker ops
+            takerSum = ENC_ZERO;
+        } else if (countZFO > 0 && countOFZ == 0) {
+            // Only ZFO takers exist
+            takerSumZFO = _sumTakerBucketsEncrypted(poolId, true, startTick, finalTickZFO, direction);
+            FHE.allowTransient(takerSumZFO, address(this));
+            takerSum = FHE.select(direction, takerSumZFO, ENC_ZERO);
+        } else if (countZFO == 0 && countOFZ > 0) {
+            // Only OFZ takers exist
+            takerSumOFZ = _sumTakerBucketsEncrypted(poolId, false, startTick, finalTickOFZ, direction);
+            FHE.allowTransient(takerSumOFZ, address(this));
+            takerSum = FHE.select(direction, ENC_ZERO, takerSumOFZ);
+        } else {
+            // Both sides have takers - must sum both
+            takerSumZFO = _sumTakerBucketsEncrypted(poolId, true, startTick, finalTickZFO, direction);
+            takerSumOFZ = _sumTakerBucketsEncrypted(poolId, false, startTick, finalTickOFZ, direction);
+            FHE.allowTransient(takerSumZFO, address(this));
+            FHE.allowTransient(takerSumOFZ, address(this));
+            takerSum = FHE.select(direction, takerSumZFO, takerSumOFZ);
+        }
+        FHE.allowTransient(takerSum, address(this));
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 3: ONE AMM call with total input
         // ═══════════════════════════════════════════════════════════════════
-        euint128 totalAmmInput = FHE.add(userRemainder, takerSum);
-        FHE.allowTransient(totalAmmInput, address(this));   // Intermediate - tx only
+        euint128 totalAmmInput;
+        euint128 totalAmmOutput;
 
-        euint128 totalAmmOutput = _executeSwapMath(poolId, direction, totalAmmInput);
-        FHE.allowTransient(totalAmmOutput, address(this));  // Intermediate - tx only
+        if (!hasTakers) {
+            // Fast path: no takers, user input goes directly to AMM
+            totalAmmInput = userRemainder;
+            totalAmmOutput = _executeSwapMath(poolId, direction, userRemainder);
+        } else {
+            totalAmmInput = FHE.add(userRemainder, takerSum);
+            FHE.allowTransient(totalAmmInput, address(this));
+            totalAmmOutput = _executeSwapMath(poolId, direction, totalAmmInput);
+        }
+        FHE.allowTransient(totalAmmOutput, address(this));
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 4: Distribute output to taker orders (virtual slicing)
@@ -719,7 +761,7 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         // When no takers: totalAmmInput = userRemainder, so userAmmShare = totalAmmOutput (100%)
         // When takers exist: pro-rata split based on input contribution
         euint128 userTotalOutput;
-        bool hasTakers = (countZFO > 0) || (countOFZ > 0);
+        // hasTakers already computed above
 
         if (!hasTakers) {
             // Fast path: no takers means user gets 100% of AMM output
@@ -742,18 +784,25 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 5b: Apply protocol fee (encrypted) - use cached value
+        // Short-circuit: skip FHE ops if fee is 0 (fee rate is public)
         // ═══════════════════════════════════════════════════════════════════
-        euint128 encFeeBps = poolStates[poolId].encProtocolFeeBps;
+        uint256 feeBps = poolStates[poolId].protocolFeeBps;
+        euint128 fee;
+        euint128 outputAfterFee;
 
-        // fee = userTotalOutput * feeBps / 10000
-        euint128 feeNumerator = FHE.mul(userTotalOutput, encFeeBps);
-        FHE.allowTransient(feeNumerator, address(this));  // Intermediate - tx only
-        euint128 fee = FHE.div(feeNumerator, ENC_TEN_THOUSAND);
-        FHE.allowTransient(fee, address(this));           // Intermediate - tx only
-
-        // outputAfterFee = userTotalOutput - fee
-        euint128 outputAfterFee = FHE.sub(userTotalOutput, fee);
-        FHE.allowTransient(outputAfterFee, address(this)); // Intermediate - tx only
+        if (feeBps == 0) {
+            // Fast path: no fee - skip FHE mul/div/sub (~360k savings)
+            fee = ENC_ZERO;
+            outputAfterFee = userTotalOutput;
+        } else {
+            euint128 encFeeBps = poolStates[poolId].encProtocolFeeBps;
+            euint128 feeNumerator = FHE.mul(userTotalOutput, encFeeBps);
+            FHE.allowTransient(feeNumerator, address(this));
+            fee = FHE.div(feeNumerator, ENC_TEN_THOUSAND);
+            FHE.allowTransient(fee, address(this));
+            outputAfterFee = FHE.sub(userTotalOutput, fee);
+        }
+        FHE.allowTransient(outputAfterFee, address(this));
 
         // Slippage check (on output AFTER fee)
         ebool slippageOk = FHE.gte(outputAfterFee, minOutput);
