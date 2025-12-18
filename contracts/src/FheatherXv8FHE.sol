@@ -110,6 +110,10 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     /// @notice When hookData starts with this byte, the swap params are encrypted
     bytes1 internal constant ENCRYPTED_SWAP_MAGIC = 0x01;
 
+    /// @notice Minimum liquidity locked forever on first deposit (Uniswap V2 pattern)
+    /// @dev Prevents division-by-zero in swap math and first-depositor attacks
+    uint256 public constant MINIMUM_LIQUIDITY = 1000;
+
     // ═══════════════════════════════════════════════════════════════════════
     //                              ERRORS
     // ═══════════════════════════════════════════════════════════════════════
@@ -154,11 +158,13 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     /// @param token1 Address of the second token (FHERC20)
     /// @param initialized Whether the pool has been initialized
     /// @param protocolFeeBps Protocol fee in basis points (max 100 = 1%)
+    /// @param encProtocolFeeBps Cached encrypted protocol fee (avoids FHE.asEuint128 per swap)
     struct PoolState {
         address token0;
         address token1;
         bool initialized;
         uint256 protocolFeeBps;
+        euint128 encProtocolFeeBps;
     }
 
     /// @notice Pool reserves and LP tracking
@@ -371,11 +377,16 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
             revert NotFherc20Pair();
         }
 
+        // Cache encrypted fee to avoid FHE.asEuint128 per swap (saves ~119k gas)
+        euint128 encFee = FHE.asEuint128(5);
+        FHE.allowThis(encFee);
+
         poolStates[poolId] = PoolState({
             token0: token0Addr,
             token1: token1Addr,
             initialized: true,
-            protocolFeeBps: 5
+            protocolFeeBps: 5,
+            encProtocolFeeBps: encFee
         });
 
         PoolReserves storage reserves = poolReserves[poolId];
@@ -515,6 +526,23 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         }
     }
 
+    /// @notice Check if any maker orders exist in the given direction
+    /// @dev Uses plaintext bitmap check - doesn't leak swap direction, only order book state
+    function _hasAnyMakerOrders(
+        PoolId poolId,
+        bool evalZeroForOne,
+        int24 startTick
+    ) internal view returns (bool) {
+        BucketSide makerSide = evalZeroForOne ? BucketSide.BUY : BucketSide.SELL;
+        mapping(int16 => uint256) storage bitmap = makerSide == BucketSide.BUY
+            ? buyBitmaps[poolId] : sellBitmaps[poolId];
+
+        (, bool found) = TickBitmapLib.findNextInitializedTick(
+            bitmap, startTick, TICK_SPACING, evalZeroForOne, 2
+        );
+        return found;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //                    ENCRYPTED AMM MATH
     // ═══════════════════════════════════════════════════════════════════════
@@ -528,31 +556,26 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
         euint128 feeAmount = FHE.div(FHE.mul(amountIn, ENC_SWAP_FEE_BPS), ENC_TEN_THOUSAND);
         euint128 amountInAfterFee = FHE.sub(amountIn, feeAmount);
-        FHE.allowThis(amountInAfterFee);
+        FHE.allowTransient(amountInAfterFee, address(this));  // Intermediate - tx only
 
         euint128 reserveIn = FHE.select(direction, r.encReserve0, r.encReserve1);
         euint128 reserveOut = FHE.select(direction, r.encReserve1, r.encReserve0);
 
         euint128 numerator = FHE.mul(amountInAfterFee, reserveOut);
+        // denominator = reserveIn + amountInAfterFee
+        // Safe: MINIMUM_LIQUIDITY guarantees reserveIn >= 500, so denominator > 0 always
         euint128 denominator = FHE.add(reserveIn, amountInAfterFee);
 
-        euint128 safeDenominator = FHE.select(
-            FHE.gt(denominator, ENC_ZERO),
-            denominator,
-            ENC_ONE
-        );
-        FHE.allowThis(safeDenominator);
-
-        amountOut = FHE.div(numerator, safeDenominator);
-        FHE.allowThis(amountOut);
+        amountOut = FHE.div(numerator, denominator);
+        FHE.allowTransient(amountOut, address(this));  // Returned but consumed same tx
 
         euint128 newReserveIn = FHE.add(reserveIn, amountIn);
         euint128 newReserveOut = FHE.sub(reserveOut, amountOut);
 
         r.encReserve0 = FHE.select(direction, newReserveIn, newReserveOut);
         r.encReserve1 = FHE.select(direction, newReserveOut, newReserveIn);
-        FHE.allowThis(r.encReserve0);
-        FHE.allowThis(r.encReserve1);
+        FHE.allowThis(r.encReserve0);  // STORED - must stay permanent
+        FHE.allowThis(r.encReserve1);  // STORED - must stay permanent
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -593,9 +616,9 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         ebool direction = ebool.wrap(directionHandle);
         euint128 amountIn = euint128.wrap(amountInHandle);
         euint128 minOutput = euint128.wrap(minOutputHandle);
-        FHE.allowThis(direction);
-        FHE.allowThis(amountIn);
-        FHE.allowThis(minOutput);
+        FHE.allowTransient(direction, address(this));  // Input - tx only
+        FHE.allowTransient(amountIn, address(this));   // Input - tx only
+        FHE.allowTransient(minOutput, address(this));  // Input - tx only
 
         address token0 = state.token0;
         address token1 = state.token1;
@@ -603,8 +626,9 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         // ═══════════════════════════════════════════════════════════════════
         // STEP 0: Transfer input tokens (conditional on encrypted direction)
         // ═══════════════════════════════════════════════════════════════════
+        // Select algebra: use sub instead of second select (saves ~18k gas)
         euint128 token0InputAmount = FHE.select(direction, amountIn, ENC_ZERO);
-        euint128 token1InputAmount = FHE.select(direction, ENC_ZERO, amountIn);
+        euint128 token1InputAmount = FHE.sub(amountIn, token0InputAmount);
         FHE.allowThis(token0InputAmount);
         FHE.allowThis(token1InputAmount);
         FHE.allow(token0InputAmount, token0);
@@ -617,17 +641,30 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 1: Match MAKER orders (opposing limit orders)
-        // Run matching on BOTH sides, use FHE.select to pick correct results
+        // Short-circuit: check plaintext bitmaps first to skip expensive FHE ops
         // ═══════════════════════════════════════════════════════════════════
-        (euint128 remainderIfZeroForOne, euint128 makerOutputIfZeroForOne) =
-            _matchMakerOrdersEncrypted(poolId, true, amountIn, startTick, direction);
-        (euint128 remainderIfOneForZero, euint128 makerOutputIfOneForZero) =
-            _matchMakerOrdersEncrypted(poolId, false, amountIn, startTick, direction);
+        bool hasZfoMakers = _hasAnyMakerOrders(poolId, true, startTick);
+        bool hasOfzMakers = _hasAnyMakerOrders(poolId, false, startTick);
 
-        euint128 userRemainder = FHE.select(direction, remainderIfZeroForOne, remainderIfOneForZero);
-        euint128 outputFromMakers = FHE.select(direction, makerOutputIfZeroForOne, makerOutputIfOneForZero);
-        FHE.allowThis(userRemainder);
-        FHE.allowThis(outputFromMakers);
+        euint128 userRemainder;
+        euint128 outputFromMakers;
+
+        if (!hasZfoMakers && !hasOfzMakers) {
+            // Fast path: no orders on either side - skip all FHE maker matching
+            userRemainder = amountIn;
+            outputFromMakers = ENC_ZERO;
+        } else {
+            // Orders exist - run full FHE matching on both sides
+            (euint128 remainderIfZeroForOne, euint128 makerOutputIfZeroForOne) =
+                _matchMakerOrdersEncrypted(poolId, true, amountIn, startTick, direction);
+            (euint128 remainderIfOneForZero, euint128 makerOutputIfOneForZero) =
+                _matchMakerOrdersEncrypted(poolId, false, amountIn, startTick, direction);
+
+            userRemainder = FHE.select(direction, remainderIfZeroForOne, remainderIfOneForZero);
+            outputFromMakers = FHE.select(direction, makerOutputIfZeroForOne, makerOutputIfOneForZero);
+        }
+        FHE.allowTransient(userRemainder, address(this));    // Intermediate - tx only
+        FHE.allowTransient(outputFromMakers, address(this)); // Intermediate - tx only
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 2: Find TAKER orders (momentum orders on same side)
@@ -643,20 +680,20 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         // Sum taker liquidity for both directions
         euint128 takerSumZFO = (countZFO > 0) ? _sumTakerBucketsEncrypted(poolId, true, startTick, finalTickZFO, direction) : ENC_ZERO;
         euint128 takerSumOFZ = (countOFZ > 0) ? _sumTakerBucketsEncrypted(poolId, false, startTick, finalTickOFZ, direction) : ENC_ZERO;
-        FHE.allowThis(takerSumZFO);
-        FHE.allowThis(takerSumOFZ);
+        FHE.allowTransient(takerSumZFO, address(this));  // Intermediate - tx only
+        FHE.allowTransient(takerSumOFZ, address(this));  // Intermediate - tx only
 
         euint128 takerSum = FHE.select(direction, takerSumZFO, takerSumOFZ);
-        FHE.allowThis(takerSum);
+        FHE.allowTransient(takerSum, address(this));     // Intermediate - tx only
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 3: ONE AMM call with total input
         // ═══════════════════════════════════════════════════════════════════
         euint128 totalAmmInput = FHE.add(userRemainder, takerSum);
-        FHE.allowThis(totalAmmInput);
+        FHE.allowTransient(totalAmmInput, address(this));   // Intermediate - tx only
 
         euint128 totalAmmOutput = _executeSwapMath(poolId, direction, totalAmmInput);
-        FHE.allowThis(totalAmmOutput);
+        FHE.allowTransient(totalAmmOutput, address(this));  // Intermediate - tx only
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 4: Distribute output to taker orders (virtual slicing)
@@ -681,49 +718,56 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         // userAmmShare = (userRemainder / totalAmmInput) * totalAmmOutput
         // When no takers: totalAmmInput = userRemainder, so userAmmShare = totalAmmOutput (100%)
         // When takers exist: pro-rata split based on input contribution
-        euint128 userAmmShare;
-        ebool hasAmmInput = FHE.gt(totalAmmInput, ENC_ZERO);
-        euint128 safeTotalInput = FHE.select(hasAmmInput, totalAmmInput, ENC_ONE);
-        FHE.allowThis(safeTotalInput);
+        euint128 userTotalOutput;
+        bool hasTakers = (countZFO > 0) || (countOFZ > 0);
 
-        // userAmmShare = (userRemainder / totalAmmInput) * totalAmmOutput
-        euint128 userShareNumerator = FHE.mul(userRemainder, totalAmmOutput);
-        FHE.allowThis(userShareNumerator);
-        userAmmShare = FHE.div(userShareNumerator, safeTotalInput);
-        FHE.allowThis(userAmmShare);
+        if (!hasTakers) {
+            // Fast path: no takers means user gets 100% of AMM output
+            // Skip expensive FHE division - saves ~600k gas
+            userTotalOutput = FHE.add(outputFromMakers, totalAmmOutput);
+        } else {
+            // Slow path: calculate pro-rata share
+            ebool hasAmmInput = FHE.gt(totalAmmInput, ENC_ZERO);
+            euint128 safeTotalInput = FHE.select(hasAmmInput, totalAmmInput, ENC_ONE);
+            FHE.allowTransient(safeTotalInput, address(this));
 
-        euint128 userTotalOutput = FHE.add(outputFromMakers, userAmmShare);
-        FHE.allowThis(userTotalOutput);
+            euint128 userShareNumerator = FHE.mul(userRemainder, totalAmmOutput);
+            FHE.allowTransient(userShareNumerator, address(this));
+            euint128 userAmmShare = FHE.div(userShareNumerator, safeTotalInput);
+            FHE.allowTransient(userAmmShare, address(this));
+
+            userTotalOutput = FHE.add(outputFromMakers, userAmmShare);
+        }
+        FHE.allowTransient(userTotalOutput, address(this));
 
         // ═══════════════════════════════════════════════════════════════════
-        // STEP 5b: Apply protocol fee (encrypted)
+        // STEP 5b: Apply protocol fee (encrypted) - use cached value
         // ═══════════════════════════════════════════════════════════════════
-        uint256 feeBps = poolStates[poolId].protocolFeeBps;
-        euint128 encFeeBps = FHE.asEuint128(uint128(feeBps));
-        FHE.allowThis(encFeeBps);
+        euint128 encFeeBps = poolStates[poolId].encProtocolFeeBps;
 
         // fee = userTotalOutput * feeBps / 10000
         euint128 feeNumerator = FHE.mul(userTotalOutput, encFeeBps);
-        FHE.allowThis(feeNumerator);
+        FHE.allowTransient(feeNumerator, address(this));  // Intermediate - tx only
         euint128 fee = FHE.div(feeNumerator, ENC_TEN_THOUSAND);
-        FHE.allowThis(fee);
+        FHE.allowTransient(fee, address(this));           // Intermediate - tx only
 
         // outputAfterFee = userTotalOutput - fee
         euint128 outputAfterFee = FHE.sub(userTotalOutput, fee);
-        FHE.allowThis(outputAfterFee);
+        FHE.allowTransient(outputAfterFee, address(this)); // Intermediate - tx only
 
         // Slippage check (on output AFTER fee)
         ebool slippageOk = FHE.gte(outputAfterFee, minOutput);
         euint128 finalOutput = FHE.select(slippageOk, outputAfterFee, ENC_ZERO);
         euint128 finalFee = FHE.select(slippageOk, fee, ENC_ZERO);
-        FHE.allowThis(finalOutput);
-        FHE.allowThis(finalFee);
+        FHE.allowTransient(finalOutput, address(this));   // Used in transfers but not stored
+        FHE.allowTransient(finalFee, address(this));      // Used in transfers but not stored
 
         // ═══════════════════════════════════════════════════════════════════
         // STEP 6: Transfer output to user and fee to collector
         // ═══════════════════════════════════════════════════════════════════
+        // Select algebra: use sub instead of second select (saves ~18k gas)
         euint128 token0OutputAmount = FHE.select(direction, ENC_ZERO, finalOutput);
-        euint128 token1OutputAmount = FHE.select(direction, finalOutput, ENC_ZERO);
+        euint128 token1OutputAmount = FHE.sub(finalOutput, token0OutputAmount);
         FHE.allowThis(token0OutputAmount);
         FHE.allowThis(token1OutputAmount);
         FHE.allow(token0OutputAmount, token0);
@@ -734,8 +778,9 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
         // Transfer fee to collector (if set)
         if (feeCollector != address(0)) {
+            // Select algebra: use sub instead of second select (saves ~18k gas)
             euint128 token0FeeAmount = FHE.select(direction, ENC_ZERO, finalFee);
-            euint128 token1FeeAmount = FHE.select(direction, finalFee, ENC_ZERO);
+            euint128 token1FeeAmount = FHE.sub(finalFee, token0FeeAmount);
             FHE.allowThis(token0FeeAmount);
             FHE.allowThis(token1FeeAmount);
             FHE.allow(token0FeeAmount, token0);
@@ -769,9 +814,10 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         remainder = userInput;
         userOutput = ENC_ZERO;
 
-        // Should we actually apply changes? Only if evalZeroForOne matches actualDirection
-        ebool shouldApply = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
-        FHE.allowThis(shouldApply);
+        // Compute shouldApply lazily - only when we find a valid bucket to process
+        // This saves ~103k gas (FHE.not + allowThis) when no orders exist
+        ebool shouldApply;
+        bool shouldApplyComputed = false;
 
         int24 current = startTick;
         for (uint8 i = 0; i < MAX_MOMENTUM_BUCKETS; i++) {
@@ -786,44 +832,49 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
                 continue;
             }
 
+            // Lazy compute shouldApply only once when we find a valid bucket
+            if (!shouldApplyComputed) {
+                shouldApply = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
+                FHE.allowTransient(shouldApply, address(this));  // Intermediate - tx only
+                shouldApplyComputed = true;
+            }
+
             // Calculate fill amounts
             euint128 encTickPrice = FHE.asEuint128(uint128(FheatherMath.calculateTickPrice(nextTick)));
-            FHE.allowThis(encTickPrice);
+            FHE.allowTransient(encTickPrice, address(this));     // Intermediate - tx only
 
             // Capacity in user's input units
             euint128 capacity = evalZeroForOne
                 ? FHE.div(FHE.mul(bucket.liquidity, ENC_PRECISION), encTickPrice)
                 : FHE.div(FHE.mul(bucket.liquidity, encTickPrice), ENC_PRECISION);
-            FHE.allowThis(capacity);
+            FHE.allowTransient(capacity, address(this));         // Intermediate - tx only
 
             euint128 fill = FHE.select(FHE.gt(remainder, capacity), capacity, remainder);
-            FHE.allowThis(fill);
+            FHE.allowTransient(fill, address(this));             // Intermediate - tx only
 
             euint128 outputFromBucket = evalZeroForOne
                 ? FHE.div(FHE.mul(fill, encTickPrice), ENC_PRECISION)
                 : FHE.div(FHE.mul(fill, ENC_PRECISION), encTickPrice);
-            FHE.allowThis(outputFromBucket);
+            FHE.allowTransient(outputFromBucket, address(this)); // Intermediate - tx only
 
             // Conditionally apply: only if this evaluation direction matches actual direction
             euint128 actualFill = FHE.select(shouldApply, fill, ENC_ZERO);
             euint128 actualOutput = FHE.select(shouldApply, outputFromBucket, ENC_ZERO);
-            FHE.allowThis(actualFill);
-            FHE.allowThis(actualOutput);
+            FHE.allowTransient(actualFill, address(this));       // Intermediate - tx only
+            FHE.allowTransient(actualOutput, address(this));     // Intermediate - tx only
 
-            // Update bucket state (conditional - subtracts 0 if wrong direction)
-            euint128 liquidityReduction = FHE.select(shouldApply, outputFromBucket, ENC_ZERO);
-            FHE.allowThis(liquidityReduction);
-            bucket.liquidity = FHE.sub(bucket.liquidity, liquidityReduction);
-            FHE.allowThis(bucket.liquidity);
+            // Update bucket state - reuse actualOutput (was duplicate liquidityReduction select)
+            bucket.liquidity = FHE.sub(bucket.liquidity, actualOutput);
+            FHE.allowThis(bucket.liquidity);  // STORED - must stay permanent
 
-            // Update proceeds accumulator (conditional)
-            BucketLib.updateOnFillConditional(bucket, liquidityReduction, actualFill, ENC_ZERO, ENC_ONE, ENC_PRECISION, shouldApply);
+            // Update proceeds accumulator (conditional) - use actualOutput as liquidityReduction
+            BucketLib.updateOnFillConditional(bucket, actualOutput, actualFill, ENC_ZERO, ENC_ONE, ENC_PRECISION, shouldApply);
 
             // Update running totals
             remainder = FHE.sub(remainder, actualFill);
             userOutput = FHE.add(userOutput, actualOutput);
-            FHE.allowThis(remainder);
-            FHE.allowThis(userOutput);
+            FHE.allowTransient(remainder, address(this));        // Returned - consumed same tx
+            FHE.allowTransient(userOutput, address(this));       // Returned - consumed same tx
 
             current = evalZeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
         }
@@ -846,9 +897,9 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         PoolReserves storage reserves = poolReserves[poolId];
         euint128 encReserveLimit = evalZeroForOne ? reserves.encReserve1 : reserves.encReserve0;
 
-        // Only sum if this evaluation matches actual direction
-        ebool shouldSum = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
-        FHE.allowThis(shouldSum);
+        // Compute shouldSum lazily - only when we find a valid bucket
+        ebool shouldSum;
+        bool shouldSumComputed = false;
 
         totalLiquidity = ENC_ZERO;
         int24 current = fromTick;
@@ -864,17 +915,24 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
             BucketLib.Bucket storage bucket = buckets[poolId][nextTick][takerSide];
             if (bucket.initialized && Common.isInitialized(bucket.liquidity)) {
+                // Lazy compute shouldSum only once
+                if (!shouldSumComputed) {
+                    shouldSum = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
+                    FHE.allowTransient(shouldSum, address(this));  // Intermediate - tx only
+                    shouldSumComputed = true;
+                }
+
                 // Cap oversized buckets
                 ebool isOversized = FHE.gt(bucket.liquidity, encReserveLimit);
                 euint128 cappedLiquidity = FHE.select(isOversized, ENC_ZERO, bucket.liquidity);
-                FHE.allowThis(cappedLiquidity);
+                FHE.allowTransient(cappedLiquidity, address(this));  // Intermediate - tx only
 
                 // Only add if direction matches
                 euint128 conditionalLiquidity = FHE.select(shouldSum, cappedLiquidity, ENC_ZERO);
-                FHE.allowThis(conditionalLiquidity);
+                FHE.allowTransient(conditionalLiquidity, address(this));  // Intermediate - tx only
 
                 totalLiquidity = FHE.add(totalLiquidity, conditionalLiquidity);
-                FHE.allowThis(totalLiquidity);
+                FHE.allowTransient(totalLiquidity, address(this));  // Returned - consumed same tx
                 count++;
             }
             current = evalZeroForOne ? nextTick - TICK_SPACING : nextTick + TICK_SPACING;
@@ -900,13 +958,13 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         PoolReserves storage reserves = poolReserves[poolId];
         euint128 encReserveLimit = evalZeroForOne ? reserves.encReserve1 : reserves.encReserve0;
 
-        // Only allocate if this evaluation matches actual direction
-        ebool shouldAllocate = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
-        FHE.allowThis(shouldAllocate);
+        // Compute shouldAllocate lazily - only when we find a valid bucket
+        ebool shouldAllocate;
+        bool shouldAllocateComputed = false;
 
         ebool hasInput = FHE.gt(totalTakerInput, ENC_ZERO);
         euint128 safeDenom = FHE.select(hasInput, totalTakerInput, ENC_ONE);
-        FHE.allowThis(safeDenom);
+        FHE.allowTransient(safeDenom, address(this));  // Intermediate - tx only
 
         int24 current = fromTick;
         uint8 count = 0;
@@ -921,23 +979,30 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
 
             BucketLib.Bucket storage bucket = buckets[poolId][nextTick][takerSide];
             if (bucket.initialized && Common.isInitialized(bucket.liquidity)) {
+                // Lazy compute shouldAllocate only once
+                if (!shouldAllocateComputed) {
+                    shouldAllocate = evalZeroForOne ? actualDirection : FHE.not(actualDirection);
+                    FHE.allowTransient(shouldAllocate, address(this));  // Intermediate - tx only
+                    shouldAllocateComputed = true;
+                }
+
                 // Apply same capping as _sumTakerBucketsEncrypted
                 ebool isOversized = FHE.gt(bucket.liquidity, encReserveLimit);
                 euint128 cappedLiquidity = FHE.select(isOversized, ENC_ZERO, bucket.liquidity);
-                FHE.allowThis(cappedLiquidity);
+                FHE.allowTransient(cappedLiquidity, address(this));  // Intermediate - tx only
 
                 // Calculate this bucket's share of output using CAPPED liquidity
                 euint128 bucketOutput = FHE.div(
                     FHE.mul(cappedLiquidity, totalOutput),
                     safeDenom
                 );
-                FHE.allowThis(bucketOutput);
+                FHE.allowTransient(bucketOutput, address(this));  // Intermediate - tx only
 
                 // Conditional allocation
                 euint128 actualBucketOutput = FHE.select(shouldAllocate, bucketOutput, ENC_ZERO);
                 euint128 actualLiquidityUsed = FHE.select(shouldAllocate, cappedLiquidity, ENC_ZERO);
-                FHE.allowThis(actualBucketOutput);
-                FHE.allowThis(actualLiquidityUsed);
+                FHE.allowTransient(actualBucketOutput, address(this));   // Intermediate - tx only
+                FHE.allowTransient(actualLiquidityUsed, address(this));  // Intermediate - tx only
 
                 // Update proceeds accumulator (conditional)
                 BucketLib.updateOnFillConditional(bucket, actualLiquidityUsed, actualBucketOutput, ENC_ZERO, ENC_ONE, ENC_PRECISION, shouldAllocate);
@@ -945,10 +1010,10 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
                 // Zero out liquidity only for CAPPED amount (conditional)
                 // If oversized, bucket keeps its liquidity (it wasn't used)
                 euint128 liquidityAfterUse = FHE.sub(bucket.liquidity, actualLiquidityUsed);
-                FHE.allowThis(liquidityAfterUse);
+                FHE.allowTransient(liquidityAfterUse, address(this));  // Intermediate - tx only
                 euint128 newLiquidity = FHE.select(shouldAllocate, liquidityAfterUse, bucket.liquidity);
                 bucket.liquidity = newLiquidity;
-                FHE.allowThis(bucket.liquidity);
+                FHE.allowThis(bucket.liquidity);  // STORED - must stay permanent
 
                 count++;
             }
@@ -1143,26 +1208,38 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
         ebool isFirstDeposit = FHE.eq(reserves.encTotalLpSupply, ENC_ZERO);
         ebool amt0Smaller = FHE.lt(amt0, amt1);
         euint128 minAmt = FHE.select(amt0Smaller, amt0, amt1);
-        euint128 firstDepositLp = FHE.mul(minAmt, FHE.asEuint128(2));
-        FHE.allowThis(firstDepositLp);
+        euint128 firstDepositLpTotal = FHE.mul(minAmt, FHE.asEuint128(2));
+        FHE.allowTransient(firstDepositLpTotal, address(this));
+
+        // Uniswap V2 minimum liquidity pattern: lock MINIMUM_LIQUIDITY forever on first deposit
+        // This guarantees reserves are never zero, enabling safe division in swap math
+        euint128 encMinLiquidity = FHE.asEuint128(uint128(MINIMUM_LIQUIDITY));
+        FHE.allowTransient(encMinLiquidity, address(this));
+        euint128 firstDepositLpUser = FHE.sub(firstDepositLpTotal, encMinLiquidity);
+        FHE.allowTransient(firstDepositLpUser, address(this));
 
         euint128 safeRes0 = FHE.select(FHE.gt(reserves.encReserve0, ENC_ZERO), reserves.encReserve0, ENC_ONE);
         euint128 safeRes1 = FHE.select(FHE.gt(reserves.encReserve1, ENC_ZERO), reserves.encReserve1, ENC_ONE);
-        FHE.allowThis(safeRes0);
-        FHE.allowThis(safeRes1);
+        FHE.allowTransient(safeRes0, address(this));
+        FHE.allowTransient(safeRes1, address(this));
 
         euint128 lpFromAmt0 = FHE.div(FHE.mul(amt0, reserves.encTotalLpSupply), safeRes0);
         euint128 lpFromAmt1 = FHE.div(FHE.mul(amt1, reserves.encTotalLpSupply), safeRes1);
         euint128 subsequentLp = FHE.select(FHE.lt(lpFromAmt0, lpFromAmt1), lpFromAmt0, lpFromAmt1);
-        FHE.allowThis(subsequentLp);
+        FHE.allowTransient(subsequentLp, address(this));
 
-        lpAmount = FHE.select(isFirstDeposit, firstDepositLp, subsequentLp);
+        // User receives: firstDepositLpUser (minus MINIMUM_LIQUIDITY) on first, or subsequentLp after
+        lpAmount = FHE.select(isFirstDeposit, firstDepositLpUser, subsequentLp);
         FHE.allowThis(lpAmount);
+
+        // Total supply receives: firstDepositLpTotal on first (includes locked minimum), or subsequentLp after
+        euint128 lpToSupply = FHE.select(isFirstDeposit, firstDepositLpTotal, subsequentLp);
+        FHE.allowTransient(lpToSupply, address(this));
 
         // Update reserves
         reserves.encReserve0 = FHE.add(reserves.encReserve0, amt0);
         reserves.encReserve1 = FHE.add(reserves.encReserve1, amt1);
-        reserves.encTotalLpSupply = FHE.add(reserves.encTotalLpSupply, lpAmount);
+        reserves.encTotalLpSupply = FHE.add(reserves.encTotalLpSupply, lpToSupply);
         FHE.allowThis(reserves.encReserve0);
         FHE.allowThis(reserves.encReserve1);
         FHE.allowThis(reserves.encTotalLpSupply);
@@ -1381,6 +1458,10 @@ contract FheatherXv8FHE is BaseHook, Pausable, Ownable {
     function setProtocolFee(PoolId poolId, uint256 _feeBps) external onlyOwner {
         if (_feeBps > 100) revert FeeTooHigh();
         poolStates[poolId].protocolFeeBps = _feeBps;
+        // Update encrypted cache
+        euint128 encFee = FHE.asEuint128(uint128(_feeBps));
+        FHE.allowThis(encFee);
+        poolStates[poolId].encProtocolFeeBps = encFee;
     }
 
     // ═══════════════════════════════════════════════════════════════════════

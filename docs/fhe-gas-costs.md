@@ -56,10 +56,26 @@ Gas costs measured using MockTaskManager on local Anvil. These are representativ
 
 ## ACL Operations (Permission Management)
 
-| Operation | Gas Cost |
-|-----------|----------|
-| FHE.allowThis | 25,846 |
-| FHE.allow | 27,998 |
+| Operation | Gas Cost | Notes |
+|-----------|----------|-------|
+| FHE.allowThis | 25,846 | Permanent permission for this contract |
+| FHE.allow | 27,992 | Permanent permission for specific address |
+| FHE.allowGlobal | 23,381 | Permanent permission for all addresses |
+| **FHE.allowTransient** | **4,050** | **Temporary (tx-only) - 84% cheaper!** |
+| FHE.allowSender | 25,849 | Permanent permission for msg.sender |
+
+### ACL Optimization Strategy
+
+`FHE.allowTransient` is **84% cheaper** than `FHE.allowThis` (saves ~21.8k gas per call).
+
+**Use `allowTransient` when:**
+- Value is only used within the same transaction
+- Value is passed to another contract during the same tx
+- Value does not need to persist in storage
+
+**Use `allowThis` when:**
+- Value is written to contract storage
+- Value needs to be accessible in future transactions
 
 ## Notes
 

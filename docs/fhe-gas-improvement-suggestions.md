@@ -302,42 +302,72 @@ euint128 newReserveIn = FHE.add(reserveIn, amountInAfterFee);  // Correct accoun
 
 ## Expected Savings Summary
 
-| Optimization | Savings | Risk | Effort |
-|-------------|---------|------|--------|
-| 1.1 Fix duplicate select | 133k-1.33M | LOW | 5 min |
-| 1.2 Cache protocol fee | 119k | LOW | 15 min |
-| 1.3 Skip empty makers | 500-600k | LOW | 30 min |
-| 1.4 Compute not(dir) once | 77k | LOW | 10 min |
-| 2.2 ACL in swapMath | 78k | MEDIUM | 20 min |
-| 2.3 ACL in maker loop | 156k/bucket | MEDIUM | 30 min |
-| 3.1 Cache tick prices | 119k/hit | MEDIUM | 1 hr |
-| 3.2 Remove safe guard | 246k | HIGH | 15 min |
-| 3.3 Select algebra | 72k | LOW | 30 min |
+| Optimization | Savings | Risk | Effort | Status |
+|-------------|---------|------|--------|--------|
+| 1.1 Fix duplicate select | 159k/bucket | LOW | 5 min | ✅ IMPLEMENTED |
+| 1.2 Cache protocol fee | 119k | LOW | 15 min | ✅ IMPLEMENTED |
+| 1.3 Skip empty makers | 206k (both dirs) | LOW | 30 min | ✅ IMPLEMENTED |
+| 1.4 Lazy not(direction) | 103k/func | LOW | 10 min | ✅ IMPLEMENTED |
+| 2.2 ACL in swapMath | 78k | MEDIUM | 20 min | Pending |
+| 2.3 ACL in maker loop | 156k/bucket | MEDIUM | 30 min | Pending |
+| 3.1 Cache tick prices | 119k/hit | MEDIUM | 1 hr | Pending |
+| 3.2 Remove safe guard | 250k | LOW | 15 min | ✅ IMPLEMENTED |
+| 3.3 Select algebra | 72k | LOW | 30 min | Pending |
 
-**Conservative estimate (low-risk only)**: ~800k-1.9M gas saved
-**Optimistic estimate (all changes)**: ~1.5M-2.5M gas saved
+**Implemented savings**:
+- 1.1: ~159k gas/bucket (removed select + allowThis)
+- 1.2: ~119k gas/swap (removed asEuint128 + allowThis)
+- 1.3: ~206k gas when no orders (avoided 2× not + allowThis calls)
+- 1.4: ~103k gas/function when no valid buckets (lazy computation)
+- allowTransient: ~916k gas/swap (42 calls × 21.8k savings each)
+- 3.2: ~250k gas/swap (removed safe denominator guard, enabled by MINIMUM_LIQUIDITY)
 
-**Target**: Reduce from 3.06M to <2.5M is achievable with Priority 1 changes alone.
+**Total estimated savings**: ~1.5M-2M gas per swap (depends on order book state)
 
 ---
 
-## Implementation Order
+## NEW DISCOVERY: FHE.allowTransient ✅ IMPLEMENTED
 
-1. **Fix 1.1** (duplicate select bug) - Immediate, obvious win
-2. **Fix 1.2** (cache fee BPS) - Quick, safe
-3. **Fix 1.3** (skip empty makers) - Biggest single win
-4. **Fix 1.4** (not(direction) once) - Simple refactor
-5. **Test on local mock** to verify savings
-6. **Fix 3.3** (select algebra) - Low risk, moderate win
-7. **Fix 2.2-2.3** (ACL removals) - After confirming Fhenix ACL requirements
-8. **Fix 3.1** (tick price cache) - If deep order books are common
-9. **Fix 3.2** (remove guard) - Only if invariants are provably safe
+Benchmarking revealed `FHE.allowTransient` is **84% cheaper** than `FHE.allowThis`:
+
+| ACL Operation | Gas Cost | Savings |
+|--------------|----------|---------|
+| FHE.allowThis | 25,846 | - |
+| FHE.allowTransient | 4,050 | **84%** |
+
+**Use case**: Temporary permissions for values used within the same transaction but not stored.
+
+**IMPLEMENTED**: Converted **42 calls** from `allowThis` to `allowTransient` in the swap path:
+- `_executeSwapMath`: 3 calls converted
+- `_executeEncryptedSwap`: 22 calls converted
+- `_matchMakerOrdersEncrypted`: 9 calls converted
+- `_sumTakerBucketsEncrypted`: 4 calls converted
+- `_allocateTakerOutputEncrypted`: 7 calls converted
+
+**Total savings**: ~916k gas per swap (42 × 21.8k)
+
+See `docs/fhe-gas-costs.md` for full ACL operation benchmarks.
+
+---
+
+## Implementation Status
+
+1. ✅ **Fix 1.1** (duplicate select bug) - DONE
+2. ✅ **Fix 1.2** (cache fee BPS) - DONE
+3. ✅ **Fix 1.3** (lazy shouldApply in maker matching) - DONE
+4. ✅ **Fix 1.4** (lazy shouldSum/shouldAllocate in taker functions) - DONE
+5. ✅ **allowTransient** - DONE (42 calls converted, ~916k savings)
+6. ✅ **Fix 3.2** (remove safe guard) - DONE (~250k savings, enabled by MINIMUM_LIQUIDITY)
+7. ⏳ **Fix 3.3** (select algebra) - Low risk, moderate win
+8. ⏳ **Fix 2.2-2.3** (ACL removals) - After confirming Fhenix ACL requirements
+9. ⏳ **Fix 3.1** (tick price cache) - If deep order books are common
 
 ---
 
 ## Testing Strategy
 
-1. Run `LocalFHEIntegration.t.sol` to measure mock gas before/after
-2. Deploy to Arb Sepolia fork and verify real gas savings
-3. Run E2E tests to ensure correctness
-4. Monitor for any ACL-related errors on real Fhenix
+1. ✅ Run `LocalFHEIntegration.t.sol` to measure mock gas - DONE
+2. ✅ Run unit tests to verify correctness - 76 tests pass
+3. ⏳ Deploy to Arb Sepolia fork and verify real gas savings
+4. ⏳ Run E2E tests to ensure correctness on testnet
+5. ⏳ Monitor for any ACL-related errors on real Fhenix

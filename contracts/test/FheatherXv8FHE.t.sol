@@ -192,7 +192,7 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
             address poolToken0,
             address poolToken1,
             bool initialized,
-            uint256 protocolFeeBps
+            uint256 protocolFeeBps,
         ) = hook.poolStates(poolId);
 
         assertEq(poolToken0, address(fheToken0), "Token0 should match");
@@ -718,7 +718,7 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
     function testAdmin_SetProtocolFee() public {
         hook.setProtocolFee(poolId, 50);
 
-        (,,, uint256 feeBps) = hook.poolStates(poolId);
+        (,,, uint256 feeBps,) = hook.poolStates(poolId);
         assertEq(feeBps, 50, "Protocol fee should be updated");
     }
 
@@ -994,7 +994,7 @@ contract FheatherXv8FHETest is Test, Fixtures, CoFheTest {
         // Set a protocol fee
         hook.setProtocolFee(poolId, 50);  // 0.5%
 
-        (,,, uint256 feeBps) = hook.poolStates(poolId);
+        (,,, uint256 feeBps,) = hook.poolStates(poolId);
         assertEq(feeBps, 50, "Protocol fee should be 50 bps");
 
         // Fee collector should be set

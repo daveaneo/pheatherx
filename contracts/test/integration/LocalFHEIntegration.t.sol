@@ -340,6 +340,22 @@ contract LocalFHEIntegration is Test {
         gasAfter = gasleft();
         console2.log("FHE.allow:", gasBefore - gasAfter);
 
+        gasBefore = gasleft();
+        FHE.allowGlobal(a);
+        gasAfter = gasleft();
+        console2.log("FHE.allowGlobal:", gasBefore - gasAfter);
+
+        gasBefore = gasleft();
+        FHE.allowTransient(a, bob);
+        gasAfter = gasleft();
+        console2.log("FHE.allowTransient:", gasBefore - gasAfter);
+
+        // allowSender for completeness
+        gasBefore = gasleft();
+        FHE.allowSender(a);
+        gasAfter = gasleft();
+        console2.log("FHE.allowSender:", gasBefore - gasAfter);
+
         console2.log("");
         console2.log("=== End Gas Profile ===");
 
@@ -381,6 +397,90 @@ contract LocalFHEIntegration is Test {
 
         console2.log("Doubled value:", doubledValue);
         assertEq(doubledValue, 10000, "Doubled value should be 10000");
+
+        vm.stopPrank();
+    }
+
+    /// @notice Test that allowTransient works for intermediate values
+    /// @dev This verifies we can use allowTransient instead of allowThis for temps
+    function test_AllowTransient_WorksForIntermediates() public {
+        vm.startPrank(alice);
+
+        // Create initial values
+        euint128 a = FHE.asEuint128(100);
+        euint128 b = FHE.asEuint128(200);
+
+        // Compute intermediate with allowTransient
+        euint128 sum = FHE.add(a, b);
+        FHE.allowTransient(sum, address(this));  // Transient permission
+
+        // Use intermediate in another operation - should work
+        euint128 doubled = FHE.mul(sum, FHE.asEuint128(2));
+        FHE.allowThis(doubled);  // Final result gets permanent permission
+
+        // Verify correctness
+        uint256 doubledValue = taskManager.mockStorage(euint128.unwrap(doubled));
+        assertEq(doubledValue, 600, "Result should be (100+200)*2 = 600");
+
+        vm.stopPrank();
+    }
+
+    /// @notice Test allowTransient in a chain of operations (simulates swap math)
+    function test_AllowTransient_ChainedOperations() public {
+        vm.startPrank(alice);
+
+        // Simulate: amountOut = (amountIn * reserveOut) / (reserveIn + amountIn)
+        euint128 amountIn = FHE.asEuint128(1000);
+        euint128 reserveIn = FHE.asEuint128(10000);
+        euint128 reserveOut = FHE.asEuint128(20000);
+
+        // Intermediate 1: numerator
+        euint128 numerator = FHE.mul(amountIn, reserveOut);
+        FHE.allowTransient(numerator, address(this));
+
+        // Intermediate 2: denominator
+        euint128 denominator = FHE.add(reserveIn, amountIn);
+        FHE.allowTransient(denominator, address(this));
+
+        // Final: amountOut
+        euint128 amountOut = FHE.div(numerator, denominator);
+        FHE.allowThis(amountOut);  // This one needs permanent access
+
+        // Verify: 1000 * 20000 / (10000 + 1000) = 20000000 / 11000 = 1818
+        uint256 result = taskManager.mockStorage(euint128.unwrap(amountOut));
+        assertEq(result, 1818, "AMM formula result should be 1818");
+
+        vm.stopPrank();
+    }
+
+    /// @notice Compare gas: allowThis vs allowTransient
+    function test_GasComparison_AllowThisVsTransient() public {
+        vm.startPrank(alice);
+
+        euint128 value = FHE.asEuint128(12345);
+
+        uint256 gasBefore;
+        uint256 gasAfter;
+
+        // Measure allowThis
+        gasBefore = gasleft();
+        FHE.allowThis(value);
+        gasAfter = gasleft();
+        uint256 allowThisGas = gasBefore - gasAfter;
+
+        // Measure allowTransient
+        gasBefore = gasleft();
+        FHE.allowTransient(value, address(this));
+        gasAfter = gasleft();
+        uint256 allowTransientGas = gasBefore - gasAfter;
+
+        console2.log("allowThis gas:", allowThisGas);
+        console2.log("allowTransient gas:", allowTransientGas);
+        console2.log("Savings:", allowThisGas - allowTransientGas);
+        console2.log("Savings %:", (allowThisGas - allowTransientGas) * 100 / allowThisGas);
+
+        // allowTransient should be significantly cheaper
+        assertTrue(allowTransientGas < allowThisGas, "allowTransient should be cheaper");
 
         vm.stopPrank();
     }
